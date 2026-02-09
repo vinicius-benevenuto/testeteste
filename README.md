@@ -1198,15 +1198,14 @@ class PTIWorkbookBuilder:
         self.vivo_rows = self._extract_vivo_rows()
         self.op_rows = self._extract_op_rows()
 
-        # CNs e Áreas Locais únicos (derivados de dados_vivo_json)
-        self.cns_unicos = self._unique_field(self.vivo_rows, "cn")
-        self.areas_locais = self._unique_field(self.vivo_rows, "cidade")
+        # CNs e Áreas Locais únicos (combinando vivo + operadora)
+        cns_vivo = self._unique_field(self.vivo_rows, "cn")
+        cns_op = self._unique_field(self.op_rows, "cn")
+        self.cns_unicos = list(dict.fromkeys(cns_vivo + cns_op))  # merge preservando ordem
 
-        # Se não tem CNs no vivo, tenta pegar do operadora
-        if not self.cns_unicos:
-            self.cns_unicos = self._unique_field(self.op_rows, "cn")
-        if not self.areas_locais:
-            self.areas_locais = self._unique_field(self.op_rows, "cidade")
+        areas_vivo = self._unique_field(self.vivo_rows, "cidade")
+        areas_op = self._unique_field(self.op_rows, "cidade")
+        self.areas_locais = list(dict.fromkeys(areas_vivo + areas_op))  # merge preservando ordem
 
     def _extract_vivo_rows(self):
         raw = row_get(self.form, "dados_vivo_json", "[]")
@@ -1388,20 +1387,28 @@ class PTIWorkbookBuilder:
     # =====================================================================
     def _b_diagram(self):
         s=self.s; ws=self.wb.create_sheet(title="Diagrama de Interligação"); cfg=self._diagram_cfg(); n=self.nome
-        num_blocks = max(1, len(self.vivo_rows))
-        block_width = 12
-        total_cols = 2 + (num_blocks * block_width)
-        col_widths = {1: 2.0}
-        for b in range(num_blocks):
-            base = 3 + (b * block_width)
-            for i in range(block_width):
-                col_widths[base + i] = 12.0
-        col_widths[total_cols + 1] = 2.0
+
+        # -----------------------------------------------------------------
+        # FONTE DE DADOS: usa vivo_rows se existem, senão op_rows
+        # Cada linha = 1 diagrama completo, empilhados verticalmente
+        # -----------------------------------------------------------------
+        source_rows = self.vivo_rows if self.vivo_rows else self.op_rows
+        num_blocks = max(1, len(source_rows))
+        is_vivo_source = bool(self.vivo_rows)
+
+        # Layout fixo em colunas 3-14 (todos os blocos usam mesmas colunas)
+        LC = 3   # left col start
+        RC = 14  # right col end
+        MID = 9  # ponta B starts here
+
+        col_widths = {1: 2.0, 2: 2.0, 15: 2.0}
+        for c in range(LC, RC + 1):
+            col_widths[c] = 12.0
         self._cw(ws, col_widths)
 
-        last_col = 2 + (num_blocks * block_width)
-        self._bh(ws, 2, 3, last_col)
-        for r_row, t, b in [
+        # ===== CABEÇALHO GLOBAL (linhas 2-13) =====
+        self._bh(ws, 2, LC, RC)
+        for r_row, t, bold in [
             (4, f"Diagrama de Interligação entre a VIVO e a {n}", True),
             (6, "2.2.1 DIAGRAMAÇÃO DO PROJETO SIP", True),
             (7, "2.2.1.1 Anúncio de Redes pelos 2 Links SPC", True),
@@ -1409,130 +1416,152 @@ class PTIWorkbookBuilder:
             (9, f"A VIVO abordará os endereços da {n} conforme abaixo.", False),
             (11, "2.2.1.2 Parâmetros de Configuração do Link", True),
         ]:
-            ws.merge_cells(start_row=r_row, start_column=3, end_row=r_row, end_column=last_col)
-            c = ws.cell(row=r_row, column=3, value=t)
-            c.font = Font(name="Calibri", size=10 if not b else 11, bold=b)
-            c.alignment = s.align_left if b else s.align_wrap
-            ws.row_dimensions[r_row].height = 22.0 if b else 25.0
+            ws.merge_cells(start_row=r_row, start_column=LC, end_row=r_row, end_column=RC)
+            c = ws.cell(row=r_row, column=LC, value=t)
+            c.font = Font(name="Calibri", size=11 if bold else 10, bold=bold)
+            c.alignment = s.align_left if bold else s.align_wrap
+            ws.row_dimensions[r_row].height = 22.0 if bold else 25.0
 
         # ASN (global)
-        for o, l, v in [(0, "ASN VIVO", "10429 (Público)"), (1, f"ASN {n}", self.asn_op)]:
+        for o, label, val in [(0, "ASN VIVO", "10429 (Público)"), (1, f"ASN {n}", self.asn_op)]:
             r_row = 12 + o
-            ws.merge_cells(start_row=r_row, start_column=3, end_row=r_row, end_column=5)
-            ws.cell(row=r_row, column=3, value=l).font = Font(name="Calibri", size=10, bold=True)
-            ws.cell(row=r_row, column=3).alignment = s.align_center
-            ws.merge_cells(start_row=r_row, start_column=6, end_row=r_row, end_column=8)
-            ws.cell(row=r_row, column=6, value=v).font = s.font_body
-            ws.cell(row=r_row, column=6).alignment = s.align_center
+            ws.merge_cells(start_row=r_row, start_column=LC, end_row=r_row, end_column=LC+2)
+            ws.cell(row=r_row, column=LC, value=label).font = Font(name="Calibri", size=10, bold=True)
+            ws.cell(row=r_row, column=LC).alignment = s.align_center
+            ws.merge_cells(start_row=r_row, start_column=LC+3, end_row=r_row, end_column=LC+5)
+            ws.cell(row=r_row, column=LC+3, value=val).font = s.font_body
+            ws.cell(row=r_row, column=LC+3).alignment = s.align_center
 
-        # -----------------------------------------------------------------
-        # FLAGS DE ESCOPO = itens de tráfego que preenchem ambas as pontas
-        # FIX: Usa TODOS os flags (sem limite de 3). Se nenhum flag
-        # selecionado, mantém pelo menos 3 linhas vazias.
-        # -----------------------------------------------------------------
+        # FLAGS DE ESCOPO = tráfego para ambas as pontas
         traffic_items = [t for t in self.traffic if t]
         num_traffic = max(len(traffic_items), 3)
 
-        # ===== BLOCOS DE DIAGRAMA (um por linha do formulário) =====
+        # ===== BLOCOS VERTICAIS (1 por linha do formulário) =====
+        cursor = 15  # linha inicial do primeiro bloco
+
         for b_idx in range(num_blocks):
-            base_col = 3 + (b_idx * block_width)
-            vivo_row = self.vivo_rows[b_idx] if b_idx < len(self.vivo_rows) else {}
-            op_row = self._find_matching_op_row(vivo_row.get("cn",""), b_idx)
+            src_row = source_rows[b_idx] if b_idx < len(source_rows) else {}
 
-            cn_val = vivo_row.get("cn", "")
-            mask_val = vivo_row.get("mask", "")
-            endereco_vivo = vivo_row.get("endereco_link", "")
-            endereco_op = op_row.get("endereco_link", "") if op_row else ""
-            faixa_ip_op = op_row.get("faixa_ip", "") if op_row else ""
+            # Resolver dados cruzando vivo ↔ operadora
+            if is_vivo_source:
+                vivo_row = src_row
+                op_row = self._find_matching_op_row(src_row.get("cn",""), b_idx)
+            else:
+                op_row = src_row
+                vivo_row = self._find_matching_vivo_row(src_row.get("cn",""), b_idx)
 
-            mid = base_col + 5
-            end = base_col + block_width - 1
+            # Extrair valores com fallback entre as tabelas
+            cn_val = vivo_row.get("cn","") or (op_row.get("cn","") if op_row else "")
+            mask_val = vivo_row.get("mask","") or ""
+            endereco_vivo = vivo_row.get("endereco_link","") or ""
+            sbc_vivo = vivo_row.get("sbc","") or ""
+            endereco_op = (op_row.get("endereco_link","") if op_row else "") or ""
+            faixa_ip_op = (op_row.get("faixa_ip","") if op_row else "") or ""
+            sbc_op = (op_row.get("sbc","") if op_row else "") or ""
 
-            # Linha 15: CN e VRF
-            ws.merge_cells(start_row=15, start_column=base_col, end_row=15, end_column=base_col+2)
-            c = ws.cell(row=15, column=base_col, value=f"CN {cn_val}" if cn_val else "CN")
+            # Resolver cidade/UF para o CN
+            cn_meta = CN_METADATA.get(cn_val.zfill(2), ("","")) if cn_val else ("","")
+            cn_cidade, cn_uf = cn_meta
+
+            # --- Linha 1 do bloco: CN + Cidade/UF + VRF ---
+            r = cursor
+            cn_label = f"CN {cn_val}"
+            if cn_cidade:
+                cn_label += f" — {cn_cidade}/{cn_uf}"
+            ws.merge_cells(start_row=r, start_column=LC, end_row=r, end_column=LC+4)
+            c = ws.cell(row=r, column=LC, value=cn_label if cn_val else "CN ___")
             c.font = Font(name="Calibri", size=10, bold=True, color="FFFFFF")
             c.alignment = s.align_center; c.fill = s.fill_light
-            ws.merge_cells(start_row=15, start_column=base_col+3, end_row=15, end_column=end)
-            c2 = ws.cell(row=15, column=base_col+3, value="VRF: __________________________")
+            ws.merge_cells(start_row=r, start_column=MID, end_row=r, end_column=RC)
+            c2 = ws.cell(row=r, column=MID, value="VRF: __________________________")
             c2.font = Font(name="Calibri", size=10, bold=True, color="FFFFFF")
             c2.alignment = s.align_center; c2.fill = s.fill_light
+            ws.row_dimensions[r].height = 25.0
 
-            # Linha 17-18: Ponta A / Ponta B
-            for sc, ec, l, v in [
-                (base_col, base_col+4, "Ponta A", "VIVO"),
-                (mid+1, end, "Ponta B", n)
+            # --- Linha 2: separador ---
+            cursor += 2
+
+            # --- Linhas Ponta A / Ponta B ---
+            r = cursor
+            for sc, ec, label, valor in [
+                (LC, LC+4, "Ponta A", "VIVO"),
+                (MID, RC, "Ponta B", n)
             ]:
-                ws.merge_cells(start_row=17, start_column=sc, end_row=17, end_column=ec)
-                ws.cell(row=17, column=sc, value=l).font = Font(name="Calibri", size=10, bold=True)
-                ws.cell(row=17, column=sc).alignment = s.align_center
-                ws.merge_cells(start_row=18, start_column=sc, end_row=18, end_column=ec)
-                ws.cell(row=18, column=sc, value=v).font = Font(name="Calibri", size=10, bold=True)
-                ws.cell(row=18, column=sc).alignment = s.align_center
+                ws.merge_cells(start_row=r, start_column=sc, end_row=r, end_column=ec)
+                ws.cell(row=r, column=sc, value=label).font = Font(name="Calibri", size=10, bold=True)
+                ws.cell(row=r, column=sc).alignment = s.align_center
+                ws.cell(row=r, column=sc).fill = s.fill_neutral
+                ws.merge_cells(start_row=r+1, start_column=sc, end_row=r+1, end_column=ec)
+                ws.cell(row=r+1, column=sc, value=valor).font = Font(name="Calibri", size=10, bold=True)
+                ws.cell(row=r+1, column=sc).alignment = s.align_center
+            ws.row_dimensions[r].height = 22.0
+            ws.row_dimensions[r+1].height = 22.0
+            cursor += 3
 
-            # Linha 20: Cabeçalhos Tráfego / Endereço IP / NET MASK (Ponta A e B)
-            for lc in (base_col, mid+1):
+            # --- SBC de cada ponta (linha informativa) ---
+            r = cursor
+            ws.merge_cells(start_row=r, start_column=LC, end_row=r, end_column=LC+4)
+            ws.cell(row=r, column=LC, value=f"SBC: {sbc_vivo}" if sbc_vivo else "SBC: ___").font = Font(name="Calibri", size=9, bold=True)
+            ws.cell(row=r, column=LC).alignment = s.align_center
+            ws.merge_cells(start_row=r, start_column=MID, end_row=r, end_column=RC)
+            ws.cell(row=r, column=MID, value=f"SBC: {sbc_op}" if sbc_op else "SBC: ___").font = Font(name="Calibri", size=9, bold=True)
+            ws.cell(row=r, column=MID).alignment = s.align_center
+            ws.row_dimensions[r].height = 20.0
+            cursor += 1
+
+            # --- Cabeçalhos: Tráfego | Endereço IP | NET MASK (ambas pontas) ---
+            r = cursor
+            for lc_start in (LC, MID):
                 for i, h in enumerate(["Tráfego", "Endereço IP", "NET MASK"]):
-                    c = ws.cell(row=20, column=lc+i, value=h)
+                    c = ws.cell(row=r, column=lc_start+i, value=h)
                     c.font = s.font_subheader; c.alignment = s.align_center; c.fill = s.fill_light
-            ws.row_dimensions[20].height = 25.0
+                    c.border = s.box_border
+            ws.row_dimensions[r].height = 25.0
+            cursor += 1
 
-            # ---------------------------------------------------------
-            # Linhas 21+: DADOS DE TRÁFEGO
-            #
-            # FIX PRINCIPAL:
-            #  - Coluna "Tráfego": recebe os flags de escopo selecionados
-            #    (LC, LD15+CNG, etc.) em AMBAS as pontas.
-            #  - Coluna "Endereço IP": IP VIVO na Ponta A (1ª linha),
-            #    Faixa IP Operadora na Ponta B (1ª linha).
-            #  - Coluna "NET MASK": preenchida em AMBAS as pontas (antes
-            #    a Ponta B ficava sempre vazia).
-            # ---------------------------------------------------------
+            # --- DADOS DE TRÁFEGO (flags de escopo + endereços + mask) ---
             for j in range(num_traffic):
-                r_row = 21 + j
-                ws.row_dimensions[r_row].height = 22.0
+                r = cursor + j
+                ws.row_dimensions[r].height = 22.0
                 f = s.alt_fill(j)
                 traf_val = traffic_items[j] if j < len(traffic_items) else ""
 
-                # --- PONTA A (VIVO) ---
-                # Tráfego: flag de escopo
-                cell_a_traf = ws.cell(row=r_row, column=base_col, value=traf_val)
-                cell_a_traf.fill = f; cell_a_traf.font = s.font_small; cell_a_traf.alignment = s.align_center
+                # PONTA A (VIVO): Tráfego | IP (só 1ª linha) | MASK (todas)
+                ws.cell(row=r, column=LC, value=traf_val).font = s.font_small
+                ws.cell(row=r, column=LC).fill = f; ws.cell(row=r, column=LC).alignment = s.align_center; ws.cell(row=r, column=LC).border = s.box_border
+                ws.cell(row=r, column=LC+1, value=endereco_vivo if j == 0 else "").font = s.font_small
+                ws.cell(row=r, column=LC+1).fill = f; ws.cell(row=r, column=LC+1).alignment = s.align_center; ws.cell(row=r, column=LC+1).border = s.box_border
+                ws.cell(row=r, column=LC+2, value=mask_val).font = s.font_small  # TODAS as linhas
+                ws.cell(row=r, column=LC+2).fill = f; ws.cell(row=r, column=LC+2).alignment = s.align_center; ws.cell(row=r, column=LC+2).border = s.box_border
 
-                # Endereço IP: apenas na primeira linha
-                cell_a_ip = ws.cell(row=r_row, column=base_col+1, value=endereco_vivo if j == 0 else "")
-                cell_a_ip.fill = f; cell_a_ip.font = s.font_small; cell_a_ip.alignment = s.align_center
+                # Colunas intermediárias (gap visual)
+                for gc in range(LC+3, MID):
+                    ws.cell(row=r, column=gc).fill = f
 
-                # NET MASK: em todas as linhas (mesmo subnet)
-                cell_a_mask = ws.cell(row=r_row, column=base_col+2, value=mask_val if j == 0 else "")
-                cell_a_mask.fill = f; cell_a_mask.font = s.font_small; cell_a_mask.alignment = s.align_center
+                # PONTA B (OPERADORA): Tráfego | IP (só 1ª linha) | MASK (todas)
+                ws.cell(row=r, column=MID, value=traf_val).font = s.font_small
+                ws.cell(row=r, column=MID).fill = f; ws.cell(row=r, column=MID).alignment = s.align_center; ws.cell(row=r, column=MID).border = s.box_border
+                ws.cell(row=r, column=MID+1, value=faixa_ip_op if j == 0 else "").font = s.font_small
+                ws.cell(row=r, column=MID+1).fill = f; ws.cell(row=r, column=MID+1).alignment = s.align_center; ws.cell(row=r, column=MID+1).border = s.box_border
+                ws.cell(row=r, column=MID+2, value=mask_val).font = s.font_small  # TODAS as linhas
+                ws.cell(row=r, column=MID+2).fill = f; ws.cell(row=r, column=MID+2).alignment = s.align_center; ws.cell(row=r, column=MID+2).border = s.box_border
 
-                # --- PONTA B (OPERADORA) ---
-                # Tráfego: MESMO flag de escopo que Ponta A
-                cell_b_traf = ws.cell(row=r_row, column=mid+1, value=traf_val)
-                cell_b_traf.fill = f; cell_b_traf.font = s.font_small; cell_b_traf.alignment = s.align_center
+            cursor += num_traffic
 
-                # Endereço IP: faixa IP da operadora, apenas na primeira linha
-                cell_b_ip = ws.cell(row=r_row, column=mid+2, value=faixa_ip_op if j == 0 else "")
-                cell_b_ip.fill = f; cell_b_ip.font = s.font_small; cell_b_ip.alignment = s.align_center
+            # --- Resumo de endereços abaixo da tabela ---
+            r = cursor + 1
+            ws.merge_cells(start_row=r, start_column=LC, end_row=r, end_column=LC+4)
+            ws.cell(row=r, column=LC, value=f"Endereço (VIVO): {endereco_vivo}").font = s.font_small
+            ws.cell(row=r, column=LC).alignment = s.align_left
+            ws.merge_cells(start_row=r, start_column=MID, end_row=r, end_column=RC)
+            ws.cell(row=r, column=MID, value=f"Endereço ({n}): {endereco_op}").font = s.font_small
+            ws.cell(row=r, column=MID).alignment = s.align_left
 
-                # NET MASK: FIX — antes era "" sempre. Agora preenche com
-                # a mesma mask (interconexão usa mesmo subnet).
-                cell_b_mask = ws.cell(row=r_row, column=mid+3, value=mask_val if j == 0 else "")
-                cell_b_mask.fill = f; cell_b_mask.font = s.font_small; cell_b_mask.alignment = s.align_center
+            # --- Espaçamento entre blocos ---
+            cursor = r + 3
 
-            # Linha de endereço abaixo da tabela
-            end_row = 21 + num_traffic + 1
-            for sc, ec, t in [
-                (base_col, base_col+4, f"Endereço (VIVO): {endereco_vivo}"),
-                (mid+1, end, f"Endereço ({n}): {endereco_op}")
-            ]:
-                ws.merge_cells(start_row=end_row, start_column=sc, end_row=end_row, end_column=ec)
-                ws.cell(row=end_row, column=sc, value=t).font = s.font_small
-                ws.cell(row=end_row, column=sc).alignment = s.align_left
-
-        # Imagem do diagrama (abaixo de todos os blocos)
-        img_row = 21 + num_traffic + 4
+        # ===== IMAGEM DO DIAGRAMA (abaixo de todos os blocos) =====
+        img_row = cursor + 1
         if not os.path.exists(cfg["img"]): raise FileNotFoundError(f"Imagem não encontrada: {cfg['img']}")
         el=[{"text":"Roteador OP","xy_pct":cfg["r1"],"font_size_pct":cfg["rfp"],"stroke_width_pct":cfg["rsp"]},
             {"text":"Roteador OP","xy_pct":cfg["r2"],"font_size_pct":cfg["rfp"],"stroke_width_pct":cfg["rsp"]},
@@ -1546,11 +1575,11 @@ class PTIWorkbookBuilder:
             with PILImage.open(ann) as src: ow,oh=src.size
         except: ow,oh=800,300
         fw,fh=fit_size_keep_aspect(ow,oh,cfg["bw"],cfg["bh"]); xi.width,xi.height=fw,fh
-        ws.add_image(xi,f"{get_column_letter(3+cfg['aco'])}{img_row+cfg['aro']}")
+        ws.add_image(xi,f"{get_column_letter(LC+cfg['aco'])}{img_row+cfg['aro']}")
         self._ps(ws,ls=True)
 
     def _find_matching_op_row(self, cn, index):
-        """Busca linha da operadora que corresponde ao CN ou ao índice da linha VIVO."""
+        """Busca linha da operadora que corresponde ao CN ou ao índice."""
         if cn:
             for op in self.op_rows:
                 if op.get("cn","") == cn:
@@ -1558,6 +1587,16 @@ class PTIWorkbookBuilder:
         if index < len(self.op_rows):
             return self.op_rows[index]
         return None
+
+    def _find_matching_vivo_row(self, cn, index):
+        """Busca linha da VIVO que corresponde ao CN ou ao índice."""
+        if cn:
+            for vr in self.vivo_rows:
+                if vr.get("cn","") == cn:
+                    return vr
+        if index < len(self.vivo_rows):
+            return self.vivo_rows[index]
+        return {}
 
     # =====================================================================
     # ABA: ENCAMINHAMENTO (inalterada)
@@ -1856,7 +1895,9 @@ def _register_routes(app):
             if not resp_eng:
                 flash('Informe o "Responsável Eng de ITX" para salvar.',"warning"); return redirect(url_for("engenharia_form_view",form_id=form_id))
             eng_json=_parse_json_dict(request.form.get("engenharia_params_json","") or "{}")
-            db.execute("UPDATE atacado_forms SET engenharia_params_json=?,responsavel_engenharia=?,updated_at=? WHERE id=?",(eng_json,resp_eng,datetime.utcnow().isoformat(timespec="seconds"),form_id)); db.commit()
+            # FIX: Salvar também dados_vivo_json (antes era perdido no POST)
+            vivo_json=truncate_json_list(request.form.get("dados_vivo_json","[]"), "[]")
+            db.execute("UPDATE atacado_forms SET engenharia_params_json=?,responsavel_engenharia=?,dados_vivo_json=?,updated_at=? WHERE id=?",(eng_json,resp_eng,vivo_json,datetime.utcnow().isoformat(timespec="seconds"),form_id)); db.commit()
             flash("Validação da Engenharia salva.","success"); return redirect(url_for("engenharia_form_list",show_files="1",form=form_id))
         return render_template("formulario_atacado.html",form=form,readonly=True)
 
