@@ -1,240 +1,485 @@
-{% extends "base.html" %}
-{% block title %}VIVOHUB — Formulários (Engenharia){% endblock %}
+# =============================================================================
+# PATCH PTIWorkbookBuilder — Substituir _b_versions e _b_diagram
+# =============================================================================
+#
+# INSTRUÇÕES:
+#   1. No seu app.py, localize o método `def _b_versions(self):` dentro da
+#      classe PTIWorkbookBuilder e SUBSTITUA-O inteiramente pelo código abaixo.
+#   2. Faça o mesmo com `def _b_diagram(self):`.
+#   3. Não altere nenhum outro método da classe.
+#
+# DIAGNÓSTICO DOS PROBLEMAS CORRIGIDOS:
+#
+# ┌─────────────────────────────────────────────────────────────────────────┐
+# │ ABA VERSÕES                                                            │
+# ├─────────────────────────────────────────────────────────────────────────┤
+# │ BUG 1: CNs e Áreas Locais vinham APENAS de vivo_rows. Se a Engenharia │
+# │        não preenchia a tabela Dados VIVO, colunas CN e ÁREAS ficavam   │
+# │        vazias. CORREÇÃO: fallback para op_rows.                        │
+# │                                                                        │
+# │ BUG 2: A coluna "Áreas Locais" não incluía UF. Agora formata como     │
+# │        "São Paulo/SP, Campinas/SP".                                    │
+# │                                                                        │
+# │ BUG 3: Colunas 4-10 (Data, Resp Eng, Resp Atacado, Escopo, CN, Áreas) │
+# │        usavam um dicionário `fd` que mapeava colunas por número, mas   │
+# │        as colunas de dado real (CN=8, Áreas=9) dependiam de variáveis  │
+# │        que poderiam estar vazias. CORREÇÃO: escrita explícita célula   │
+# │        por célula com fallbacks robustos.                              │
+# ├─────────────────────────────────────────────────────────────────────────┤
+# │ ABA DIAGRAMA DE INTERLIGAÇÃO                                           │
+# ├─────────────────────────────────────────────────────────────────────────┤
+# │ BUG 1: Tabelas Ponta A/B tinham apenas 3 colunas (Tráfego, End IP,    │
+# │        Mask) e não mapeavam SBC, Localidade, Cidade/UF do formulário.  │
+# │        CORREÇÃO: 6 colunas por ponta com todos os campos.             │
+# │                                                                        │
+# │ BUG 2: Múltiplos blocos (um por CN/vivo_row) colidiram verticalmente — │
+# │        todos escreviam a partir da linha 15 fixa.                      │
+# │        CORREÇÃO: offset vertical calculado por bloco.                  │
+# │                                                                        │
+# │ BUG 3: Dados da operadora (SBC, faixa_ip, endereço) nunca eram        │
+# │        escritos nas células. CORREÇÃO: mapeamento completo.            │
+# │                                                                        │
+# │ BUG 4: Nenhuma seção de "Detalhes do Enlace" existia para exibir      │
+# │        coordenadas, EOT LC/LD, referência. CORREÇÃO: sub-tabela.      │
+# │                                                                        │
+# │ BUG 5: Se imagem não existia, lançava FileNotFoundError e crashava.   │
+# │        CORREÇÃO: exibe mensagem de aviso na célula.                    │
+# └─────────────────────────────────────────────────────────────────────────┘
+#
+# =============================================================================
 
-{% block extra_head %}
-<style>
-  .card-shell{
-    border:1px solid var(--vh-border);
-    border-radius: var(--vh-radius);
-    background:var(--vh-surface-0);
-    box-shadow: var(--vh-shadow-md);
-  }
-  .chip{
-    display:inline-flex; align-items:center; gap:.45rem;
-    border-radius:999px; padding:.38rem .75rem; font-weight:600; line-height:1;
-    background:var(--vh-surface-0); border:1px solid var(--vh-border); color:var(--vh-muted);
-    transition: background .18s ease, color .18s ease, border-color .18s ease;
-  }
-  .chip:hover{ background:var(--vh-surface-1); color:var(--vh-ink); text-decoration:none; }
-  .chip.active{ background:rgba(107,9,166,.08); border-color:rgba(107,9,166,.25); color:var(--vh-primary); }
-  .table thead th{ white-space:nowrap; font-weight:600; }
-  .table-hover tbody tr:hover{ background:#fbfbff; }
-  .id-copy{ cursor:pointer; opacity:.65; }
-  .id-copy:hover{ opacity:1; }
-  .op-name{ max-width:520px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .badge-status{ font-weight:600; border:1px solid transparent; }
-  .badge-status.rascunho{ background:#eef1f4; color:#2b2f32; border-color:#e1e6ea; }
-  .badge-status.enviado{ background:#cfe2ff; color:#084298; border-color:#b6d0ff; }
-  .badge-status.em-revisao{ background:#fff3cd; color:#664d03; border-color:#ffe29a; }
-  .badge-status.aprovado{ background:#d1e7dd; color:#0f5132; border-color:#bcd9cc; }
-  .actions-wrap{ gap:.75rem; }
-  @media (max-width: 576px){
-    .actions-wrap{ flex-direction:column; align-items:stretch !important; }
-    .actions-left,.actions-right{ width:100%; }
-    .actions-right form{ width:100%; }
-    .actions-right .input-group{ width:100%; }
-  }
-  .exports-item{
-    display:grid; grid-template-columns:1fr auto; gap:.25rem .75rem;
-    border:1px dashed var(--vh-border); border-radius:.65rem; background:var(--vh-surface-0);
-    padding:.65rem .75rem;
-  }
-  .exports-item + .exports-item{ margin-top:.5rem; }
-  .exports-name{ font-weight:600; }
-  .exports-meta{ font-size:.85rem; color:var(--vh-muted); }
-</style>
-{% endblock %}
 
-{% block content %}
-<div class="container py-5" role="main">
-  <div class="row g-4">
-    <div class="col-12 {% if show_files %}col-xxl-8{% else %}col-xxl-12{% endif %}">
-      <div class="card-shell">
-        <div class="p-4 p-xl-5">
+    # -----------------------------------------------------------------
+    # MÉTODO 1: _b_versions  (substituir o existente na classe)
+    # -----------------------------------------------------------------
+    def _b_versions(self):
+        """
+        Aba 'Versões' — Controle de versões do PTI.
+        Preenche TODAS as colunas com dados do formulário.
+        """
+        s = self.s
+        ws = self.wb.create_sheet(title="Versões")
 
-          <header class="d-flex align-items-center justify-content-between mb-3">
-            <div>
-              <h1 class="h4 fw-bold mb-1">Formulários — Engenharia</h1>
-              <div class="text-body-secondary small">PTIs submetidos pelo Atacado para leitura e validação (Seção 9).</div>
-            </div>
-            <div class="d-flex gap-2">
-              <a href="{{ url_for('central_engenharia') }}" class="btn btn-outline-hub btn-sm" data-bs-toggle="tooltip" data-bs-title="Voltar para a Central">← Central</a>
-              <a href="{{ url_for('logout') }}" class="btn btn-outline-hub btn-sm" data-bs-toggle="tooltip" data-bs-title="Encerrar sessão"><i class="bi bi-box-arrow-right"></i> Sair</a>
-            </div>
-          </header>
+        # Larguras
+        self._cw(ws, {
+            1: 2, 2: 2, 3: 8, 4: 12, 5: 28, 6: 28,
+            7: 28, 8: 10, 9: 18, 10: 10, 11: 2
+        })
 
-          {% if counters %}
-          {% set q = request.args.get('q','') %}
-          {% set sort = request.args.get('sort','-created_at') %}
-          {% set s = request.args.get('status','') %}
-          <section class="mb-3 small text-body-secondary" aria-label="Resumo por status">
-            <span class="me-2">Total:</span>
-            <a class="chip me-1 text-decoration-none {% if not s %}active{% endif %}" href="?q={{ q }}&sort={{ sort }}"><i class="bi bi-collection"></i> {{ counters.total or 0 }} Todos</a>
-            <a class="chip me-1 text-decoration-none {% if s=='em revisão' %}active{% endif %}" href="?status=em revisão&q={{ q }}&sort={{ sort }}"><i class="bi bi-hourglass-split"></i> {{ counters.em_revisao or 0 }} Em revisão</a>
-            <a class="chip me-1 text-decoration-none {% if s=='enviado' %}active{% endif %}" href="?status=enviado&q={{ q }}&sort={{ sort }}"><i class="bi bi-send"></i> {{ counters.enviado or 0 }} Enviados</a>
-            <a class="chip me-1 text-decoration-none {% if s=='aprovado' %}active{% endif %}" href="?status=aprovado&q={{ q }}&sort={{ sort }}"><i class="bi bi-check2-circle"></i> {{ counters.aprovado or 0 }} Aprovados</a>
-            <a class="chip me-1 text-decoration-none {% if s=='rascunho' %}active{% endif %}" href="?status=rascunho&q={{ q }}&sort={{ sort }}"><i class="bi bi-pencil-square"></i> {{ counters.rascunho or 0 }} Rascunhos</a>
-          </section>
-          {% endif %}
+        # Header + subtítulo
+        self._bh(ws, 2, 3, 10)
+        self._st(ws, 4, 3, 10, "CONTROLE DE VERSÕES DO PTI")
 
-          <section class="d-flex align-items-center justify-content-between mb-4 actions-wrap">
-            <div class="actions-left d-flex align-items-center">
-              <span class="text-body-secondary small">Use filtros, ordene e busque por operadora.</span>
-            </div>
-            <div class="actions-right d-flex align-items-center gap-2">
-              <form method="get" class="d-flex align-items-center gap-2" aria-label="Filtros">
-                <input type="hidden" name="q" value="{{ q }}">
-                <select name="status" class="form-select form-select-sm" aria-label="Filtro de status">
-                  <option value="" {{ 'selected' if s=='' else '' }}>Todos os status</option>
-                  <option value="em revisão" {{ 'selected' if s=='em revisão' else '' }}>Em revisão</option>
-                  <option value="enviado" {{ 'selected' if s=='enviado' else '' }}>Enviado</option>
-                  <option value="aprovado" {{ 'selected' if s=='aprovado' else '' }}>Aprovado</option>
-                  <option value="rascunho" {{ 'selected' if s=='rascunho' else '' }}>Rascunho</option>
-                </select>
-                <select name="sort" class="form-select form-select-sm" aria-label="Ordenação">
-                  <option value="-created_at" {{ 'selected' if sort=='-created_at' else '' }}>Mais recentes</option>
-                  <option value="created_at" {{ 'selected' if sort=='created_at' else '' }}>Mais antigos</option>
-                  <option value="nome_operadora" {{ 'selected' if sort=='nome_operadora' else '' }}>Operadora (A–Z)</option>
-                  <option value="-nome_operadora" {{ 'selected' if sort=='-nome_operadora' else '' }}>Operadora (Z–A)</option>
-                  <option value="-id" {{ 'selected' if sort=='-id' else '' }}>ID (maior→menor)</option>
-                  <option value="id" {{ 'selected' if sort=='id' else '' }}>ID (menor→maior)</option>
-                </select>
-                <button type="submit" class="btn btn-outline-hub btn-sm" data-bs-toggle="tooltip" data-bs-title="Aplicar filtros"><i class="bi bi-funnel"></i></button>
-                <a class="btn btn-outline-hub btn-sm" href="{{ url_for('engenharia_form_list') }}" data-bs-toggle="tooltip" data-bs-title="Limpar filtros">Limpar</a>
-              </form>
-              <form method="get" class="d-flex" style="max-width:280px;" aria-label="Buscar por Operadora">
-                <input type="hidden" name="status" value="{{ s }}">
-                <input type="hidden" name="sort" value="{{ sort }}">
-                <div class="input-group input-group-sm">
-                  <span class="input-group-text"><i class="bi bi-search"></i></span>
-                  <input type="text" name="q" value="{{ q }}" class="form-control" placeholder="Buscar por operadora…" aria-label="Buscar por operadora">
-                  <button type="submit" class="btn btn-outline-hub">Buscar</button>
-                </div>
-              </form>
-              <a class="btn btn-hub btn-sm" href="{{ url_for('engenharia_form_list') }}?show_files={{ 0 if show_files else 1 }}{% if q %}&q={{ q }}{% endif %}{% if s %}&status={{ s }}{% endif %}{% if sort %}&sort={{ sort }}{% endif %}">
-                <i class="bi {{ 'bi-view-list' if show_files else 'bi-folder2-open' }}"></i>
-                {{ 'Ocultar exports' if show_files else 'Ver exports' }}
-              </a>
-            </div>
-          </section>
+        # Cabeçalhos da tabela (linha 6)
+        headers = [
+            "Versão", "Data", "Responsável Eng de ITX",
+            "Responsável Gestão de ITX", "Escopo", "CN",
+            "ÁREAS LOCAIS", "ATA"
+        ]
+        for i, t in enumerate(headers):
+            c = ws.cell(row=6, column=3 + i, value=t)
+            c.font = Font(name="Calibri", size=9, bold=True, color="FFFFFF")
+            c.alignment = s.align_center
+            c.fill = s.fill_light
+        ws.row_dimensions[6].height = 25.0
 
-          {% if forms and forms|length %}
-            <div class="table-responsive">
-              <table class="table align-middle table-hover">
-                <thead class="table-light">
-                  <tr><th class="text-nowrap">ID</th><th>Operadora</th><th>Status</th><th class="text-nowrap">Criado em</th><th class="text-end">Ações</th></tr>
-                </thead>
-                <tbody id="resultsBody">
-                  {% for f in forms %}
-                  {% set status_lbl = (f.status or 'rascunho')|lower %}
-                  <tr>
-                    <td class="fw-semibold">#{{ f.id }} <i class="bi bi-clipboard-check id-copy ms-1" data-id="{{ f.id }}" data-bs-toggle="tooltip" data-bs-title="Copiar ID"></i></td>
-                    <td class="op-name" title="{{ f.nome_operadora or '—' }}">{{ f.nome_operadora or '—' }}</td>
-                    <td><span class="badge badge-status {% if status_lbl=='aprovado' %}aprovado{% elif status_lbl=='em revisão' %}em-revisao{% elif status_lbl=='enviado' %}enviado{% else %}rascunho{% endif %}">{{ status_lbl|capitalize }}</span></td>
-                    <td class="text-body-secondary">{{ f.created_at | date_br }}</td>
-                    <td class="text-end">
-                      <div class="btn-group btn-group-sm" role="group">
-                        <a class="btn btn-outline-hub" href="{{ url_for('engenharia_form_view', form_id=f.id) }}" data-bs-toggle="tooltip" data-bs-title="Abrir para leitura/validação (Seção 9)"><i class="bi bi-eye"></i> Abrir</a>
-                        <a class="btn btn-hub" href="{{ url_for('exportar_form_excel_index', form_id=f.id) }}" data-bs-toggle="tooltip" data-bs-title="Exportar Excel"><i class="bi bi-file-earmark-spreadsheet"></i> Gerar PTI</a>
-                      </div>
-                    </td>
-                  </tr>
-                  {% endfor %}
-                </tbody>
-              </table>
-            </div>
-          {% else %}
-            <section class="text-center py-5">
-              <div class="mb-3"><i class="bi bi-inbox fs-1 text-secondary"></i></div>
-              <h2 class="h5">Nenhum formulário disponível</h2>
-              {% if q %}<p class="text-body-secondary mb-0">Sua busca por <strong>{{ q }}</strong> não retornou resultados.</p>
-              {% else %}<p class="text-body-secondary mb-0">Assim que o Atacado enviar um Pré-PTI, ele aparecerá aqui para validação.</p>{% endif %}
-            </section>
-          {% endif %}
+        # ── Coleta inteligente de dados ──────────────────────────────
+        # CNs: prioriza vivo_rows, fallback para op_rows
+        all_cns = self.cns_unicos[:]
+        if not all_cns:
+            all_cns = self._unique_field(self.op_rows, "cn")
 
-        </div>
-      </div>
-    </div>
+        # Áreas Locais: prioriza vivo_rows, fallback para op_rows
+        all_areas = self.areas_locais[:]
+        if not all_areas:
+            all_areas = self._unique_field(self.op_rows, "cidade")
 
-    {% if show_files %}
-    <div class="col-12 col-xxl-4">
-      <div class="card-shell h-100">
-        <div class="p-4">
-          <div class="d-flex align-items-center justify-content-between mb-2">
-            <h3 class="h6 fw-bold mb-0"><i class="bi bi-folder2-open me-1"></i> Biblioteca de Exports</h3>
-            <a class="btn btn-outline-hub btn-sm" href="{{ url_for('engenharia_form_list') }}?show_files=1">Atualizar</a>
-          </div>
-          <p class="text-body-secondary small mb-3">Downloads persistidos no servidor.</p>
-          <form method="get" class="mb-3 d-flex align-items-center gap-2">
-            <input type="hidden" name="show_files" value="1">
-            <div class="input-group input-group-sm">
-              <span class="input-group-text"><i class="bi bi-hash"></i></span>
-              <input type="number" name="form" value="{{ form_filter or '' }}" class="form-control" placeholder="Filtrar por ID">
-              <button type="submit" class="btn btn-outline-hub">Aplicar</button>
-              <a class="btn btn-outline-hub" href="{{ url_for('engenharia_form_list') }}?show_files=1">Limpar</a>
-            </div>
-          </form>
-          {% if exports and exports|length %}
-            <div>
-              {% for e in exports %}
-              <div class="exports-item">
-                <div>
-                  <div class="exports-name">{{ e.filename }}</div>
-                  <div class="exports-meta">Form #{{ e.form_id }} • {{ e.nome_operadora or '—' }} • {{ e.created_at|date_br }} • {{ (e.size_bytes or 0) // 1024 }} KB</div>
-                </div>
-                <div class="d-flex gap-1">
-                  <a class="btn btn-sm btn-hub" href="{{ url_for('engenharia_export_download', export_id=e.id) }}" title="Baixar"><i class="bi bi-download"></i></a>
-                  <form method="post" action="{{ url_for('engenharia_export_delete', export_id=e.id) }}" onsubmit="return confirm('Remover este arquivo do servidor?');">
-                    <button class="btn btn-sm btn-outline-hub" type="submit" title="Excluir"><i class="bi bi-trash"></i></button>
-                  </form>
-                </div>
-              </div>
-              {% endfor %}
-            </div>
-          {% else %}
-            <div class="text-center text-body-secondary small py-4">
-              <i class="bi bi-file-earmark-spreadsheet fs-3 d-block mb-2"></i>
-              Nenhum arquivo encontrado.
-            </div>
-          {% endif %}
-        </div>
-      </div>
-    </div>
-    {% endif %}
-  </div>
-</div>
-{% endblock %}
+        # Formata áreas com UF: "São Paulo/SP, Campinas/SP"
+        areas_com_uf = []
+        for area in all_areas:
+            uf_match = ""
+            for row in (self.vivo_rows + self.op_rows):
+                if row.get("cidade", "").strip() == area and row.get("uf", "").strip():
+                    uf_match = row["uf"].strip()
+                    break
+            areas_com_uf.append(f"{area}/{uf_match}" if uf_match else area)
 
-{% block extra_scripts %}
-<script>
-  document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(el => new bootstrap.Tooltip(el));
+        cns_text = ", ".join(all_cns) if all_cns else ""
+        areas_text = ", ".join(areas_com_uf) if areas_com_uf else ""
 
-  const live = document.createElement('div');
-  live.className = 'visually-hidden';
-  live.setAttribute('aria-live', 'polite');
-  document.body.appendChild(live);
-  const speak = (m) => { live.textContent = m || ''; };
+        # ── Preenche as 10 linhas ────────────────────────────────────
+        for i in range(10):
+            r = 7 + i
+            ws.row_dimensions[r].height = 22.0
+            f = s.alt_fill(i)
 
-  document.querySelectorAll('.id-copy').forEach(el => {
-    el.addEventListener('click', async () => {
-      const id = el.getAttribute('data-id');
-      try {
-        await navigator.clipboard.writeText(id);
-        el.setAttribute('data-bs-title', 'Copiado!');
-        bootstrap.Tooltip.getInstance(el)?.show();
-        speak(`ID ${id} copiado.`);
-        setTimeout(() => { el.setAttribute('data-bs-title', 'Copiar ID'); bootstrap.Tooltip.getInstance(el)?.hide(); }, 900);
-      } catch (_) { speak('Não foi possível copiar o ID.'); }
-    });
-  });
+            # Col 3: Versão
+            ws.cell(row=r, column=3, value=i + 1).font = s.font_body
+            ws.cell(row=r, column=3).fill = f
+            ws.cell(row=r, column=3).alignment = s.align_center
 
-  (function () {
-    const q = new URLSearchParams(location.search).get('q');
-    if (!q) return;
-    const regex = new RegExp('(' + q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi');
-    document.querySelectorAll('#resultsBody .op-name').forEach(td => {
-      td.innerHTML = td.textContent.replace(regex, '<mark>$1</mark>');
-    });
-  })();
-</script>
-{% endblock %}
+            if i == 0:
+                # Primeira linha: todos os dados preenchidos
+                cell_data = {
+                    4:  (self.created_str,  s.align_center),   # Data
+                    5:  (self.resp_eng,     s.align_left),     # Resp Eng ITX
+                    6:  (self.resp_atk,     s.align_left),     # Resp Gestão ITX
+                    7:  (self.escopo_text,  s.align_wrap),     # Escopo
+                    8:  (cns_text,          s.align_center),   # CN
+                    9:  (areas_text,        s.align_wrap),     # Áreas Locais
+                    10: ("",                s.align_center),   # ATA
+                }
+                for col, (value, align) in cell_data.items():
+                    c = ws.cell(row=r, column=col, value=value)
+                    c.font = s.font_body
+                    c.fill = f
+                    c.alignment = align
+            else:
+                # Demais linhas: vazias mas formatadas
+                for col in range(4, 11):
+                    c = ws.cell(row=r, column=col, value="")
+                    c.font = s.font_body
+                    c.fill = f
+                    c.alignment = (
+                        s.align_wrap if col in (7, 9)
+                        else (s.align_left if col in (5, 6) else s.align_center)
+                    )
+
+        ws.freeze_panes = "C7"
+        self._ps(ws, ls=True)
+
+
+    # -----------------------------------------------------------------
+    # MÉTODO 2: _b_diagram  (substituir o existente na classe)
+    # -----------------------------------------------------------------
+    def _b_diagram(self):
+        """
+        Aba 'Diagrama de Interligação' — Um bloco completo por CN/vivo_row.
+
+        Cada bloco contém:
+        - Header: CN + Localidade (Cidade/UF) + Ref/Data/Escopo
+        - Tabela Ponta A (VIVO): Tráfego, SBC, End IP, Mask, Local, Cidade/UF
+        - Tabela Ponta B (Oper): Tráfego, SBC, End IP, Faixa IP, Local, Cidade/UF
+        - Detalhes do Enlace: SBC, endereços, máscara, coordenadas, EOT
+        - Imagem do diagrama (ao final de todos os blocos)
+        """
+        s = self.s
+        ws = self.wb.create_sheet(title="Diagrama de Interligação")
+        cfg = self._diagram_cfg()
+        n = self.nome
+
+        # ── Layout de colunas ────────────────────────────────────────
+        # 1-2: margem | 3-8: Ponta A | 9-14: Ponta B | 15: margem
+        self._cw(ws, {
+            1: 2, 2: 2,
+            3: 14, 4: 14, 5: 18, 6: 14, 7: 16, 8: 14,
+            9: 14, 10: 14, 11: 18, 12: 14, 13: 16, 14: 14,
+            15: 2
+        })
+
+        # ── Cabeçalho global ─────────────────────────────────────────
+        self._bh(ws, 2, 3, 14)
+
+        global_texts = [
+            (4,  f"Diagrama de Interligação entre a VIVO e a {n}", True),
+            (6,  "2.2.1 DIAGRAMAÇÃO DO PROJETO SIP", True),
+            (7,  "2.2.1.1 Anúncio de Redes pelos 2 Links SPC", True),
+            (8,  f"A {n} abordará os endereços da VIVO conforme abaixo.", False),
+            (9,  f"A VIVO abordará os endereços da {n} conforme abaixo.", False),
+            (11, "2.2.1.2 Parâmetros de Configuração do Link", True),
+        ]
+        for row_n, text, bold in global_texts:
+            ws.merge_cells(start_row=row_n, start_column=3,
+                           end_row=row_n, end_column=14)
+            c = ws.cell(row=row_n, column=3, value=text)
+            c.font = Font(name="Calibri", size=11 if bold else 10, bold=bold)
+            c.alignment = s.align_left if bold else s.align_wrap
+            ws.row_dimensions[row_n].height = 22.0
+
+        # ASN (global)
+        for offset, label, value in [
+            (0, "ASN VIVO", "10429 (Público)"),
+            (1, f"ASN {n}", self.asn_op),
+        ]:
+            r = 12 + offset
+            ws.merge_cells(start_row=r, start_column=3, end_row=r, end_column=5)
+            ws.cell(row=r, column=3, value=label).font = Font(
+                name="Calibri", size=10, bold=True)
+            ws.cell(row=r, column=3).alignment = s.align_center
+            ws.merge_cells(start_row=r, start_column=6, end_row=r, end_column=8)
+            ws.cell(row=r, column=6, value=value).font = s.font_body
+            ws.cell(row=r, column=6).alignment = s.align_center
+
+        # ── Itens de tráfego (escopo) ────────────────────────────────
+        traffic_items = [t for t in self.traffic if t]
+        if not traffic_items:
+            traffic_items = [""]
+        num_traffic_rows = max(len(traffic_items), 3)
+
+        # Número de blocos
+        num_blocks = max(1, len(self.vivo_rows))
+
+        # Altura de cada bloco: header(1) + ponta(1) + thead(1) + tráfego(N) +
+        #                       gap(1) + detail_header(1) + detail_rows(5) + gap(2) = N+12
+        BLOCK_HEIGHT = num_traffic_rows + 12
+        block_start_row = 15
+
+        # ═════════════════════════════════════════════════════════════
+        # BLOCOS (um por vivo_row / CN)
+        # ═════════════════════════════════════════════════════════════
+        for b_idx in range(num_blocks):
+            vivo_row = self.vivo_rows[b_idx] if b_idx < len(self.vivo_rows) else {}
+            op_row = self._find_matching_op_row(vivo_row.get("cn", ""), b_idx) or {}
+
+            br = block_start_row + (b_idx * BLOCK_HEIGHT)
+
+            # ── Dados do formulário ──────────────────────────────
+            cn_val          = vivo_row.get("cn", "")
+            ref_val         = vivo_row.get("ref", "")
+            data_val        = vivo_row.get("data", "")
+            escopo_val      = vivo_row.get("escopo", "")
+            localidade_vivo = vivo_row.get("localidade", "")
+            sbc_vivo        = vivo_row.get("sbc", "")
+            mask_val        = vivo_row.get("mask", "")
+            endereco_vivo   = vivo_row.get("endereco_link", "")
+            cidade_vivo     = vivo_row.get("cidade", "")
+            uf_vivo         = vivo_row.get("uf", "")
+            lat_vivo        = vivo_row.get("lat", "")
+            long_vivo       = vivo_row.get("long", "")
+
+            localidade_op   = op_row.get("localidade", "")
+            sbc_op          = op_row.get("sbc", "")
+            faixa_ip_op     = op_row.get("faixa_ip", "")
+            endereco_op     = op_row.get("endereco_link", "")
+            cidade_op       = op_row.get("cidade", "")
+            uf_op           = op_row.get("uf", "")
+            eto_lc          = op_row.get("eto_lc", "")
+            eot_ld          = op_row.get("eot_ld", "")
+
+            # Cidade/UF display (com fallback)
+            cidade_d = cidade_vivo or cidade_op or ""
+            uf_d     = uf_vivo or uf_op or ""
+            loc_tag  = f" — {cidade_d}/{uf_d}" if cidade_d and uf_d else (
+                       f" — {cidade_d}" if cidade_d else "")
+
+            # ── ROW 0: Header do CN ──────────────────────────────
+            ws.merge_cells(start_row=br, start_column=3,
+                           end_row=br, end_column=8)
+            c = ws.cell(row=br, column=3,
+                        value=f"CN {cn_val}{loc_tag}" if cn_val
+                        else f"Bloco {b_idx + 1}")
+            c.font = Font(name="Calibri", size=10, bold=True, color="FFFFFF")
+            c.alignment = s.align_center
+            c.fill = s.fill_light
+            ws.row_dimensions[br].height = 25.0
+
+            # Ref / Data / Escopo ao lado
+            ws.merge_cells(start_row=br, start_column=9,
+                           end_row=br, end_column=14)
+            info_parts = []
+            if ref_val:    info_parts.append(f"Ref: {ref_val}")
+            if data_val:   info_parts.append(f"Data: {data_val}")
+            if escopo_val: info_parts.append(f"Escopo: {escopo_val}")
+            c2 = ws.cell(row=br, column=9,
+                         value="  |  ".join(info_parts) if info_parts
+                         else "VRF: _______________")
+            c2.font = Font(name="Calibri", size=9, bold=True, color="FFFFFF")
+            c2.alignment = s.align_center
+            c2.fill = s.fill_light
+
+            # ── ROW 1: Ponta A / Ponta B ─────────────────────────
+            ponta_row = br + 1
+            ws.row_dimensions[ponta_row].height = 22.0
+            for sc, ec, text in [
+                (3, 8, "Ponta A — VIVO"),
+                (9, 14, f"Ponta B — {n}"),
+            ]:
+                ws.merge_cells(start_row=ponta_row, start_column=sc,
+                               end_row=ponta_row, end_column=ec)
+                c = ws.cell(row=ponta_row, column=sc, value=text)
+                c.font = Font(name="Calibri", size=10, bold=True, color="FFFFFF")
+                c.alignment = s.align_center
+                c.fill = s.fill_secondary
+
+            # ── ROW 2: Cabeçalhos da tabela ──────────────────────
+            thead_row = br + 2
+            ws.row_dimensions[thead_row].height = 25.0
+
+            ponta_a_headers = [
+                (3, "Tráfego"), (4, "SBC"), (5, "Endereço IP"),
+                (6, "NET MASK"), (7, "Localidade"), (8, "Cidade/UF"),
+            ]
+            ponta_b_headers = [
+                (9, "Tráfego"), (10, "SBC"), (11, "Endereço IP"),
+                (12, "Faixa IP"), (13, "Localidade"), (14, "Cidade/UF"),
+            ]
+            for col, h in (ponta_a_headers + ponta_b_headers):
+                c = ws.cell(row=thead_row, column=col, value=h)
+                c.font = s.font_subheader
+                c.alignment = s.align_center
+                c.fill = s.fill_accent
+                c.border = s.box_border
+
+            # ── ROWS 3+: Dados de tráfego ────────────────────────
+            # Formato Cidade/UF
+            def _fmt_cidade_uf(cid, uf):
+                if cid and uf:
+                    return f"{cid}/{uf}"
+                return cid or ""
+
+            cidade_uf_vivo = _fmt_cidade_uf(cidade_vivo, uf_vivo)
+            cidade_uf_op   = _fmt_cidade_uf(cidade_op, uf_op)
+
+            for j in range(num_traffic_rows):
+                dr = thead_row + 1 + j
+                ws.row_dimensions[dr].height = 22.0
+                fl = s.alt_fill(j)
+                traf = traffic_items[j] if j < len(traffic_items) else ""
+                first = (j == 0)  # Dados fixos só na 1ª linha
+
+                # Ponta A (VIVO): 6 colunas
+                row_a = [
+                    (3,  traf),                                   # Tráfego
+                    (4,  sbc_vivo if first else ""),              # SBC
+                    (5,  endereco_vivo if first else ""),         # End IP
+                    (6,  mask_val if first else ""),              # Mask
+                    (7,  localidade_vivo if first else ""),       # Localidade
+                    (8,  cidade_uf_vivo if first else ""),        # Cidade/UF
+                ]
+                # Ponta B (Operadora): 6 colunas
+                row_b = [
+                    (9,  traf),                                   # Tráfego
+                    (10, sbc_op if first else ""),                # SBC
+                    (11, endereco_op if first else ""),           # End IP
+                    (12, faixa_ip_op if first else ""),           # Faixa IP
+                    (13, localidade_op if first else ""),         # Localidade
+                    (14, cidade_uf_op if first else ""),          # Cidade/UF
+                ]
+
+                for col, val in (row_a + row_b):
+                    c = ws.cell(row=dr, column=col, value=val)
+                    c.font = s.font_small
+                    c.fill = fl
+                    c.border = s.box_border
+                    c.alignment = s.align_center
+
+            # ── DETALHES DO ENLACE ───────────────────────────────
+            detail_header_row = thead_row + 1 + num_traffic_rows + 1
+
+            ws.merge_cells(start_row=detail_header_row, start_column=3,
+                           end_row=detail_header_row, end_column=14)
+            c = ws.cell(row=detail_header_row, column=3,
+                        value=f"Detalhes do Enlace — CN {cn_val}" if cn_val
+                        else f"Detalhes do Enlace — Bloco {b_idx + 1}")
+            c.font = Font(name="Calibri", size=9, bold=True, color="FFFFFF")
+            c.alignment = s.align_center
+            c.fill = s.fill_secondary
+            ws.row_dimensions[detail_header_row].height = 20.0
+
+            details = [
+                ("SBC VIVO:",       sbc_vivo,
+                 f"SBC {n}:",       sbc_op),
+                ("Endereço Link:",  endereco_vivo,
+                 "Endereço Link:",  endereco_op),
+                ("Máscara:",        mask_val,
+                 "Faixa IP:",       faixa_ip_op),
+                ("Localidade:",     localidade_vivo,
+                 "Localidade:",     localidade_op),
+                ("Coordenadas:",    f"{lat_vivo}, {long_vivo}" if lat_vivo else "",
+                 "EOT LC / LD:",    f"{eto_lc} / {eot_ld}" if (eto_lc or eot_ld) else ""),
+            ]
+
+            for d_idx, (lab_a, val_a, lab_b, val_b) in enumerate(details):
+                dr = detail_header_row + 1 + d_idx
+                ws.row_dimensions[dr].height = 18.0
+                fl = s.alt_fill(d_idx)
+
+                # Ponta A: label (3-4) + valor (5-8)
+                ws.merge_cells(start_row=dr, start_column=3,
+                               end_row=dr, end_column=4)
+                c = ws.cell(row=dr, column=3, value=lab_a)
+                c.font = Font(name="Calibri", size=8, bold=True)
+                c.alignment = s.align_left
+                c.fill = fl
+                c.border = s.box_border
+
+                ws.merge_cells(start_row=dr, start_column=5,
+                               end_row=dr, end_column=8)
+                c = ws.cell(row=dr, column=5, value=val_a)
+                c.font = s.font_small
+                c.alignment = s.align_left
+                c.fill = fl
+                c.border = s.box_border
+
+                # Ponta B: label (9-10) + valor (11-14)
+                ws.merge_cells(start_row=dr, start_column=9,
+                               end_row=dr, end_column=10)
+                c = ws.cell(row=dr, column=9, value=lab_b)
+                c.font = Font(name="Calibri", size=8, bold=True)
+                c.alignment = s.align_left
+                c.fill = fl
+                c.border = s.box_border
+
+                ws.merge_cells(start_row=dr, start_column=11,
+                               end_row=dr, end_column=14)
+                c = ws.cell(row=dr, column=11, value=val_b)
+                c.font = s.font_small
+                c.alignment = s.align_left
+                c.fill = fl
+                c.border = s.box_border
+
+        # ═════════════════════════════════════════════════════════════
+        # IMAGEM DO DIAGRAMA (abaixo de todos os blocos)
+        # ═════════════════════════════════════════════════════════════
+        img_row = block_start_row + (num_blocks * BLOCK_HEIGHT) + 2
+
+        if not os.path.exists(cfg["img"]):
+            # Imagem não encontrada — aviso em vez de crash
+            ws.merge_cells(start_row=img_row, start_column=3,
+                           end_row=img_row, end_column=14)
+            ws.cell(row=img_row, column=3,
+                    value=f"⚠ Imagem não encontrada: {cfg['img']}"
+            ).font = Font(name="Calibri", size=10, color="CC0000")
+        else:
+            el = [
+                {"text": "Roteador OP", "xy_pct": cfg["r1"],
+                 "font_size_pct": cfg["rfp"], "stroke_width_pct": cfg["rsp"]},
+                {"text": "Roteador OP", "xy_pct": cfg["r2"],
+                 "font_size_pct": cfg["rfp"], "stroke_width_pct": cfg["rsp"]},
+                {"text": "Link resp Vivo", "xy_pct": cfg["lvxy"],
+                 "font_size_pct": cfg["lfsz"], "stroke_width_pct": 0.006},
+                {"text": f"Link resp {n}", "xy_pct": cfg["loxy"],
+                 "font_size_pct": cfg["lfsz"], "stroke_width_pct": 0.006},
+                {"text": "RAC/RAV/HL4", "xy_pct": (0.33, 0.70),
+                 "font_size_pct": 0.010, "stroke_width_pct": 0.006},
+                {"text": "RAC/RAV/HL4", "xy_pct": (0.34, 0.60),
+                 "font_size_pct": 0.010, "stroke_width_pct": 0.006},
+            ]
+            try:
+                ann = render_labels_on_image(
+                    image_path=cfg["img"], vivo_text="VIVO",
+                    operator_text=n, vivo_xy_pct=cfg["vxy"],
+                    operator_xy_pct=cfg["oxy"], font_path=cfg["fp"],
+                    font_size_pct=cfg["fsz"], stroke_width_pct=0.009,
+                    extra_labels=el,
+                )
+                xi = XLImage(ann)
+                try:
+                    with PILImage.open(ann) as src:
+                        ow, oh = src.size
+                except Exception:
+                    ow, oh = 800, 300
+                fw, fh = fit_size_keep_aspect(ow, oh, cfg["bw"], cfg["bh"])
+                xi.width, xi.height = fw, fh
+                anchor_col = get_column_letter(3 + cfg["aco"])
+                anchor_row = max(1, img_row + cfg["aro"])
+                ws.add_image(xi, f"{anchor_col}{anchor_row}")
+            except Exception as e:
+                logger.error(f"Erro ao renderizar imagem do diagrama: {e}")
+                ws.merge_cells(start_row=img_row, start_column=3,
+                               end_row=img_row, end_column=14)
+                ws.cell(row=img_row, column=3,
+                        value=f"⚠ Erro ao gerar imagem: {e}"
+                ).font = Font(name="Calibri", size=10, color="CC0000")
+
+        self._ps(ws, ls=True)
