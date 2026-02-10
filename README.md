@@ -1,2228 +1,1130 @@
-# =============================================================================
-# app.py — VIVOHUB: Sistema de Gestão de Projetos Técnicos de Interligação
-# =============================================================================
-#
-# Aplicação Flask para gerenciar formulários PTI (Projeto Técnico de
-# Interligação) entre operadoras de telecomunicações e a VIVO.
-#
-# Arquitetura:
-#   ┌─────────────┐     ┌──────────────┐     ┌──────────┐     ┌──────────┐
-#   │  Flask Web   │────▶│  SQLite DB   │     │  Excel   │     │  SBC XLSX│
-#   │  (Rotas)     │     │  (Dados)     │     │ (Export) │     │ (Análise)│
-#   └──────┬──────┘     └──────────────┘     └────┬─────┘     └────┬─────┘
-#          │                                       │                │
-#          │            ┌──────────────┐           │                │
-#          └───────────▶│  Pillow      │◀──────────┘                │
-#          │            │  (Imagens)   │                            │
-#          │            └──────────────┘                            │
-#          │                                                       │
-#          │            ┌──────────────┐                            │
-#          └───────────▶│ SBCAnalyzer  │◀───────────────────────────┘
-#                       │ (Inteligência│
-#                       │  de SBCs)    │
-#                       └──────────────┘
-#
-# Perfis de Usuário:
-#   - Atacado:     Cria e gerencia formulários (CRUD completo)
-#   - Engenharia:  Visualiza todos + edita Seção 9 + sugestão SBC
-#   - Admin:       Registra novos usuários (protegido por código)
-#
-# -*- coding: utf-8 -*-
-# =============================================================================
+{% extends "base.html" %}
+{% set engineer_mode = (session.get('role') == 'engenharia') %}
+{% set is_edit = form is not none %}
+{% set st = ((form.status if form else 'rascunho') or 'rascunho')|lower %}
+{% block title %}VIVOHUB — {{ 'Pré-PTI (Engenharia)' if engineer_mode else 'Formulário Pré-PTI' }}{% endblock %}
 
-import os
-import glob
-import json
-import sqlite3
-import click
-import tempfile
-import logging
-import time
-from pathlib import Path
-from functools import wraps
-from datetime import datetime
-from dataclasses import dataclass, field, asdict
-from io import BytesIO
-from typing import Any, Optional
-from collections import defaultdict
+{% block extra_head %}
+<style>
+  body.bg-plain, html { background:#fff !important; }
+  .nav-white { background:#fff; border-bottom:1px solid var(--vh-border); }
+  .section-card{ border:1px solid var(--vh-border); border-radius: var(--vh-radius); overflow:hidden; background:var(--vh-surface-0); }
+  .section-card .card-header{
+    background: linear-gradient(180deg, #fafafa, #fff);
+    border-bottom:1px solid var(--vh-border);
+    font-weight:600; letter-spacing:.2px;
+  }
+  .form-label{ font-weight:500; }
+  .required::after{ content:" *"; color:var(--vh-danger); font-weight:700; margin-left:2px; }
+  .table thead th{ white-space:nowrap; font-weight:600; }
+  .table-sm td, .table-sm th{ vertical-align:middle; }
+  .table-hover tbody tr:hover { background:#fbfbff; }
+  .table-actions button{ width:2.2rem; height:2.2rem; padding:0; }
+  .cap-counter{ font-size:.85rem; color:var(--vh-muted); }
+  .action-bar{
+    position:sticky; bottom:0; z-index:1020;
+    background:#fff; border-top:1px solid var(--vh-border);
+    box-shadow:0 -4px 18px rgba(0,0,0,.04);
+  }
+  .action-bar .btn{ min-width: 120px; }
+  .status-badge{ font-weight:600; }
+  .status-badge.st-rascunho{ background:#e9ecef; color:#343a40; }
+  .status-badge.st-enviado{ background:#cfe2ff; color:#084298; }
+  .status-badge.st-em-revisao{ background:#fff3cd; color:#664d03; }
+  .status-badge.st-aprovado{ background:#d1e7dd; color:#0f5132; }
+  .help-text{ font-size:.85rem; color:var(--vh-muted); }
+  .scope-chips .form-check{ margin-right: .75rem; }
+  .scope-chips .form-check-input{ cursor:pointer; }
+  .scope-chips .form-check-label{ cursor:pointer; font-weight:500; }
+  .readonly-mask input:not([type="hidden"]), .readonly-mask select, .readonly-mask textarea{
+    background:#fbfbfb !important;
+  }
 
-from flask import (
-    Flask, render_template, request, redirect, url_for,
-    session, flash, g, abort, send_file, jsonify,
-)
-from werkzeug.security import generate_password_hash, check_password_hash
+  /* ===== PAINEL SBC ===== */
+  .sbc-panel{
+    border:1px solid #d4c5f9; border-radius:.65rem;
+    background:linear-gradient(135deg,#faf8ff 0%,#fff 100%);
+    padding:1rem 1.25rem; margin-top:.75rem;
+  }
+  .sbc-panel-header{
+    display:flex; align-items:center; justify-content:space-between;
+    margin-bottom:.65rem; gap:.5rem;
+  }
+  .sbc-panel-title{
+    font-weight:700; font-size:.9rem; color:var(--vh-primary,#6b09a6);
+    display:flex; align-items:center; gap:.4rem;
+  }
+  .sbc-panel-meta{ font-size:.75rem; color:var(--vh-muted,#6c757d); }
+  #sbcCardList{
+    max-height:340px; overflow-y:auto;
+    scrollbar-width:thin; scrollbar-color:#d4c5f9 transparent;
+  }
+  #sbcCardList::-webkit-scrollbar{ width:5px; }
+  #sbcCardList::-webkit-scrollbar-thumb{ background:#d4c5f9; border-radius:3px; }
+  .sbc-card{
+    border:1px solid var(--vh-border,#dee2e6); border-radius:.5rem;
+    background:#fff; padding:.65rem .75rem; margin-bottom:.5rem;
+    transition: border-color .15s, box-shadow .15s;
+  }
+  .sbc-card:hover{ border-color:#b39ddb; box-shadow:0 2px 8px rgba(107,9,166,.08); }
+  .sbc-card.recommended{ border-color:#198754; border-width:2px; }
+  .sbc-card-header{
+    display:flex; align-items:center; justify-content:space-between;
+    gap:.5rem; margin-bottom:.35rem;
+  }
+  .sbc-card-name{ font-weight:700; font-size:.88rem; }
+  .sbc-card-cidade{ font-size:.78rem; color:#666; font-weight:400; margin-left:.35rem; }
+  .sbc-card-badge{
+    font-size:.7rem; font-weight:600; padding:.15rem .5rem;
+    border-radius:999px; line-height:1.2;
+  }
+  .sbc-badge-disponivel{ background:#d1e7dd; color:#0f5132; }
+  .sbc-badge-moderado{ background:#fff3cd; color:#664d03; }
+  .sbc-badge-critico{ background:#f8d7da; color:#842029; }
+  .sbc-card-details{
+    display:grid; grid-template-columns:1fr 1fr; gap:.2rem .75rem;
+    font-size:.78rem; color:#555;
+  }
+  .sbc-caps-bar-wrap{
+    height:6px; background:#e9ecef; border-radius:3px;
+    overflow:hidden; margin:.3rem 0;
+  }
+  .sbc-caps-bar{
+    height:100%; border-radius:3px; transition: width .3s ease;
+  }
+  .sbc-caps-bar.low{ background:#198754; }
+  .sbc-caps-bar.mid{ background:#ffc107; }
+  .sbc-caps-bar.crit{ background:#dc3545; }
+  .sbc-tendencia{
+    font-size:.72rem; font-weight:600; display:inline-flex; align-items:center; gap:.2rem;
+  }
+  .sbc-tendencia.subindo{ color:#dc3545; }
+  .sbc-tendencia.descendo{ color:#198754; }
+  .sbc-tendencia.estavel{ color:#6c757d; }
+  .sbc-card-meta{
+    display:flex; gap:.5rem; flex-wrap:wrap;
+    font-size:.72rem; color:var(--vh-muted); margin-top:.25rem;
+  }
+  .sbc-card-meta span{ display:inline-flex; align-items:center; gap:.2rem; }
+  .sbc-card-footer{
+    display:flex; align-items:center; justify-content:space-between;
+    margin-top:.4rem; gap:.5rem;
+  }
+  .sbc-score{ font-weight:700; font-size:.85rem; }
+  .sbc-reason{ font-size:.72rem; color:var(--vh-muted); flex:1; }
+  .sbc-use-btn{ font-size:.75rem; padding:.2rem .6rem; white-space:nowrap; }
+  .sbc-loading{ text-align:center; padding:.75rem; color:var(--vh-muted); font-size:.85rem; }
+  .sbc-empty{ text-align:center; padding:.75rem; color:var(--vh-muted); font-size:.85rem; }
+  .sbc-fallback-note{
+    font-size:.75rem; padding:.35rem .6rem; margin-bottom:.5rem;
+    background:#fff3cd; border:1px solid #ffe29a; border-radius:.4rem; color:#664d03;
+  }
 
-# =============================================================================
-# IMPORTAÇÕES OPCIONAIS (graceful degradation)
-# =============================================================================
-try:
-    from openpyxl import Workbook
-    from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
-    from openpyxl.utils import get_column_letter
-    from openpyxl.drawing.image import Image as XLImage
-    OPENPYXL_AVAILABLE = True
-except ImportError:
-    Workbook = None
-    XLImage = None
-    OPENPYXL_AVAILABLE = False
+  @media (prefers-reduced-motion: reduce){
+    .btn, .btn-hub, .btn-outline-hub { transition:none !important; }
+  }
+</style>
+{% endblock %}
 
-try:
-    from PIL import Image as PILImage, ImageDraw, ImageFont
-    PIL_AVAILABLE = True
-except ImportError:
-    PIL_AVAILABLE = False
+{% block content %}
+{% set plain_bg = true %}
 
-# =============================================================================
-# LOGGING
-# =============================================================================
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-)
-logger = logging.getLogger("vivohub")
+<datalist id="cnList">
+  {% for cn in CN_FULL %}
+    <option value="{{ cn.codigo }}">{{ cn.codigo }} — {{ cn.nome }}{% if cn.uf %}/{{ cn.uf }}{% endif %}</option>
+  {% endfor %}
+</datalist>
 
-# =============================================================================
-# CONSTANTES DA APLICAÇÃO
-# =============================================================================
-MAX_TABLE_ROWS = 10
-DEFAULT_ADMIN_CODE = "v28B112004"
-DEFAULT_DIAGRAM_IMAGE = (
-    r"C:\Users\40418843\Desktop\VIVOHUB\templates\20251007_140942_0000.png"
-)
+<nav class="navbar nav-white">
+  <div class="container-fluid py-2">
+    <div class="d-flex align-items-center gap-2">
+      {% if engineer_mode %}
+        <a class="btn btn-outline-hub btn-sm" href="{{ url_for('engenharia_form_list') }}">
+          <i class="bi bi-arrow-left"></i> Voltar
+        </a>
+        <span class="fw-semibold">Pré-PTI <span class="badge text-bg-primary">Engenharia</span></span>
+      {% else %}
+        <a class="btn btn-outline-hub btn-sm" href="{{ url_for('atacado_form_list') }}">
+          <i class="bi bi-arrow-left"></i> Voltar
+        </a>
+        <span class="fw-semibold">Formulário Pré-PTI</span>
+      {% endif %}
 
-# Diretório dos XLSX de SBC (override via SBC_DATA_DIR env var)
-DEFAULT_SBC_DATA_DIR = r"C:\Users\40418843\Desktop\SBC_Reports"
+      {% if is_edit %}
+        <span class="ms-2 badge status-badge
+          {% if st=='aprovado' %}st-aprovado{% elif st=='em revisão' %}st-em-revisao{% elif st=='enviado' %}st-enviado{% else %}st-rascunho{% endif %}">
+          {{ st|capitalize }}
+        </span>
+        <span class="ms-1 small text-body-secondary">ID {{ form.id }}</span>
+      {% endif %}
+    </div>
+    <div class="d-flex align-items-center gap-2">
+      {% if is_edit %}
+        <a class="btn btn-outline-hub btn-sm"
+           href="{{ url_for('exportar_form_excel_index', form_id=form.id) }}"
+           data-bs-toggle="tooltip" data-bs-title="Exportar Excel (Índice, Versões, Diagrama)">
+          <i class="bi bi-file-earmark-spreadsheet"></i> Gerar PTI
+        </a>
+      {% endif %}
+      <a href="{{ url_for('logout') }}" class="btn btn-outline-hub btn-sm">
+        <i class="bi bi-box-arrow-right"></i> Sair
+      </a>
+    </div>
+  </div>
+</nav>
 
-# Cache TTL para dados de SBC (5 minutos)
-SBC_CACHE_TTL_SECONDS = 300
+<main class="container py-4">
+  <form
+    id="formTecnico"
+    method="post"
+    action="{% if form and not engineer_mode %}{{ url_for('atacado_form_update', form_id=form.id) }}{% elif form and engineer_mode %}{{ url_for('engenharia_form_view', form_id=form.id) }}{% else %}{{ url_for('atacado_form_create') }}{% endif %}"
+    novalidate
+    data-form-id="{{ form.id if form else 'new' }}"
+    data-vivo-json="{{ form.dados_vivo_json if form else '[]' }}"
+    data-operadora-json="{{ form.dados_operadora_json if form else '[]' }}"
+    data-engenharia-json="{{ form.engenharia_params_json if form else '{}' }}"
+    class="{% if engineer_mode %}readonly-mask{% endif %}"
+  >
+    <!-- Hiddens -->
+    <input type="hidden" id="dados_vivo_json" name="dados_vivo_json" value="{{ form.dados_vivo_json if form and form.dados_vivo_json else '[]' }}">
+    <input type="hidden" id="dados_operadora_json" name="dados_operadora_json" value="{{ form.dados_operadora_json if form and form.dados_operadora_json else '[]' }}">
+    <input type="hidden" id="engenharia_params_json" name="engenharia_params_json" value="{{ form.engenharia_params_json if form and form.engenharia_params_json else '{}' }}">
+    {% if not engineer_mode %}
+      <input type="hidden" id="status" name="status" value="{{ (form.status if form else '') or 'rascunho' }}">
+      <input type="hidden" id="escopo_flags_json" name="escopo_flags_json" value="{{ form.escopo_flags_json if form and form.escopo_flags_json else '[]' }}">
+    {% endif %}
 
-# Mapeamento STATUS do XLSX → nível de saúde interno
-# O STATUS já vem classificado pela equipe de rede no XLSX
-SBC_STATUS_TO_HEALTH = {
-    "normal":   "disponivel",   # Verde — folga, ideal para uso
-    "atenção":  "moderado",     # Amarelo — aceitável com ressalvas
-    "atencao":  "moderado",     # (sem acento)
-    "crítico":  "critico",      # Vermelho — lotado, não recomendado
-    "critico":  "critico",      # (sem acento)
+    <!-- Meta topo -->
+    <div class="d-flex flex-wrap align-items-center justify-content-between mb-3">
+      <div class="small text-body-secondary">
+        {% if is_edit %}
+          <i class="bi bi-clock-history me-1"></i>
+          Atualizado: {{ (form.updated_at or form.created_at or '')|date_br }}
+        {% endif %}
+      </div>
+      <div class="small">
+        <span class="text-body-secondary">Campos marcados com <span class="text-danger">*</span> são obrigatórios.</span>
+      </div>
+    </div>
+
+    <!-- ============================================================= -->
+    <!-- 1) Identificação Operadora                                    -->
+    <!-- ============================================================= -->
+    <section class="card section-card mb-3" aria-labelledby="sec-ident">
+      <div class="card-header" id="sec-ident">1) Identificação da Operadora</div>
+      <div class="card-body">
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label required" for="nome_operadora">Nome da Operadora</label>
+            <input type="text" class="form-control form-control-sm" id="nome_operadora" name="nome_operadora"
+                   value="{{ form.nome_operadora if form else '' }}" required>
+            <div class="invalid-feedback">Informe o nome da operadora.</div>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label" for="rn1">RN1</label>
+            <input type="text" class="form-control form-control-sm" id="rn1" name="rn1"
+                   value="{{ form.rn1 if form else '' }}" placeholder="Ex.: RN1-123">
+          </div>
+          <div class="col-md-6">
+            <div class="d-flex flex-wrap gap-3">
+              <div class="form-check"><input class="form-check-input" type="checkbox" id="csp" name="csp" {% if form and form.csp %}checked{% endif %}><label class="form-check-label" for="csp">CSP</label></div>
+              <div class="form-check"><input class="form-check-input" type="checkbox" id="servicos_especiais" name="servicos_especiais" {% if form and form.servicos_especiais %}checked{% endif %}><label class="form-check-label" for="servicos_especiais">Serviços Especiais</label></div>
+              <div class="form-check"><input class="form-check-input" type="checkbox" id="cng" name="cng" {% if form and form.cng %}checked{% endif %}><label class="form-check-label" for="cng">CNG</label></div>
+            </div>
+            <label class="form-label mt-3" for="atendimento">Atendimento</label>
+            {% set atend = (form.atendimento if form else '') %}
+            <select id="atendimento" name="atendimento" class="form-select form-select-sm">
+              <option value="" {% if not atend %}selected{% endif %}>Selecione</option>
+              <option value="UF"     {% if atend=='UF' %}selected{% endif %}>UF</option>
+              <option value="CN"     {% if atend=='CN' %}selected{% endif %}>CN</option>
+              <option value="REG I"  {% if atend=='REG I' %}selected{% endif %}>REG I</option>
+              <option value="REG II" {% if atend=='REG II' %}selected{% endif %}>REG II</option>
+              <option value="REG III"{% if atend=='REG III' %}selected{% endif %}>REG III</option>
+            </select>
+            <div class="help-text">Selecione REG I/II/III para exibir o campo "Qual?".</div>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label" for="redes">Redes</label>
+            {% set redesv = (form.redes if form else '') %}
+            <select id="redes" name="redes" class="form-select form-select-sm mb-2">
+              <option value="" {% if not redesv %}selected{% endif %}>Selecione</option>
+              <option value="STFC" {% if redesv=='STFC' %}selected{% endif %}>STFC</option>
+              <option value="SMP"  {% if redesv=='SMP'  %}selected{% endif %}>SMP</option>
+            </select>
+            {% set qualv = (form.qual if form else '') %}
+            <div id="qualGroup" class="mb-2 {% if atend and atend.startswith('REG') %}{% else %}d-none{% endif %}">
+              <label class="form-label" for="qual">Qual? (se aplicável)</label>
+              <input type="text" class="form-control form-control-sm" id="qual" name="qual" value="{{ qualv }}" placeholder="Ex.: Região II — Sul">
+            </div>
+            <label class="form-label" for="tmr">TMR</label>
+            <input type="text" class="form-control form-control-sm" id="tmr" name="tmr"
+                   value="{{ form.tmr if form else '' }}" placeholder="Ex.: 15s">
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================= -->
+    <!-- 2) Contatos e Responsáveis                                    -->
+    <!-- ============================================================= -->
+    <section class="card section-card mb-3" aria-labelledby="sec-contatos">
+      <div class="card-header" id="sec-contatos">2) Contatos e Responsáveis</div>
+      <div class="card-body">
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label required" for="responsavel_operadora">Responsável Operadora</label>
+            <input type="text" class="form-control form-control-sm" id="responsavel_operadora" name="responsavel_operadora"
+                   value="{{ form.responsavel_operadora if form else '' }}" required>
+            <div class="invalid-feedback">Informe o responsável da operadora.</div>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label required" for="responsavel_vivo">Responsável Vivo (Atacado)</label>
+            <input type="text" class="form-control form-control-sm" id="responsavel_vivo" name="responsavel_vivo"
+                   value="{{ form.responsavel_vivo if form else '' }}" required>
+            <div class="invalid-feedback">Informe o responsável da Vivo.</div>
+          </div>
+          <div class="col-md-6">
+            <div class="d-flex flex-wrap gap-3">
+              <div class="form-check"><input class="form-check-input" type="checkbox" id="sbc_ativo" name="sbc_ativo" {% if form and form.sbc_ativo %}checked{% endif %}><label class="form-check-label" for="sbc_ativo">Possui SBC ativo?</label></div>
+              <div class="form-check"><input class="form-check-input" type="checkbox" id="ip_reservado" name="ip_reservado" {% if form and form.ip_reservado %}checked{% endif %}><label class="form-check-label" for="ip_reservado">Possui IP reservado?</label></div>
+              <div class="form-check"><input class="form-check-input" type="checkbox" id="vivo_reserva" name="vivo_reserva" {% if form and form.vivo_reserva %}checked{% endif %}><label class="form-check-label" for="vivo_reserva">Deseja que a Vivo reserve?</label></div>
+            </div>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label" for="asn">ASN (Operadora)</label>
+            <input type="text" class="form-control form-control-sm" id="asn" name="asn"
+                   value="{{ form.asn if form else '' }}" placeholder="Ex.: ASXXXXX">
+            <div class="help-text">Informe o número AS do parceiro, se aplicável.</div>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label required" for="responsavel_itx_gestao">Responsável Gestão de ITX (Atacado)</label>
+            <input type="text" class="form-control form-control-sm" id="responsavel_itx_gestao" name="responsavel_atacado"
+                   value="{{ form.responsavel_atacado if form else preset_responsavel_atacado or '' }}" required>
+            <div class="invalid-feedback">Informe o responsável de gestão de ITX.</div>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label" for="responsavel_itx_eng">Responsável Eng de ITX (Engenharia)</label>
+            <input type="text" class="form-control form-control-sm" id="responsavel_itx_eng" name="responsavel_engenharia"
+                   value="{{ form.responsavel_engenharia if form else '' }}">
+            <div class="help-text">Campo preenchido pela Engenharia durante a validação.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================= -->
+    <!-- 3) Escopo (Atacado) OU  3) Dados VIVO (Engenharia)            -->
+    <!-- ============================================================= -->
+    {% if not engineer_mode %}
+    <section class="card section-card mb-3" aria-labelledby="sec-escopo">
+      <div class="card-header" id="sec-escopo">3) Escopo</div>
+      <div class="card-body">
+        <label for="escopo_texto" class="form-label required">Detalhar o Escopo do Tráfego:</label>
+        <textarea class="form-control" id="escopo_texto" name="escopo_text" rows="3" required
+          placeholder="Ex.: Considerar LC nos CNs 31/11; LD15 + CNG nacional…">{{ form.escopo_text if form else '' }}</textarea>
+        <div class="invalid-feedback">Descreva o escopo do tráfego.</div>
+        <div class="mt-3">
+          <div class="form-label mb-1">Selecione os tipos de tráfego incluídos:</div>
+          <div class="scope-chips d-flex flex-wrap">
+            <div class="form-check me-3"><input class="form-check-input esc-flag" type="checkbox" value="LC" id="esc_lc" data-flag="LC"><label class="form-check-label" for="esc_lc">LC</label></div>
+            <div class="form-check me-3"><input class="form-check-input esc-flag" type="checkbox" value="LD15 + CNG" id="esc_ld15" data-flag="LD15 + CNG"><label class="form-check-label" for="esc_ld15">LD15 + CNG</label></div>
+            <div class="form-check me-3"><input class="form-check-input esc-flag" type="checkbox" value="LDS/CSP + CNG" id="esc_ldscsp" data-flag="LDS/CSP + CNG"><label class="form-check-label" for="esc_ldscsp">LDS/CSP + CNG</label></div>
+            <div class="form-check me-3"><input class="form-check-input esc-flag" type="checkbox" value="Transporte" id="esc_transp" data-flag="Transporte"><label class="form-check-label" for="esc_transp">Transporte</label></div>
+            <div class="form-check me-3"><input class="form-check-input esc-flag" type="checkbox" value="VC1" id="esc_vc1" data-flag="VC1"><label class="form-check-label" for="esc_vc1">VC1</label></div>
+            <div class="form-check me-3"><input class="form-check-input esc-flag" type="checkbox" value="Concentração" id="esc_conc" data-flag="Concentração"><label class="form-check-label" for="esc_conc">Concentração</label></div>
+          </div>
+          <div class="help-text mt-1">As seleções alimentam a "Ponta B — Tráfego" do diagrama no Excel.</div>
+        </div>
+      </div>
+    </section>
+    {% else %}
+    <section class="card section-card mb-3" aria-labelledby="sec-vivo">
+      <div class="card-header d-flex align-items-center justify-content-between" id="sec-vivo">
+        <span>3) Dados VIVO</span>
+        <div class="d-flex gap-2 align-items-center">
+          <span class="cap-counter"><span id="vivoCount">0</span>/10</span>
+          <button type="button" class="btn btn-sm btn-outline-hub" id="addRowVivo"><i class="bi bi-plus-lg"></i> Linha</button>
+          <button type="button" class="btn btn-sm btn-outline-hub" id="clearRowsVivo">Limpar</button>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="table-responsive">
+          <table class="table table-bordered table-sm table-hover align-middle" id="tableVivo">
+            <thead class="table-light">
+              <tr>
+                <th>Ref</th><th>Data</th><th>Escopo</th><th>Localidade</th><th>CN</th><th>SBC</th><th>Mask</th>
+                <th>Endereço LINK</th><th>Cidade</th><th>UF</th><th>LAT.</th><th>LONG</th>
+                <th class="text-center">Ação</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+          <div class="help-text">Máximo de 10 linhas. O backend aplica o mesmo limite.</div>
+        </div>
+
+        <!-- ===== PAINEL DE SUGESTÃO DE SBC ===== -->
+        <div id="sbcSuggestionPanel" class="sbc-panel" style="display:none;" role="region" aria-label="Sugestão de SBC">
+          <div class="sbc-panel-header">
+            <div class="sbc-panel-title">
+              <i class="bi bi-broadcast-pin"></i>
+              <span id="sbcPanelTitle">SBCs sugeridos</span>
+            </div>
+            <div class="sbc-panel-meta" id="sbcPanelMeta"></div>
+          </div>
+          <div id="sbcFallbackNote" class="sbc-fallback-note" style="display:none;"></div>
+          <div id="sbcCardList"></div>
+          <div id="sbcLoading" class="sbc-loading" style="display:none;">Buscando SBCs disponíveis...</div>
+          <div id="sbcEmpty" class="sbc-empty" style="display:none;"></div>
+        </div>
+      </div>
+    </section>
+    {% endif %}
+
+    <!-- ============================================================= -->
+    <!-- 4) Dados Operadora                                            -->
+    <!-- ============================================================= -->
+    <section class="card section-card mb-3" aria-labelledby="sec-op">
+      <div class="card-header d-flex align-items-center justify-content-between" id="sec-op">
+        <span>4) Dados Operadora</span>
+        {% if not engineer_mode %}
+        <div class="d-flex gap-2 align-items-center">
+          <span class="cap-counter"><span id="opCount">0</span>/10</span>
+          <button type="button" class="btn btn-sm btn-outline-hub" id="addRowOperadora"><i class="bi bi-plus-lg"></i> Linha</button>
+          <button type="button" class="btn btn-sm btn-outline-hub" id="clearRowsOperadora">Limpar</button>
+        </div>
+        {% endif %}
+      </div>
+      <div class="card-body">
+        <div class="table-responsive">
+          <table class="table table-bordered table-sm table-hover align-middle" id="tableOperadora">
+            <thead class="table-light">
+              <tr>
+                <th>Ref</th><th>Localidade</th><th>ETO LC</th><th>EOT LD</th><th>CN</th><th>SBC</th><th>Faixa de IP</th>
+                <th>Concentração?</th><th>Endereço LINK</th><th>Cidade</th><th>UF</th><th>LAT.</th><th>LONG</th>
+                {% if not engineer_mode %}<th class="text-center">Ação</th>{% endif %}
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+          <div class="help-text">Máximo de 10 linhas.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================= -->
+    <!-- 5) Infraestrutura                                             -->
+    <!-- ============================================================= -->
+    <section class="card section-card mb-3" aria-labelledby="sec-infra">
+      <div class="card-header" id="sec-infra">5) Infraestrutura</div>
+      <div class="card-body">
+        <p class="mb-3"><strong>A Operadora será responsável pela construção da infraestrutura até a caixa Zero do prédio da VIVO.</strong></p>
+        <div class="row g-3">
+          <div class="col-md-4">
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" id="operadora_ciente" name="operadora_ciente"
+                     {% if form and form.operadora_ciente %}checked{% endif %}>
+              <label class="form-check-label" for="operadora_ciente">Operadora ciente?</label>
+            </div>
+          </div>
+          <div class="col-md-8">
+            <label class="form-label" for="responsavel_infra">Nome do responsável</label>
+            <input type="text" class="form-control form-control-sm" id="responsavel_infra" name="responsavel_infra"
+                   value="{{ form.responsavel_infra if form else '' }}">
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================= -->
+    <!-- 6) LCR Nacional                                               -->
+    <!-- ============================================================= -->
+    <section class="card section-card mb-3" aria-labelledby="sec-lcr">
+      <div class="card-header" id="sec-lcr">6) Transporte de Chamadas via LCR Nacional</div>
+      <div class="card-body">
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" id="lcr_nacional" name="lcr_nacional"
+                 {% if form and form.lcr_nacional %}checked{% endif %}>
+          <label class="form-check-label" for="lcr_nacional">LCR Nacional?</label>
+        </div>
+        <div class="form-check mt-2">
+          <input class="form-check-input" type="checkbox" id="white_list" name="white_list"
+                 {% if form and form.white_list %}checked{% endif %}>
+          <label class="form-check-label" for="white_list">Cadastro White List?</label>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================= -->
+    <!-- 7) Faixa de Numeração                                         -->
+    <!-- ============================================================= -->
+    <section class="card section-card mb-3" aria-labelledby="sec-faixa">
+      <div class="card-header" id="sec-faixa">7) Faixa de Numeração da Operadora</div>
+      <div class="card-body">
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" id="prefixos_liberados_abr" name="prefixos_liberados_abr"
+                 {% if form and form.prefixos_liberados_abr %}checked{% endif %}>
+          <label class="form-check-label" for="prefixos_liberados_abr">Prefixos liberados na ABR?</label>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================= -->
+    <!-- 8) Premissas de Abordagem                                     -->
+    <!-- ============================================================= -->
+    <section class="card section-card mb-3" aria-labelledby="sec-premissas">
+      <div class="card-header" id="sec-premissas">8) Premissas de Abordagem</div>
+      <div class="card-body">
+        <div class="row g-3 align-items-center mb-3">
+          <div class="col-md-8 d-flex align-items-center">
+            <input class="form-check-input me-2" type="checkbox" id="premissas_ok" name="premissas_ok"
+                   {% if form and form.premissas_ok %}checked{% endif %}>
+            <label class="form-check-label fw-semibold mb-0" for="premissas_ok">
+              A aprovação está de acordo com as informações apresentadas, bem como às 29 Pendências de Programação.
+            </label>
+          </div>
+          <div class="col-md-4 d-flex align-items-center">
+            <label class="form-label fw-semibold me-2 mb-0" for="aprovado_por">Aprovado por:</label>
+            <input type="text" class="form-control form-control-sm" id="aprovado_por" name="aprovado_por"
+                   value="{{ form.aprovado_por if form else '' }}" placeholder="Nome do responsável">
+          </div>
+        </div>
+        <p class="mb-2"><strong>Premissas SIP:</strong> link (ex.: 1Gb com banda 100Mb e QoS 80%); ~100kb por canal; com dois links de 100Mb a soma deve ser 400 canais.</p>
+        <p class="mb-2">Na Reunião de PTI a Operadora deverá informar a faixa de IP para as rotas do projeto, ou solicitar à Telefônica a designação de uma faixa de IP /29.</p>
+        <p class="mb-3">A Operadora é responsável pela construção da infraestrutura até a caixa Zero do prédio da VIVO.</p>
+        <div class="table-responsive">
+          <table class="table table-bordered table-sm">
+            <thead class="table-light"><tr><th>Tráfego</th><th>Descrição</th></tr></thead>
+            <tbody>
+              <tr><td>LC / TR LC (CNs1X)</td><td>Chamadas entre operadoras dentro da mesma Área Local; devoluções na mesma AL.</td></tr>
+              <tr><td>LD 15 / CNG VIVO / SE</td><td>Encaminhamentos entre Vivo-STFC e operadora contratada (LD15, SE e CNG).</td></tr>
+              <tr><td>LD Oper CSP XY / LD s/ CSP / CNG</td><td>Tráfego LD com/sem CSP e CNG conforme acordado.</td></tr>
+              <tr><td>Transporte</td><td>Chamadas entregues pela operadora contratada de qualquer CN para qualquer operadora.</td></tr>
+              <tr><td>VC1</td><td>Chamadas entre AL e VIVO-SMP no CN, destinadas aos prefixos da operadora.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================= -->
+    <!-- 9) Parâmetros Técnicos — Engenharia                           -->
+    <!-- ============================================================= -->
+    {% if engineer_mode %}
+    <section class="card section-card mb-3" id="eng-section" aria-labelledby="sec-eng">
+      <div class="card-header d-flex align-items-center justify-content-between" id="sec-eng">
+        <span>9) Parâmetros Técnicos — Engenharia</span>
+        <div class="toolbar d-flex gap-2 flex-wrap">
+          <button type="button" class="btn btn-outline-hub btn-sm" id="engCheckAll"><i class="bi bi-check2-square"></i> Marcar tudo</button>
+          <button type="button" class="btn btn-outline-hub btn-sm" id="engUncheckAll"><i class="bi bi-x-square"></i> Limpar tudo</button>
+        </div>
+      </div>
+      <div class="card-body eng-checklist">
+
+        <div class="group-title fw-semibold mb-2">Dados do Tratamento das chamadas</div>
+        {% for key, text in [
+          ("tratamento.reinvite_obrigatorio", "É mandatório a utilização de re-invites pela Origem para definição de codecs quando o destino não define um único codec (envia lista)."),
+          ("tratamento.ptime_maxptime_20ms", "<strong>Ptime/Maxptime</strong>: no SDP answer, devem ser múltiplos inteiros de 20 para codecs móveis (3GPP 26.114)."),
+          ("tratamento.qos_marcacoes_rtp", "Para RTP em rede IP, espera-se marcação <strong>CS5 / DSCP 46 / EF</strong>.")
+        ] %}
+        <div class="row-line d-grid mt-2" style="grid-template-columns:36px 1fr;">
+          <div class="d-grid place-items-center border-end"><input class="form-check-input eng-flag" type="checkbox" data-key="{{ key }}"></div>
+          <div class="p-2"><p class="mb-0">{{ text|safe }}</p></div>
+        </div>
+        {% endfor %}
+
+        <div class="group-title fw-semibold mt-3 mb-2">Negociação de CODEC / Modo</div>
+        {% for key, text in [
+          ("codec.sipi_sem_rn3_portado", "Chamadas <strong>SIP-I</strong> trocadas <em>sem RN3 (060)</em> para tráfego portado."),
+          ("codec.oferta_g711a_g729_stfc", "SIP-I STFC/STFC e STFC/SMP: oferta mandatória dos codecs <strong>G.711A</strong> e <strong>G.729</strong>."),
+          ("codec.amr_g711a_smp", "SIP-I SMP/SMP: <strong>AMR</strong> e <strong>G.711A</strong>."),
+          ("codec.g711u_nao_suportado", "Codec <strong>G.711u</strong> não é suportado.")
+        ] %}
+        <div class="row-line d-grid mt-2" style="grid-template-columns:36px 1fr;">
+          <div class="d-grid place-items-center border-end"><input class="form-check-input eng-flag" type="checkbox" data-key="{{ key }}"></div>
+          <div class="p-2"><p class="mb-0">{{ text|safe }}</p></div>
+        </div>
+        {% endfor %}
+
+        <div class="group-title fw-semibold mt-3 mb-2">Identificação e Interconexão</div>
+        {% for key, text in [
+          ("id.originador_fixo_isupbr_regiao3", "Originador válido (Rede Fixa): <strong>ISUPBR</strong> (Região III)."),
+          ("id.originador_movel_isupbr_itu92_opcional", "Originador válido (Rede Móvel): <strong>ISUPBR</strong> (opcional <em>ITU-92</em>)."),
+          ("id.fax_t38_nao_suportado", "<strong>FAX T.38</strong>: protocolo não suportado."),
+          ("id.bgp_ip30_mpls_contingencia", "Configuração BGP em <strong>IP/30</strong> com <strong>MPLS</strong> e link de contingência.")
+        ] %}
+        <div class="row-line d-grid mt-2" style="grid-template-columns:36px 1fr;">
+          <div class="d-grid place-items-center border-end"><input class="form-check-input eng-flag" type="checkbox" data-key="{{ key }}"></div>
+          <div class="p-2"><p class="mb-0">{{ text|safe }}</p></div>
+        </div>
+        {% endfor %}
+
+        <div class="group-title fw-semibold mt-3 mb-2">Principais RFC e SIP headers</div>
+        {% for key, text in [
+          ("rfc.3261_base", "<strong>RFC 3261</strong> — SIP (base)."),
+          ("rfc.3262_100rel_prack", "<strong>RFC 3262</strong> — 100rel / PRACK."),
+          ("rfc.sdp_3264_3266_2327_4566", "<strong>RFC 3264 / 3266 / 2327 / 4566</strong> — SDP."),
+          ("rfc.4028_timers", "<strong>RFC 4028</strong> — SIP Timers.")
+        ] %}
+        <div class="row-line d-grid mt-2" style="grid-template-columns:36px 1fr;">
+          <div class="d-grid place-items-center border-end"><input class="form-check-input eng-flag" type="checkbox" data-key="{{ key }}"></div>
+          <div class="p-2"><p class="mb-0">{{ text|safe }}</p></div>
+        </div>
+        {% endfor %}
+
+        <div class="group-title fw-semibold mt-3 mb-2">RFCs habilitadas/suportadas</div>
+        {% for key, text in [
+          ("habilitadas.3389_cn", "<strong>RFC 3389</strong> — Comfort Noise."),
+          ("habilitadas.2833_dtmf", "<strong>RFC 2833</strong> — Transporte DTMF."),
+          ("habilitadas.3264_hold", "<strong>RFC 3264</strong> — Suporte à função Hold.")
+        ] %}
+        <div class="row-line d-grid mt-2" style="grid-template-columns:36px 1fr;">
+          <div class="d-grid place-items-center border-end"><input class="form-check-input eng-flag" type="checkbox" data-key="{{ key }}"></div>
+          <div class="p-2"><p class="mb-0">{{ text|safe }}</p></div>
+        </div>
+        {% endfor %}
+
+        <div class="group-title fw-semibold mt-3 mb-2">Early Media / RBT / Offer-Answer</div>
+        {% for key, text in [
+          ("early.3960_early_media", "<strong>RFC 3960</strong> — Early Media e Ring Tone Generation."),
+          ("early.180ring_proxy_rbt_local", "<strong>OBS:</strong> Em <em>SIP 180 Ring</em> puro, o Proxy deve gerar o RBT localmente."),
+          ("early.6337_offer_answer", "<strong>RFC 6337</strong> — Modelo de oferta-resposta (offer–answer).")
+        ] %}
+        <div class="row-line d-grid mt-2" style="grid-template-columns:36px 1fr;">
+          <div class="d-grid place-items-center border-end"><input class="form-check-input eng-flag" type="checkbox" data-key="{{ key }}"></div>
+          <div class="p-2"><p class="mb-0">{{ text|safe }}</p></div>
+        </div>
+        {% endfor %}
+
+        <div class="group-title fw-semibold mt-3 mb-2">Observações da Engenharia (opcional)</div>
+        <textarea class="form-control" id="eng_notes" placeholder="Ex.: particularidades do parceiro, exceções de RFC…" rows="3">{{ (form.engenharia_params_json or '{}') }}</textarea>
+        <small class="text-body-secondary">Este texto também é salvo em <code>engenharia_params_json</code> como <code>notes</code>.</small>
+      </div>
+    </section>
+    {% endif %}
+
+    <!-- Barra de ações -->
+    <div class="action-bar py-3">
+      <div class="container d-flex justify-content-end gap-2">
+        {% if engineer_mode %}
+          <a class="btn btn-outline-hub" href="{{ url_for('engenharia_form_list') }}">Voltar</a>
+          <button type="submit" id="btnSaveEng" class="btn btn-primary">
+            <span class="spinner-border spinner-border-sm me-2 d-none" aria-hidden="true"></span>Salvar
+          </button>
+        {% else %}
+          <button type="button" class="btn btn-outline-hub" id="resetForm">Limpar</button>
+          <button type="submit" id="btnSave" class="btn btn-outline-hub" onclick="setStatus('rascunho')">
+            <span class="spinner-border spinner-border-sm me-2 d-none" aria-hidden="true"></span>Salvar
+          </button>
+          <button type="submit" id="btnFinish" class="btn btn-success" onclick="return finalizeSubmit();">
+            <span class="spinner-border spinner-border-sm me-2 d-none" aria-hidden="true"></span>Finalizar
+          </button>
+        {% endif %}
+      </div>
+    </div>
+  </form>
+</main>
+
+<!-- ================================================================= -->
+<!-- JAVASCRIPT                                                        -->
+<!-- ================================================================= -->
+<script data-engineer="{{ 'true' if engineer_mode else 'false' }}">
+/* ===== GLOBALS ===== */
+const engineerMode = document.currentScript.getAttribute('data-engineer') === 'true';
+const ROW_CAP = 10;
+
+/* ===== CN MAP (via API) ===== */
+let CN_FULL = [];
+let CN_MAP  = {};
+
+fetch('/api/cns')
+  .then(r => r.json())
+  .then(data => {
+    CN_FULL = data;
+    data.forEach(({codigo, nome, uf}) => {
+      CN_MAP[(codigo||'').toString().padStart(2,'0')] = { cidade: nome||'', uf: uf||'' };
+    });
+  })
+  .catch(err => console.error('Erro ao carregar CNs:', err));
+
+function resolveCityUF(cn){
+  const code = String(cn||'').trim().padStart(2,'0');
+  return CN_MAP[code] || { cidade:'', uf:'' };
 }
 
-# Score base por STATUS (0-100)
-SBC_STATUS_BASE_SCORE = {
-    "disponivel": 70,
-    "moderado":   45,
-    "critico":    15,
+/* ===== HELPERS ===== */
+let isDirty = false, submitting = false;
+function setDirty(){ isDirty = true; }
+
+const mkInput = (ph='', attrs={}) => {
+  const i = document.createElement('input');
+  i.type='text'; i.placeholder=ph; i.className='form-control form-control-sm';
+  Object.entries(attrs||{}).forEach(([k,v])=>{ if(v!=null) i.setAttribute(k,v); });
+  i.addEventListener('input', setDirty);
+  i.addEventListener('change', setDirty);
+  return i;
+};
+const mkCheck = () => {
+  const w=document.createElement('div'); w.className='form-check d-flex justify-content-center mb-0';
+  const c=document.createElement('input'); c.type='checkbox'; c.className='form-check-input';
+  c.addEventListener('change', setDirty); w.appendChild(c); return w;
+};
+const mkRemoveBtn = () => {
+  const b=document.createElement('button'); b.type='button'; b.className='btn btn-outline-danger btn-sm';
+  b.innerHTML='<i class="bi bi-dash-lg"></i>';
+  b.addEventListener('click', e=>{ e.currentTarget.closest('tr')?.remove(); updateCounters(); setDirty(); });
+  return b;
+};
+
+function updateCounters(){
+  const tv=document.querySelector('#tableVivo tbody');
+  const to=document.querySelector('#tableOperadora tbody');
+  const vEl=document.getElementById('vivoCount'); if(vEl) vEl.textContent = tv ? tv.children.length : 0;
+  const oEl=document.getElementById('opCount');   if(oEl) oEl.textContent = to ? to.children.length : 0;
 }
 
-# Whitelist de flags do escopo
-ALLOWED_SCOPE_FLAGS = frozenset({
-    "LC", "LD15 + CNG", "LDS/CSP + CNG", "Transporte", "VC1", "Concentração"
-})
-
-BOOLEAN_FIELDS = (
-    "csp", "servicos_especiais", "cng",
-    "sbc_ativo", "ip_reservado", "vivo_reserva",
-    "operadora_ciente", "lcr_nacional", "white_list",
-    "prefixos_liberados_abr", "premissas_ok",
-)
-
-TEXT_FIELDS = (
-    "nome_operadora", "rn1", "atendimento", "redes", "qual", "tmr",
-    "responsavel_operadora", "responsavel_vivo", "asn",
-    "responsavel_infra", "aprovado_por",
-    "status", "escopo_text",
-    "responsavel_atacado", "responsavel_engenharia",
-)
-
-JSON_FIELDS = (
-    "escopo_flags_json", "dados_vivo_json",
-    "dados_operadora_json", "engenharia_params_json",
-)
-
-# =============================================================================
-# SEED DE CNs (Códigos Nacionais de telefonia)
-# =============================================================================
-_CN_SEED_RAW = """
-68 82 97 92 96 77 75 74 73 71 88 85 61 27 28 64 62 61 98 99
-34 37 31 35 32 38 33 67 66 65 91 94 93 83 81 87 86 89
-43 44 45 46 41 24 22 21 84 69 95 51 53 54 55 47 48 49 79
-18 14 15 16 13 19 17 11 12 63
-"""
-
-CN_METADATA = {
-    "11": ("São Paulo", "SP"), "12": ("São José dos Campos", "SP"),
-    "13": ("Santos", "SP"), "14": ("Bauru", "SP"),
-    "15": ("Sorocaba", "SP"), "16": ("Ribeirão Preto", "SP"),
-    "17": ("São José do Rio Preto", "SP"), "18": ("Presidente Prudente", "SP"),
-    "19": ("Campinas", "SP"),
-    "21": ("Rio de Janeiro", "RJ"), "22": ("Campos dos Goytacazes", "RJ"),
-    "24": ("Volta Redonda", "RJ"), "27": ("Vitória", "ES"),
-    "28": ("Cachoeiro de Itapemirim", "ES"),
-    "31": ("Belo Horizonte", "MG"), "32": ("Juiz de Fora", "MG"),
-    "33": ("Governador Valadares", "MG"), "34": ("Uberlândia", "MG"),
-    "35": ("Poços de Caldas", "MG"), "37": ("Divinópolis", "MG"),
-    "38": ("Montes Claros", "MG"),
-    "41": ("Curitiba", "PR"), "42": ("Ponta Grossa", "PR"),
-    "43": ("Londrina", "PR"), "44": ("Maringá", "PR"),
-    "45": ("Foz do Iguaçu", "PR"), "46": ("Francisco Beltrão", "PR"),
-    "47": ("Joinville", "SC"), "48": ("Florianópolis", "SC"),
-    "49": ("Chapecó", "SC"),
-    "51": ("Porto Alegre", "RS"), "53": ("Pelotas", "RS"),
-    "54": ("Caxias do Sul", "RS"), "55": ("Santa Maria", "RS"),
-    "61": ("Brasília", "DF"), "62": ("Goiânia", "GO"),
-    "63": ("Palmas", "TO"), "64": ("Rio Verde", "GO"),
-    "65": ("Cuiabá", "MT"), "66": ("Rondonópolis", "MT"),
-    "67": ("Campo Grande", "MS"),
-    "71": ("Salvador", "BA"), "73": ("Ilhéus", "BA"),
-    "74": ("Juazeiro", "BA"), "75": ("Feira de Santana", "BA"),
-    "77": ("Vitória da Conquista", "BA"),
-    "79": ("Aracaju", "SE"), "81": ("Recife", "PE"),
-    "82": ("Maceió", "AL"), "83": ("João Pessoa", "PB"),
-    "84": ("Natal", "RN"), "85": ("Fortaleza", "CE"),
-    "86": ("Teresina", "PI"), "87": ("Petrolina", "PE"),
-    "88": ("Juazeiro do Norte", "CE"), "89": ("Picos", "PI"),
-    "91": ("Belém", "PA"), "92": ("Manaus", "AM"),
-    "93": ("Santarém", "PA"), "94": ("Marabá", "PA"),
-    "95": ("Boa Vista", "RR"), "96": ("Macapá", "AP"),
-    "97": ("Coari", "AM"),
-    "98": ("São Luís", "MA"), "99": ("Imperatriz", "MA"),
-    "68": ("Rio Branco", "AC"), "69": ("Porto Velho", "RO"),
+/* ===== SERIALIZAÇÃO ===== */
+function serializeTableVivo(){
+  const rows=[];
+  document.querySelectorAll('#tableVivo tbody tr').forEach(tr=>{
+    const c=tr.querySelectorAll('td');
+    rows.push({
+      ref:c[0]?.querySelector('input')?.value||'', data:c[1]?.querySelector('input')?.value||'',
+      escopo:c[2]?.querySelector('input')?.value||'', localidade:c[3]?.querySelector('input')?.value||'',
+      cn:c[4]?.querySelector('input')?.value||'', sbc:c[5]?.querySelector('input')?.value||'',
+      mask:c[6]?.querySelector('input')?.value||'', endereco_link:c[7]?.querySelector('input')?.value||'',
+      cidade:c[8]?.querySelector('input')?.value||'', uf:c[9]?.querySelector('input')?.value||'',
+      lat:c[10]?.querySelector('input')?.value||'', long:c[11]?.querySelector('input')?.value||''
+    });
+  });
+  return rows;
+}
+function serializeTableOperadora(){
+  const rows=[];
+  document.querySelectorAll('#tableOperadora tbody tr').forEach(tr=>{
+    const c=tr.querySelectorAll('td');
+    rows.push({
+      ref:c[0]?.querySelector('input')?.value||'', localidade:c[1]?.querySelector('input')?.value||'',
+      eto_lc:c[2]?.querySelector('input')?.value||'', eot_ld:c[3]?.querySelector('input')?.value||'',
+      cn:c[4]?.querySelector('input')?.value||'', sbc:c[5]?.querySelector('input')?.value||'',
+      faixa_ip:c[6]?.querySelector('input')?.value||'',
+      concentracao:c[7]?.querySelector('input')?.checked||false,
+      endereco_link:c[8]?.querySelector('input')?.value||'',
+      cidade:c[9]?.querySelector('input')?.value||'', uf:c[10]?.querySelector('input')?.value||'',
+      lat:c[11]?.querySelector('input')?.value||'', long:c[12]?.querySelector('input')?.value||''
+    });
+  });
+  return rows;
 }
 
-# =============================================================================
-# MAPEAMENTO UF → REGIONAL E VIZINHOS (para fallback inteligente de SBC)
-# =============================================================================
-UF_TO_REGIONAL = {
-    "AC": "NORTE", "AM": "NORTE", "AP": "NORTE", "PA": "NORTE",
-    "RO": "NORTE", "RR": "NORTE", "TO": "NORTE",
-    "AL": "NORDESTE", "BA": "NORDESTE", "CE": "NORDESTE",
-    "MA": "NORDESTE", "PB": "NORDESTE", "PE": "NORDESTE",
-    "PI": "NORDESTE", "RN": "NORDESTE", "SE": "NORDESTE",
-    "DF": "CENTRO-OESTE", "GO": "CENTRO-OESTE",
-    "MS": "CENTRO-OESTE", "MT": "CENTRO-OESTE",
-    "ES": "SUDESTE", "MG": "SUDESTE", "RJ": "SUDESTE", "SP": "SUDESTE",
-    "PR": "SUL", "RS": "SUL", "SC": "SUL",
-}
+/* ================================================================= */
+/* SBC SUGGESTION PANEL  (só ativo quando engineerMode=true)         */
+/* Dados: CAPS + STATUS (fonte XLSX)                                 */
+/* ================================================================= */
+const SBC = (function(){
+  const panel   = document.getElementById('sbcSuggestionPanel');
+  const titleEl = document.getElementById('sbcPanelTitle');
+  const metaEl  = document.getElementById('sbcPanelMeta');
+  const fallEl  = document.getElementById('sbcFallbackNote');
+  const listEl  = document.getElementById('sbcCardList');
+  const loadEl  = document.getElementById('sbcLoading');
+  const emptyEl = document.getElementById('sbcEmpty');
 
-UF_NEIGHBORS = {
-    "AC": ["RO", "AM"],
-    "AL": ["PE", "SE", "BA"],
-    "AM": ["PA", "RR", "AC", "RO", "MT"],
-    "AP": ["PA"],
-    "BA": ["SE", "AL", "PE", "PI", "MG", "GO", "TO", "MA"],
-    "CE": ["RN", "PB", "PE", "PI"],
-    "DF": ["GO", "MG"],
-    "ES": ["MG", "RJ", "BA"],
-    "GO": ["DF", "MG", "MS", "MT", "TO", "BA"],
-    "MA": ["PI", "TO", "PA"],
-    "MG": ["SP", "RJ", "ES", "BA", "GO", "DF", "MS"],
-    "MS": ["PR", "SP", "MG", "GO", "MT"],
-    "MT": ["MS", "GO", "TO", "PA", "AM", "RO"],
-    "PA": ["MA", "TO", "MT", "AM", "AP", "RR"],
-    "PB": ["PE", "RN", "CE"],
-    "PE": ["PB", "AL", "BA", "CE", "PI"],
-    "PI": ["MA", "CE", "PE", "BA", "TO"],
-    "PR": ["SP", "SC", "MS"],
-    "RJ": ["SP", "MG", "ES"],
-    "RN": ["PB", "CE"],
-    "RO": ["MT", "AM", "AC"],
-    "RR": ["AM", "PA"],
-    "RS": ["SC"],
-    "SC": ["PR", "RS"],
-    "SE": ["AL", "BA"],
-    "SP": ["RJ", "MG", "PR", "MS"],
-    "TO": ["MA", "PI", "BA", "GO", "MT", "PA"],
-}
+  if(!panel || !engineerMode) return { fetch:()=>{}, fillSbc:()=>{} };
 
-# =============================================================================
-# SBC — MODELOS DE DADOS (Dataclasses)
-# =============================================================================
-@dataclass
-class SBCMeasurement:
-    """Uma única medição de um SBC (uma linha do XLSX)."""
-    semana: str        # Y2025_W22
-    dia: str           # 26/05/2025
-    cidade: str        # RECIFE
-    uf: str            # PE
-    regional: str      # NORDESTE
-    sbc: str           # PERCE_NGNTRO_SBC01
-    caps: int          # 277
-    status: str        # Atenção / Normal / Crítico
-    modelo: str        # ORACLE (coluna MOD/ FORNEC)
-    servico: str       # ITX
-    responsavel: str   # (pode ser vazio)
-    prazo: str         # (pode ser vazio)
+  let _activeRowIndex = -1, _lastCn = '', _fetchTimeout = null;
 
+  /* === Helpers visuais === */
+  function scoreBarClass(score){
+    if(score>=70) return 'low';   /* verde  */
+    if(score>=40) return 'mid';   /* amarelo */
+    return 'crit';                /* vermelho */
+  }
+  function badgeClass(saude){
+    const map = {disponivel:'sbc-badge-disponivel',moderado:'sbc-badge-moderado',critico:'sbc-badge-critico'};
+    return map[saude] || 'sbc-badge-moderado';
+  }
+  function saudeLabel(s){
+    return {disponivel:'Disponível',moderado:'Moderado',critico:'Crítico'}[s] || (s||'—');
+  }
+  function statusFonteBadge(st){
+    if(!st) return '';
+    const key = st.toLowerCase();
+    let cls = 'background:#e9ecef;color:#333';
+    if(key.includes('norm')) cls = 'background:#d1e7dd;color:#0f5132';
+    else if(key.includes('aten')) cls = 'background:#fff3cd;color:#664d03';
+    else if(key.includes('crít') || key.includes('crit')) cls = 'background:#f8d7da;color:#842029';
+    return `<span style="font-size:.7rem;font-weight:600;padding:.12rem .4rem;border-radius:4px;${cls}">${st}</span>`;
+  }
+  function tendenciaHTML(t){
+    if(!t || t==='estavel') return '<span class="sbc-tendencia estavel">→ estável</span>';
+    if(t==='subindo')       return '<span class="sbc-tendencia subindo">↗ subindo</span>';
+    return '<span class="sbc-tendencia descendo">↘ descendo</span>';
+  }
+  /* Garantir que pega o valor numérico mesmo se vier como string */
+  function num(v, fallback){ const n=Number(v); return isNaN(n)?fallback:n; }
+  function fmt1(v){ return num(v,0).toFixed?num(v,0).toFixed(1):num(v,0); }
 
-@dataclass
-class SBCAnalysisResult:
-    """Resultado da análise de um SBC individual."""
-    nome: str
-    cidade: str
-    uf: str
-    regional: str
-    modelo: str
-    servicos: list
-    caps_avg: float        # média CAPS no período
-    caps_max: int          # CAPS máximo
-    caps_min: int          # CAPS mínimo
-    caps_ultimo: int       # CAPS do dia mais recente
-    caps_tendencia: str    # "estavel" | "subindo" | "descendo"
-    total_medicoes: int
-    status_fonte: str        # pior status no período
-    saude: str             # disponivel | moderado | critico
-    score: int             # 0-100
-    recomendado: bool
-    motivo: str
-    responsavel: str
-    prazo: str
-    dia_mais_recente: str
-    semana: str
+  /* === Renderizar cards === */
+  function renderCards(data){
+    listEl.innerHTML=''; loadEl.style.display='none'; emptyEl.style.display='none';
 
+    const uf = data.uf || '??';
+    const cidade = data.cidade || '';
+    const cn = data.cn || '';
+    titleEl.textContent = `SBCs para ${uf}${cidade ? ' ('+cidade+')':''} — CN ${cn}`;
 
-@dataclass
-class SBCSuggestionResponse:
-    """Resposta completa da API de sugestão de SBC."""
-    cn: str
-    uf: str
-    cidade: str
-    regional: str
-    source_file: str
-    source_modificado_em: str
-    data_medicao: str
-    total_sbcs: int
-    sbcs: list
-    fallback_usado: bool
-    fallback_origem: str
-    mensagem: str
-
-
-# =============================================================================
-# SBC — PROCESSADOR DE DADOS (XLSX)
-# =============================================================================
-class SBCDataProcessor:
-    """
-    Lê, limpa e cacheia dados de SBC a partir de planilhas XLSX.
-    Estrutura esperada do XLSX:
-      SEMANA | DIA | CIDADE | UF | REGIONAL | SBC | CAPS | STATUS |
-      MOD/ FORNEC | SERVIÇO | RESPONSÁVEL | PRAZO
-    """
-
-    COLUMN_MAP = {
-        # Período
-        "SEMANA": "semana", "ANO SEMANA": "semana",
-        "DIA": "dia",
-        # Localização
-        "CIDADE": "cidade",
-        "UF": "uf",
-        "REGIONAL": "regional",
-        # SBC
-        "SBC": "sbc",
-        "CAPS": "caps",
-        # Status
-        "ST": "status", "STATUS": "status",
-        # Equipamento
-        "MOD/ FORNEC": "modelo", "MOD/FORNEC": "modelo",
-        "MODELO": "modelo", "FORNECEDOR": "modelo",
-        "MOD / FORNEC": "modelo", "FABRICANTE": "modelo",
-        # Serviço
-        "SERVIÇO": "servico", "SERVICO": "servico",
-        # Responsável / Prazo
-        "RESPONSÁVEL": "responsavel", "RESPONSAVEL": "responsavel",
-        "PRAZO": "prazo",
+    /* Fonte do arquivo */
+    const srcFile = data.source_file || '';
+    const srcMod  = data.source_modificado_em || '';
+    if(srcFile){
+      metaEl.innerHTML = `Fonte: <strong>${srcFile}</strong>${srcMod ? ' · '+srcMod : ''}`;
+    } else {
+      metaEl.innerHTML = '';
     }
 
-    def __init__(self, data_dir: str, cache_ttl: int = SBC_CACHE_TTL_SECONDS):
-        self.data_dir = data_dir
-        self.cache_ttl = cache_ttl
-        self._cache_data: list[SBCMeasurement] = []
-        self._cache_aggregated: list[dict] = []
-        self._cache_timestamp: float = 0.0
-        self._cache_file_path: str = ""
-        self._cache_file_mtime: float = 0.0
-
-    def find_latest_file(self) -> Optional[str]:
-        if not os.path.isdir(self.data_dir):
-            logger.warning(f"Diretório de SBC não encontrado: {self.data_dir}")
-            return None
-        data_files = []
-        for pattern in ("*.xlsx", "*.XLSX", "*.xls", "*.XLS"):
-            data_files.extend(glob.glob(os.path.join(self.data_dir, pattern)))
-        if not data_files:
-            logger.warning(f"Nenhum arquivo XLSX encontrado em: {self.data_dir}")
-            return None
-        data_files.sort(key=lambda f: os.path.getmtime(f), reverse=True)
-        latest = data_files[0]
-        logger.info(f"Arquivo SBC mais recente: {os.path.basename(latest)} "
-                     f"({len(data_files)} arquivos no diretório)")
-        return latest
-
-    def _normalize_column_name(self, raw_name: str) -> str:
-        clean = raw_name.strip().upper()
-        return self.COLUMN_MAP.get(clean, clean.lower().replace(" ", "_").replace("/", "_"))
-
-    def _parse_int(self, value, default: int = 0) -> int:
-        try:
-            cleaned = str(value).strip().replace(",", ".").replace(" ", "")
-            return int(float(cleaned)) if cleaned else default
-        except (ValueError, TypeError):
-            return default
-
-    def _read_file(self, filepath: str) -> tuple[list[SBCMeasurement], list[dict]]:
-        ext = os.path.splitext(filepath)[1].lower()
-        if ext in (".xlsx", ".xls"):
-            return self._read_xlsx(filepath)
-        logger.warning(f"Formato não suportado: {ext}. Use XLSX.")
-        return [], []
-
-    def _read_xlsx(self, filepath: str) -> tuple[list[SBCMeasurement], list[dict]]:
-        measurements = []
-        aggregated = []
-        if not OPENPYXL_AVAILABLE:
-            logger.error("openpyxl não disponível — não é possível ler XLSX.")
-            return [], []
-        try:
-            from openpyxl import load_workbook
-            wb = load_workbook(filepath, read_only=True, data_only=True)
-            ws = wb.active
-            rows_iter = ws.iter_rows(values_only=True)
-            try:
-                header_raw = next(rows_iter)
-            except StopIteration:
-                logger.error(f"XLSX vazio: {filepath}")
-                wb.close()
-                return [], []
-            headers = []
-            for cell_val in header_raw:
-                raw = str(cell_val).strip() if cell_val is not None else ""
-                headers.append(self._normalize_column_name(raw))
-            logger.info(f"Colunas detectadas: {headers}")
-            for row_num, row_values in enumerate(rows_iter, start=2):
-                normalized_row = {}
-                for col_idx, cell_val in enumerate(row_values):
-                    if col_idx < len(headers):
-                        val = str(cell_val).strip() if cell_val is not None else ""
-                        normalized_row[headers[col_idx]] = val
-                sbc_name = normalized_row.get("sbc", "").strip()
-                uf = normalized_row.get("uf", "").strip().upper()
-                if sbc_name and uf:
-                    measurement = SBCMeasurement(
-                        semana=normalized_row.get("semana", ""),
-                        dia=normalized_row.get("dia", ""),
-                        cidade=normalized_row.get("cidade", "").strip().title(),
-                        uf=uf, sbc=sbc_name,
-                        regional=normalized_row.get("regional", "").strip().upper(),
-                        caps=self._parse_int(normalized_row.get("caps", "0")),
-                        status=normalized_row.get("status", "Normal").strip(),
-                        modelo=normalized_row.get("modelo", "").strip(),
-                        servico=normalized_row.get("servico", "").strip(),
-                        responsavel=normalized_row.get("responsavel", "").strip(),
-                        prazo=normalized_row.get("prazo", "").strip(),
-                    )
-                    measurements.append(measurement)
-                else:
-                    aggregated.append({
-                        "row_num": row_num, "raw_data": normalized_row,
-                        "nota": "Linha sem SBC/UF identificado (dado agregado ou total)",
-                    })
-            wb.close()
-            logger.info(f"XLSX lido: {len(measurements)} medições, {len(aggregated)} agregadas")
-        except FileNotFoundError:
-            logger.error(f"XLSX não encontrado: {filepath}")
-        except Exception as e:
-            logger.error(f"Erro ao ler XLSX {filepath}: {e}")
-        return measurements, aggregated
-
-    def get_data(self, force_reload: bool = False) -> tuple[list[SBCMeasurement], list[dict]]:
-        now = time.time()
-        cache_expired = (now - self._cache_timestamp) > self.cache_ttl
-        if force_reload or not self._cache_data or cache_expired:
-            latest_file = self.find_latest_file()
-            if not latest_file:
-                return [], []
-            current_mtime = os.path.getmtime(latest_file)
-            if (latest_file == self._cache_file_path
-                    and current_mtime == self._cache_file_mtime
-                    and self._cache_data and not force_reload):
-                self._cache_timestamp = now
-                return self._cache_data, self._cache_aggregated
-            logger.info(f"Carregando do disco: {os.path.basename(latest_file)}")
-            measurements, aggregated = self._read_file(latest_file)
-            self._cache_data = measurements
-            self._cache_aggregated = aggregated
-            self._cache_timestamp = now
-            self._cache_file_path = latest_file
-            self._cache_file_mtime = current_mtime
-        return self._cache_data, self._cache_aggregated
-
-    def get_file_info(self) -> dict:
-        if self._cache_file_path and os.path.exists(self._cache_file_path):
-            mtime = datetime.fromtimestamp(self._cache_file_mtime)
-            return {
-                "filename": os.path.basename(self._cache_file_path),
-                "modified_at": mtime.strftime("%d/%m/%Y %H:%M"),
-                "total_measurements": len(self._cache_data),
-                "total_aggregated": len(self._cache_aggregated),
-                "cache_age_seconds": int(time.time() - self._cache_timestamp),
-            }
-        return {"filename": None, "modified_at": None, "total_measurements": 0}
-
-
-# =============================================================================
-# SBC — ANALISADOR INTELIGENTE
-# =============================================================================
-class SBCAnalyzer:
-    """
-    Motor de análise e recomendação de SBCs.
-
-    Lógica de saúde: STATUS do XLSX é a fonte primária (já classificado pela
-    equipe de rede). CAPS é métrica secundária para tendência e desempate.
-
-    Score (0-100):
-      base = 70 (Normal) | 45 (Atenção) | 15 (Crítico)
-      + bônus estabilidade CAPS (variação < 10% → +10)
-      + bônus medições (>= 5 dias → +5)
-      + bônus múltiplos serviços (+3)
-      - penalidade tendência CAPS subindo (-10)
-    """
-
-    def __init__(self, processor: SBCDataProcessor):
-        self.processor = processor
-
-    def _classify_health(self, status: str) -> str:
-        """Converte STATUS do XLSX para nível de saúde interno.
-
-        Usa mapeamento direto primeiro, depois heurística por substring.
-        """
-        key = status.strip().lower()
-        result = SBC_STATUS_TO_HEALTH.get(key)
-        if result:
-            return result
-        # Heurística por substring para variações inesperadas
-        if "crít" in key or "crit" in key:
-            return "critico"
-        if "aten" in key:
-            return "moderado"
-        if "norm" in key or "ok" in key or "disp" in key:
-            return "disponivel"
-        return "moderado"  # default seguro
-
-    def _worst_status(self, statuses: list[str]) -> str:
-        """Retorna o pior STATUS entre as medições (case-insensitive).
-
-        Hierarquia: Normal (0) < Atenção (1) < Crítico (2).
-        Normaliza variações de casing/acento do XLSX.
-        """
-        severity_map = {
-            "normal": 0,
-            "atenção": 1, "atencao": 1, "atencion": 1,
-            "crítico": 2, "critico": 2,
-        }
-        # Mapeia de volta para label canônico usado pelo _classify_health
-        canonical = {0: "Normal", 1: "Atenção", 2: "Crítico"}
-        worst_score = -1
-        for s in statuses:
-            key = s.strip().lower()
-            s_score = severity_map.get(key, -1)
-            if s_score < 0:
-                # Heurística: se contém "crít" ou "crit" → crítico;
-                #             se contém "aten" → atenção; senão → normal
-                if "crít" in key or "crit" in key:
-                    s_score = 2
-                elif "aten" in key:
-                    s_score = 1
-                else:
-                    s_score = 0
-            if s_score > worst_score:
-                worst_score = s_score
-        if worst_score < 0:
-            worst_score = 0
-        return canonical.get(worst_score, "Normal")
-
-    def _calc_tendencia(self, caps_values: list[int]) -> str:
-        """Analisa tendência de CAPS: estavel, subindo ou descendo."""
-        if len(caps_values) < 2:
-            return "estavel"
-        first_half = caps_values[:len(caps_values)//2]
-        second_half = caps_values[len(caps_values)//2:]
-        avg_first = sum(first_half) / len(first_half) if first_half else 0
-        avg_second = sum(second_half) / len(second_half) if second_half else 0
-        if avg_first == 0:
-            return "estavel"
-        variation = (avg_second - avg_first) / avg_first
-        if variation > 0.10:
-            return "subindo"
-        elif variation < -0.10:
-            return "descendo"
-        return "estavel"
-
-    def _calculate_score(self, saude: str, tendencia: str,
-                         caps_values: list[int], num_servicos: int,
-                         total_medicoes: int) -> int:
-        base = SBC_STATUS_BASE_SCORE.get(saude, 45)
-        bonus = 0
-        # Estabilidade: variação < 10% entre min e max
-        if caps_values:
-            mn, mx = min(caps_values), max(caps_values)
-            avg = sum(caps_values) / len(caps_values)
-            if avg > 0 and (mx - mn) / avg < 0.10:
-                bonus += 10
-        # Mais medições = mais confiança
-        if total_medicoes >= 5:
-            bonus += 5
-        # Múltiplos serviços = mais versatilidade
-        if num_servicos > 1:
-            bonus += 3
-        # Tendência de CAPS subindo = penalidade
-        penalty = 0
-        if tendencia == "subindo":
-            penalty += 10
-        return max(0, min(100, int(base + bonus - penalty)))
-
-    def _generate_reason(self, result: SBCAnalysisResult) -> str:
-        parts = []
-        labels = {
-            "disponivel": "capacidade disponível",
-            "moderado": "ocupação moderada, monitorar",
-            "critico": "capacidade crítica, evitar",
-        }
-        parts.append(f"Status XLSX: {result.status_fonte} — {labels.get(result.saude, result.saude)}")
-        parts.append(f"CAPS avg {result.caps_avg} (mín {result.caps_min}, máx {result.caps_max}, último {result.caps_ultimo})")
-        if result.caps_tendencia and result.caps_tendencia != "estavel":
-            icon = "📈" if result.caps_tendencia == "subindo" else "📉"
-            parts.append(f"Tendência: {icon} {result.caps_tendencia}")
-        else:
-            parts.append("Tendência: → estável")
-        if result.total_medicoes > 1:
-            parts.append(f"{result.total_medicoes} medições")
-        if len(result.servicos) > 1:
-            parts.append(f"Serviços: {', '.join(result.servicos)}")
-        if result.cidade:
-            parts.append(f"Local: {result.cidade}/{result.uf}")
-        return " | ".join(parts)
-
-    def _aggregate_sbc_measurements(self, measurements):
-        groups: dict[str, list[SBCMeasurement]] = defaultdict(list)
-        for m in measurements:
-            groups[m.sbc].append(m)
-        results = []
-        for sbc_name, sbc_measurements in groups.items():
-            caps_values = [m.caps for m in sbc_measurements]
-            caps_avg = sum(caps_values) / len(caps_values) if caps_values else 0
-            caps_max = max(caps_values) if caps_values else 0
-            caps_min = min(caps_values) if caps_values else 0
-            caps_ultimo = caps_values[-1] if caps_values else 0
-            caps_tendencia = self._calc_tendencia(caps_values)
-            all_statuses = [m.status for m in sbc_measurements]
-            worst_status = self._worst_status(all_statuses)
-            saude = self._classify_health(worst_status)
-            servicos = list(dict.fromkeys(m.servico for m in sbc_measurements if m.servico))
-            modelo = sbc_measurements[0].modelo
-            cidade = sbc_measurements[0].cidade
-            regional = sbc_measurements[0].regional
-            uf = sbc_measurements[0].uf
-            semana = sbc_measurements[0].semana
-            responsavel = next((m.responsavel for m in sbc_measurements if m.responsavel), "")
-            prazo = next((m.prazo for m in sbc_measurements if m.prazo), "")
-            dias = [m.dia for m in sbc_measurements if m.dia]
-            dia_recente = dias[-1] if dias else ""
-            score = self._calculate_score(saude, caps_tendencia, caps_values,
-                                           len(servicos), len(sbc_measurements))
-            result = SBCAnalysisResult(
-                nome=sbc_name, cidade=cidade, uf=uf, regional=regional,
-                modelo=modelo, servicos=servicos,
-                caps_avg=round(caps_avg, 1), caps_max=caps_max,
-                caps_min=caps_min, caps_ultimo=caps_ultimo,
-                caps_tendencia=caps_tendencia,
-                total_medicoes=len(sbc_measurements),
-                status_fonte=worst_status, saude=saude, score=score,
-                recomendado=False, motivo="",
-                responsavel=responsavel, prazo=prazo,
-                dia_mais_recente=dia_recente, semana=semana,
-            )
-            results.append(result)
-        results.sort(key=lambda r: r.score, reverse=True)
-        for i, r in enumerate(results):
-            r.recomendado = (i == 0)
-            r.motivo = self._generate_reason(r)
-        return results
-
-    def _resolve_uf_from_cn(self, cn: str) -> Optional[tuple[str, str]]:
-        cn = str(cn).strip().zfill(2)
-        meta = CN_METADATA.get(cn)
-        return meta if meta else None
-
-    def suggest_for_cn(self, cn: str) -> SBCSuggestionResponse:
-        cn = str(cn).strip().zfill(2)
-        meta = self._resolve_uf_from_cn(cn)
-        if not meta:
-            return SBCSuggestionResponse(
-                cn=cn, uf="", cidade="", regional="",
-                source_file="", source_modificado_em="", data_medicao="",
-                total_sbcs=0, sbcs=[], fallback_usado=False, fallback_origem="",
-                mensagem=f"CN {cn} não encontrado no cadastro de códigos nacionais.",
-            )
-        cidade, uf = meta
-        regional = UF_TO_REGIONAL.get(uf, "")
-        measurements, _ = self.processor.get_data()
-        file_info = self.processor.get_file_info()
-        if not measurements:
-            return SBCSuggestionResponse(
-                cn=cn, uf=uf, cidade=cidade, regional=regional,
-                source_file=file_info.get("filename", ""),
-                source_modificado_em=file_info.get("modified_at", ""),
-                data_medicao="", total_sbcs=0, sbcs=[],
-                fallback_usado=False, fallback_origem="",
-                mensagem="Nenhum dado de SBC disponível. Verifique o diretório de XLSX.",
-            )
-        uf_measurements = [m for m in measurements if m.uf == uf]
-        fallback_usado = False
-        fallback_origem = ""
-        if not uf_measurements:
-            neighbors = UF_NEIGHBORS.get(uf, [])
-            for neighbor_uf in neighbors:
-                uf_measurements = [m for m in measurements if m.uf == neighbor_uf]
-                if uf_measurements:
-                    fallback_usado = True
-                    fallback_origem = f"UF vizinha: {neighbor_uf}"
-                    break
-        if not uf_measurements and regional:
-            regional_ufs = [u for u, r in UF_TO_REGIONAL.items() if r == regional]
-            uf_measurements = [m for m in measurements if m.uf in regional_ufs]
-            if uf_measurements:
-                fallback_usado = True
-                fallback_origem = f"Regional: {regional}"
-        if not uf_measurements:
-            return SBCSuggestionResponse(
-                cn=cn, uf=uf, cidade=cidade, regional=regional,
-                source_file=file_info.get("filename", ""),
-                source_modificado_em=file_info.get("modified_at", ""),
-                data_medicao="", total_sbcs=0, sbcs=[],
-                fallback_usado=False, fallback_origem="",
-                mensagem=f"Nenhum SBC encontrado para {uf} ({cidade}), vizinhos ou regional {regional}.",
-            )
-        results = self._aggregate_sbc_measurements(uf_measurements)
-        data_medicao = results[0].dia_mais_recente if results else ""
-        msg_parts = [f"{len(results)} SBC(s) encontrado(s) para {uf} ({cidade})"]
-        if fallback_usado:
-            msg_parts.append(f"Usando dados de {fallback_origem}")
-        return SBCSuggestionResponse(
-            cn=cn, uf=uf, cidade=cidade, regional=regional,
-            source_file=file_info.get("filename", ""),
-            source_modificado_em=file_info.get("modified_at", ""),
-            data_medicao=data_medicao,
-            total_sbcs=len(results),
-            sbcs=[asdict(r) for r in results],
-            fallback_usado=fallback_usado,
-            fallback_origem=fallback_origem,
-            mensagem=". ".join(msg_parts),
-        )
-
-    def suggest_for_uf(self, uf: str) -> SBCSuggestionResponse:
-        """Busca SBCs diretamente pela UF (quando o usuário preenche UF sem CN)."""
-        uf = uf.strip().upper()
-        if len(uf) != 2:
-            return SBCSuggestionResponse(
-                cn="", uf=uf, cidade="", regional="",
-                source_file="", source_modificado_em="", data_medicao="",
-                total_sbcs=0, sbcs=[], fallback_usado=False, fallback_origem="",
-                mensagem=f"UF inválida: '{uf}'. Use 2 letras (ex.: SP, RJ).",
-            )
-        # Descobrir cidade/regional pela UF
-        regional = UF_TO_REGIONAL.get(uf, "")
-        # Pegar a primeira cidade encontrada para essa UF no CN_METADATA
-        cidade = ""
-        cn_found = ""
-        for cn_code, (cn_cidade, cn_uf) in CN_METADATA.items():
-            if cn_uf == uf:
-                cidade = cn_cidade
-                cn_found = cn_code
-                break
-        if not cidade:
-            cidade = uf  # fallback
-
-        measurements, _ = self.processor.get_data()
-        file_info = self.processor.get_file_info()
-        if not measurements:
-            return SBCSuggestionResponse(
-                cn=cn_found, uf=uf, cidade=cidade, regional=regional,
-                source_file=file_info.get("filename", ""),
-                source_modificado_em=file_info.get("modified_at", ""),
-                data_medicao="", total_sbcs=0, sbcs=[],
-                fallback_usado=False, fallback_origem="",
-                mensagem="Nenhum dado de SBC disponível. Verifique o diretório de XLSX.",
-            )
-
-        uf_measurements = [m for m in measurements if m.uf == uf]
-        fallback_usado = False
-        fallback_origem = ""
-
-        if not uf_measurements:
-            neighbors = UF_NEIGHBORS.get(uf, [])
-            for neighbor_uf in neighbors:
-                uf_measurements = [m for m in measurements if m.uf == neighbor_uf]
-                if uf_measurements:
-                    fallback_usado = True
-                    fallback_origem = f"UF vizinha: {neighbor_uf}"
-                    break
-        if not uf_measurements and regional:
-            regional_ufs = [u for u, r in UF_TO_REGIONAL.items() if r == regional]
-            uf_measurements = [m for m in measurements if m.uf in regional_ufs]
-            if uf_measurements:
-                fallback_usado = True
-                fallback_origem = f"Regional: {regional}"
-
-        if not uf_measurements:
-            return SBCSuggestionResponse(
-                cn=cn_found, uf=uf, cidade=cidade, regional=regional,
-                source_file=file_info.get("filename", ""),
-                source_modificado_em=file_info.get("modified_at", ""),
-                data_medicao="", total_sbcs=0, sbcs=[],
-                fallback_usado=False, fallback_origem="",
-                mensagem=f"Nenhum SBC encontrado para {uf}, vizinhos ou regional {regional}.",
-            )
-
-        results = self._aggregate_sbc_measurements(uf_measurements)
-        data_medicao = results[0].dia_mais_recente if results else ""
-        msg_parts = [f"{len(results)} SBC(s) encontrado(s) para {uf} ({cidade})"]
-        if fallback_usado:
-            msg_parts.append(f"Usando dados de {fallback_origem}")
-        return SBCSuggestionResponse(
-            cn=cn_found, uf=uf, cidade=cidade, regional=regional,
-            source_file=file_info.get("filename", ""),
-            source_modificado_em=file_info.get("modified_at", ""),
-            data_medicao=data_medicao,
-            total_sbcs=len(results),
-            sbcs=[asdict(r) for r in results],
-            fallback_usado=fallback_usado,
-            fallback_origem=fallback_origem,
-            mensagem=". ".join(msg_parts),
-        )
-
-    def get_overview(self) -> dict:
-        measurements, aggregated = self.processor.get_data()
-        file_info = self.processor.get_file_info()
-        if not measurements:
-            return {"file_info": file_info, "total_sbcs": 0, "por_regional": {},
-                    "por_saude": {}, "por_status_fonte": {}, "dados_agregados": len(aggregated)}
-        all_results = self._aggregate_sbc_measurements(measurements)
-        por_regional = defaultdict(int)
-        por_saude = defaultdict(int)
-        por_status = defaultdict(int)
-        for r in all_results:
-            por_regional[r.regional] += 1
-            por_saude[r.saude] += 1
-            por_status[r.status_fonte] += 1
-        return {
-            "file_info": file_info, "total_sbcs": len(all_results),
-            "por_regional": dict(por_regional), "por_saude": dict(por_saude),
-            "por_status_fonte": dict(por_status), "dados_agregados": len(aggregated),
-            "sbcs": [asdict(r) for r in all_results],
-        }
-
-    def health_check(self) -> dict:
-        file_info = self.processor.get_file_info()
-        file_path = self.processor.find_latest_file()
-        return {
-            "data_dir_exists": os.path.isdir(self.processor.data_dir),
-            "data_dir": self.processor.data_dir,
-            "latest_file": os.path.basename(file_path) if file_path else None,
-            "file_info": file_info,
-            "status": "ok" if file_path else "no_file_found",
-        }
-
-
-# =============================================================================
-# FLASK APP FACTORY
-# =============================================================================
-def create_app() -> Flask:
-    app = Flask(__name__, instance_relative_config=True)
-    app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-secret-change-me")
-    app.config["DATABASE"] = os.path.join(app.instance_path, "vivohub.db")
-    app.config["ADMIN_CODE"] = os.environ.get("ADMIN_CODE", DEFAULT_ADMIN_CODE)
-    app.config["SBC_DATA_DIR"] = os.environ.get("SBC_DATA_DIR", DEFAULT_SBC_DATA_DIR)
-    Path(app.instance_path).mkdir(parents=True, exist_ok=True)
-    export_dir = os.path.join(app.instance_path, "exports")
-    Path(export_dir).mkdir(parents=True, exist_ok=True)
-    app.config["EXPORT_DIR"] = export_dir
-    sbc_processor = SBCDataProcessor(app.config["SBC_DATA_DIR"])
-    sbc_analyzer = SBCAnalyzer(sbc_processor)
-    app.config["SBC_ANALYZER"] = sbc_analyzer
-    _register_db_hooks(app)
-    _register_security_headers(app)
-    _register_context_processors(app)
-    _register_template_filters(app)
-    _register_routes(app)
-    _register_cli_commands(app)
-    return app
-
-
-# =============================================================================
-# BANCO DE DADOS
-# =============================================================================
-def get_db() -> sqlite3.Connection:
-    if "db" not in g:
-        from flask import current_app
-        g.db = sqlite3.connect(current_app.config["DATABASE"])
-        g.db.row_factory = sqlite3.Row
-        g.db.execute("PRAGMA foreign_keys = ON;")
-    return g.db
-
-
-def _register_db_hooks(app):
-    @app.teardown_appcontext
-    def close_db(exception=None):
-        db = g.pop("db", None)
-        if db is not None:
-            db.close()
-
-    @app.before_request
-    def ensure_schema():
-        _init_db()
-
-
-def _init_db():
-    db = get_db()
-    db.executescript("""
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            email TEXT UNIQUE NOT NULL,
-            password_hash TEXT NOT NULL,
-            role TEXT NOT NULL CHECK (role IN ('engenharia', 'atacado')),
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
-        CREATE TABLE IF NOT EXISTS atacado_forms (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            owner_id INTEGER NOT NULL,
-            status TEXT DEFAULT 'rascunho',
-            nome_operadora TEXT, rn1 TEXT,
-            csp INTEGER DEFAULT 0, servicos_especiais INTEGER DEFAULT 0,
-            cng INTEGER DEFAULT 0, atendimento TEXT, redes TEXT,
-            qual TEXT, tmr TEXT,
-            responsavel_operadora TEXT, responsavel_vivo TEXT,
-            sbc_ativo INTEGER DEFAULT 0, ip_reservado INTEGER DEFAULT 0,
-            vivo_reserva INTEGER DEFAULT 0, asn TEXT,
-            escopo_text TEXT, escopo_flags_json TEXT, dados_vivo_json TEXT,
-            dados_operadora_json TEXT,
-            operadora_ciente INTEGER DEFAULT 0, responsavel_infra TEXT,
-            lcr_nacional INTEGER DEFAULT 0, white_list INTEGER DEFAULT 0,
-            prefixos_liberados_abr INTEGER DEFAULT 0,
-            premissas_ok INTEGER DEFAULT 0, aprovado_por TEXT,
-            engenharia_params_json TEXT,
-            responsavel_atacado TEXT, responsavel_engenharia TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY(owner_id) REFERENCES users(id)
-        );
-        CREATE TABLE IF NOT EXISTS exports (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            form_id INTEGER NOT NULL,
-            filename TEXT NOT NULL, filepath TEXT NOT NULL,
-            size_bytes INTEGER DEFAULT 0,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY(form_id) REFERENCES atacado_forms(id)
-        );
-    """)
-    for table, col, coldef in [
-        ("atacado_forms", "owner_id", "INTEGER NOT NULL DEFAULT 0"),
-        ("atacado_forms", "engenharia_params_json", "TEXT"),
-        ("atacado_forms", "dados_vivo_json", "TEXT"),
-        ("atacado_forms", "dados_operadora_json", "TEXT"),
-        ("atacado_forms", "escopo_text", "TEXT"),
-        ("atacado_forms", "escopo_flags_json", "TEXT"),
-        ("atacado_forms", "responsavel_atacado", "TEXT"),
-        ("atacado_forms", "responsavel_engenharia", "TEXT"),
-    ]:
-        _ensure_column(db, table, col, coldef)
-    db.commit()
-    _seed_cns(db)
-    _apply_cn_metadata(db)
-
-
-def _ensure_column(db, table, column, coldef):
-    existing = {r["name"] for r in db.execute(f"PRAGMA table_info({table});").fetchall()}
-    if column not in existing:
-        db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {coldef};")
-
-
-def _parse_cn_seed(raw):
-    seen, result = set(), []
-    for tok in raw.split():
-        code = tok.strip().zfill(2)
-        if code.isdigit() and code not in seen:
-            seen.add(code)
-            result.append(code)
-    return result
-
-
-def _seed_cns(db):
-    db.execute("""
-        CREATE TABLE IF NOT EXISTS cns (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            codigo TEXT UNIQUE NOT NULL, nome TEXT, uf TEXT,
-            ativo INTEGER NOT NULL DEFAULT 1
-        )
-    """)
-    if db.execute("SELECT COUNT(*) AS c FROM cns").fetchone()["c"] == 0:
-        codes = _parse_cn_seed(_CN_SEED_RAW)
-        db.executemany("INSERT OR IGNORE INTO cns (codigo, ativo) VALUES (?, 1)", [(c,) for c in codes])
-        db.commit()
-
-
-def _apply_cn_metadata(db):
-    for code, (nome, uf) in CN_METADATA.items():
-        db.execute("""
-            INSERT INTO cns (codigo, nome, uf, ativo) VALUES (?, ?, ?, 1)
-            ON CONFLICT(codigo) DO UPDATE SET nome=excluded.nome, uf=excluded.uf, ativo=1
-        """, (code, nome, uf))
-    db.commit()
-
-
-# =============================================================================
-# SEGURANÇA
-# =============================================================================
-def _register_security_headers(app):
-    @app.after_request
-    def add_headers(resp):
-        resp.headers.setdefault("X-Content-Type-Options", "nosniff")
-        resp.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
-        resp.headers.setdefault("X-XSS-Protection", "0")
-        return resp
-
-
-def login_required(view):
-    @wraps(view)
-    def wrapped(*a, **kw):
-        if "user_id" not in session:
-            return redirect(url_for("login"))
-        return view(*a, **kw)
-    return wrapped
-
-
-def role_required(required_role):
-    def decorator(view):
-        @wraps(view)
-        def wrapped(*a, **kw):
-            if "user_id" not in session:
-                return redirect(url_for("login"))
-            if session.get("role") != required_role:
-                flash("Acesso negado para esta área.", "danger")
-                return redirect(url_for(f"central_{session.get('role')}"))
-            return view(*a, **kw)
-        return wrapped
-    return decorator
-
-
-def admin_required(view):
-    @wraps(view)
-    def wrapped(*a, **kw):
-        if not session.get("is_admin"):
-            flash("Área restrita ao administrador.", "danger")
-            return redirect(url_for("admin_login"))
-        return view(*a, **kw)
-    return wrapped
-
-
-# =============================================================================
-# HELPERS
-# =============================================================================
-def row_get(row, key, default=""):
-    try:
-        v = row[key]
-        return default if v is None else v
-    except (KeyError, IndexError):
-        return default
-
-
-def safe_filename(name):
-    name = (name or "").strip().replace(" ", "_")
-    for ch in ("..", "/", "\\", ":", "*", "?", '"', "<", ">", "|"):
-        name = name.replace(ch, "_")
-    return name or "Operadora"
-
-
-def parse_db_datetime(value):
-    if not value:
-        return None
-    try:
-        return datetime.fromisoformat(str(value).replace("T", " "))
-    except (ValueError, TypeError):
-        return None
-
-
-def truncate_json_list(raw, default="[]"):
-    if not raw:
-        return default
-    try:
-        parsed = json.loads(raw) if isinstance(raw, str) else raw
-        if not isinstance(parsed, list):
-            return default
-        return json.dumps(parsed[:MAX_TABLE_ROWS], ensure_ascii=False)
-    except (json.JSONDecodeError, TypeError):
-        return default
-
-
-def parse_bool_field(value):
-    return 1 if str(value).lower() in ("on", "1", "true", "sim") else 0
-
-
-# =============================================================================
-# PROCESSAMENTO DE FORMULÁRIO
-# =============================================================================
-def extract_scope_flags_from_request():
-    """
-    Extrai flags de escopo do request.
-
-    FIX CRÍTICO: O código original lia request.form.getlist("escopo_flags"),
-    mas os checkboxes no template NÃO têm name="escopo_flags" — apenas
-    data-flag. O JS atualiza o hidden input "escopo_flags_json" com um JSON
-    string. Esta função agora lê corretamente do hidden input como fallback.
-    """
-    # Tentativa 1: checkboxes com name="escopo_flags" (caso existam no futuro)
-    raw = request.form.getlist("escopo_flags") or []
-
-    # Tentativa 2 (PRINCIPAL): lê do hidden input "escopo_flags_json"
-    # que é atualizado pelo JavaScript no frontend
-    if not raw:
-        json_raw = request.form.get("escopo_flags_json", "[]")
-        try:
-            parsed = json.loads(json_raw) if isinstance(json_raw, str) else []
-            if isinstance(parsed, list):
-                raw = [str(x).strip() for x in parsed if str(x).strip()]
-            else:
-                raw = []
-        except (json.JSONDecodeError, TypeError):
-            raw = []
-
-    valid = [f for f in raw if f in ALLOWED_SCOPE_FLAGS]
-    return json.dumps(list(dict.fromkeys(valid)), ensure_ascii=False)
-
-
-def _parse_json_dict(raw):
-    if not raw:
-        return "{}"
-    try:
-        parsed = json.loads(raw) if isinstance(raw, str) else raw
-        if isinstance(parsed, dict):
-            return json.dumps(parsed, ensure_ascii=False)
-    except (json.JSONDecodeError, TypeError):
-        pass
-    return "{}"
-
-
-def extract_form_payload():
-    payload = {}
-    for field in TEXT_FIELDS:
-        payload[field] = (request.form.get(field) or "").strip()
-    for field in BOOLEAN_FIELDS:
-        payload[field] = parse_bool_field(request.form.get(field))
-    payload["escopo_flags_json"] = extract_scope_flags_from_request()
-    for field in JSON_FIELDS:
-        if field == "escopo_flags_json":
-            continue
-        raw = request.form.get(field, "")
-        payload[field] = _parse_json_dict(raw) if field == "engenharia_params_json" else truncate_json_list(raw, "[]")
-    return payload
-
-
-def validate_table_rows(payload):
-    truncated = False
-    for key in ("dados_vivo_json", "dados_operadora_json"):
-        try:
-            rows = json.loads(payload[key])
-            if isinstance(rows, list) and len(rows) > MAX_TABLE_ROWS:
-                payload[key] = json.dumps(rows[:MAX_TABLE_ROWS], ensure_ascii=False)
-                truncated = True
-        except (json.JSONDecodeError, TypeError, KeyError):
-            payload[key] = "[]"
-    return truncated
-
-
-# =============================================================================
-# CONTEXT PROCESSORS E TEMPLATE FILTERS
-# =============================================================================
-def _register_context_processors(app):
-    @app.context_processor
-    def inject_cn_codes():
-        db = get_db()
-        rows = db.execute(
-            "SELECT codigo, COALESCE(nome,'') AS nome, COALESCE(uf,'') AS uf "
-            "FROM cns WHERE ativo = 1 ORDER BY codigo ASC"
-        ).fetchall()
-        return {
-            "CN_CODES": [r["codigo"] for r in rows],
-            "CN_FULL": [{"codigo": r["codigo"], "nome": r["nome"], "uf": r["uf"]} for r in rows],
-        }
-
-
-def _register_template_filters(app):
-    @app.template_filter("date_br")
-    def date_br_filter(value):
-        if not value:
-            return ""
-        if hasattr(value, "strftime"):
-            try:
-                return value.strftime("%d/%m/%Y %H:%M")
-            except (ValueError, OSError):
-                return str(value)
-        dt = parse_db_datetime(value)
-        return dt.strftime("%d/%m/%Y %H:%M") if dt else str(value)
-
-
-# =============================================================================
-# QUERIES
-# =============================================================================
-def build_list_query(base_sql, *, search_term=None, status_filter=None,
-                     owner_id=None, sort_key="-created_at"):
-    conditions, params = [], []
-    if owner_id is not None:
-        conditions.append("owner_id = ?"); params.append(owner_id)
-    if search_term:
-        conditions.append("nome_operadora LIKE ?"); params.append(f"%{search_term}%")
-    if status_filter:
-        conditions.append("LOWER(COALESCE(status, '')) = LOWER(?)"); params.append(status_filter)
-    if conditions:
-        base_sql += " WHERE " + " AND ".join(conditions)
-    sort_map = {
-        "created_at": "created_at ASC", "-created_at": "created_at DESC",
-        "nome_operadora": "nome_operadora COLLATE NOCASE ASC",
-        "-nome_operadora": "nome_operadora COLLATE NOCASE DESC",
-        "id": "id ASC", "-id": "id DESC",
-    }
-    base_sql += f" ORDER BY {sort_map.get(sort_key, 'id DESC')}"
-    return base_sql, params
-
-
-def get_status_counters(db, extra_where="", extra_params=()):
-    connector = "AND" if "WHERE" in extra_where else "WHERE"
-    def _count(cond=""):
-        sql = f"SELECT COUNT(*) AS c FROM atacado_forms {extra_where}"
-        if cond: sql += f" {connector} {cond}"
-        return db.execute(sql, extra_params).fetchone()["c"]
-    return {
-        "total": _count(), "rascunho": _count("LOWER(status) = 'rascunho'"),
-        "enviado": _count("LOWER(status) = 'enviado'"),
-        "em_revisao": _count("LOWER(status) = 'em revisão'"),
-        "aprovado": _count("LOWER(status) = 'aprovado'"),
+    /* Fallback */
+    if(data.fallback_usado){
+      fallEl.style.display='block';
+      fallEl.innerHTML = `<i class="bi bi-info-circle me-1"></i> Sem SBCs na UF ${uf}. Usando dados de <strong>${data.fallback_origem||'vizinhança'}</strong>.`;
+    } else { fallEl.style.display='none'; }
+
+    /* Sem SBCs */
+    if(!data.sbcs || data.sbcs.length===0){
+      emptyEl.style.display='block';
+      emptyEl.textContent = data.mensagem || 'Nenhum SBC encontrado para esta UF.';
+      panel.style.display='block'; return;
     }
 
-
-# =============================================================================
-# PROCESSAMENTO DE IMAGENS (Pillow)
-# =============================================================================
-def parse_xy_percent(raw, default):
-    if not raw: return default
-    try:
-        parts = [p.strip() for p in str(raw).split(",")]
-        if len(parts) != 2: return default
-        return (max(0.0, min(1.0, float(parts[0]))), max(0.0, min(1.0, float(parts[1]))))
-    except (ValueError, TypeError): return default
-
-
-def fit_size_keep_aspect(ow, oh, mw, mh):
-    if ow <= 0 or oh <= 0: return mw, mh
-    s = min(mw / ow, mh / oh)
-    return int(ow * s), int(oh * s)
-
-
-def _find_system_font(size_px, preferred=None):
-    if not PIL_AVAILABLE: return None
-    if preferred:
-        try: return ImageFont.truetype(preferred, size_px)
-        except (OSError, IOError): pass
-    for p in ["C:\\Windows\\Fonts\\arial.ttf",
-              "/System/Library/Fonts/Supplemental/Arial.ttf",
-              "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"]:
-        try: return ImageFont.truetype(p, size_px)
-        except (OSError, IOError): continue
-    return ImageFont.load_default()
-
-
-def render_labels_on_image(
-    image_path, vivo_text, operator_text, *,
-    vivo_xy_pct=(0.18, 0.55), operator_xy_pct=(0.80, 0.55),
-    font_path=None, font_size_pct=0.06,
-    fill=(255,255,255,255), stroke_fill=(0,0,0,255),
-    stroke_width_pct=0.012, extra_labels=None,
-) -> str:
-    if not PIL_AVAILABLE:
-        raise RuntimeError("Pillow não instalado.")
-    img = PILImage.open(image_path).convert("RGBA")
-    W, H = img.size
-    draw = ImageDraw.Draw(img)
-    def _draw(text, xy, sz, *, lf=fill, ls=stroke_fill, lw=stroke_width_pct, anch="mm"):
-        if not text: return
-        x, y = int(W * xy[0]), int(H * xy[1])
-        font = _find_system_font(max(12, int(H * sz)), font_path)
-        draw.text((x, y), text, font=font, fill=lf,
-                  stroke_width=max(0, int(H * lw)), stroke_fill=ls, anchor=anch)
-    _draw(vivo_text, vivo_xy_pct, font_size_pct)
-    _draw(operator_text, operator_xy_pct, font_size_pct)
-    if extra_labels:
-        for lbl in extra_labels:
-            _draw(lbl.get("text",""), lbl.get("xy_pct",(0.5,0.5)),
-                  float(lbl.get("font_size_pct", font_size_pct)),
-                  lf=lbl.get("fill",fill), ls=lbl.get("stroke_fill",stroke_fill),
-                  lw=float(lbl.get("stroke_width_pct",stroke_width_pct)),
-                  anch=lbl.get("anchor","mm"))
-    fd, tmp = tempfile.mkstemp(prefix="vivohub_diagrama_", suffix=".png")
-    os.close(fd)
-    img.save(tmp, format="PNG")
-    return tmp
-
-
-# =============================================================================
-# EXCEL — Estilos e Builder
-# =============================================================================
-class ExcelStylePalette:
-    """Paleta centralizada de estilos para Excel."""
-    def __init__(self):
-        self.fill_primary = PatternFill("solid", fgColor="4A148C")
-        self.fill_secondary = PatternFill("solid", fgColor="6A1B9A")
-        self.fill_light = PatternFill("solid", fgColor="7B1FA2")
-        self.fill_accent = PatternFill("solid", fgColor="8E24AA")
-        self.fill_neutral = PatternFill("solid", fgColor="E1BEE7")
-        self.fill_background = PatternFill("solid", fgColor="F3E5F5")
-        self.fill_white = PatternFill("solid", fgColor="FFFFFF")
-        self.font_title = Font(name="Calibri", size=14, bold=True, color="FFFFFF")
-        self.font_subtitle = Font(name="Calibri", size=12, bold=True, color="FFFFFF")
-        self.font_brand = Font(name="Calibri", size=12, bold=True, color="FFFFFF")
-        self.font_header = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
-        self.font_subheader = Font(name="Calibri", size=9, bold=True, color="FFFFFF")
-        self.font_body = Font(name="Calibri", size=10)
-        self.font_small = Font(name="Calibri", size=9)
-        self.font_micro = Font(name="Calibri", size=8, bold=True, color="FFFFFF")
-        self.font_check = Font(name="Calibri", size=11, bold=True, color="FF0000")
-        thin = Side(style="thin", color="DDDDDD")
-        self.box_border = Border(left=thin, right=thin, top=thin, bottom=thin)
-        self.no_border = Border()
-        self.align_center = Alignment(horizontal="center", vertical="center")
-        self.align_left = Alignment(horizontal="left", vertical="center")
-        self.align_wrap = Alignment(horizontal="left", vertical="center", wrap_text=True)
-        self.align_center_wrap = Alignment(horizontal="center", vertical="center", wrap_text=True)
-
-    def alt_fill(self, idx):
-        return self.fill_background if idx % 2 == 0 else self.fill_white
-
-
-class PTIWorkbookBuilder:
-    """Builder para Workbook Excel do PTI."""
-
-    def __init__(self, form_row):
-        if not OPENPYXL_AVAILABLE: raise RuntimeError("openpyxl não instalado.")
-        if not PIL_AVAILABLE: raise RuntimeError("Pillow não instalado.")
-        self.form = form_row
-        self.s = ExcelStylePalette()
-        self.wb = Workbook()
-        self.nome = (row_get(form_row, "nome_operadora") or "Operadora").strip()
-        self.resp_atk = (row_get(form_row, "responsavel_atacado") or row_get(form_row, "responsavel_vivo") or "").strip()
-        self.resp_eng = (row_get(form_row, "responsavel_engenharia","") or "").strip()
-        self.asn_op = (row_get(form_row, "asn","") or "").strip()
-        cdt = parse_db_datetime(row_get(form_row, "created_at",""))
-        self.created_str = cdt.strftime("%d/%m/%Y") if cdt else ""
-
-        # -----------------------------------------------------------------
-        # FIX: Extrair TODOS os flags de escopo (sem truncar em 3)
-        # -----------------------------------------------------------------
-        self.traffic = self._extract_traffic()
-
-        self.conc = self._extract_conc()
-
-        # Texto livre do escopo
-        self.escopo_text = (row_get(form_row, "escopo_text","") or "").strip()
-
-        # -----------------------------------------------------------------
-        # FIX: Escopo completo para aba Versões = texto + flags
-        # -----------------------------------------------------------------
-        if self.traffic:
-            flags_str = " | ".join(self.traffic)
-            self.escopo_completo = f"{self.escopo_text} [{flags_str}]" if self.escopo_text else flags_str
-        else:
-            self.escopo_completo = self.escopo_text
-
-        # Dados das tabelas do formulário
-        self.vivo_rows = self._extract_vivo_rows()
-        self.op_rows = self._extract_op_rows()
-
-        # CNs e Áreas Locais únicos (combinando vivo + operadora)
-        cns_vivo = self._unique_field(self.vivo_rows, "cn")
-        cns_op = self._unique_field(self.op_rows, "cn")
-        self.cns_unicos = list(dict.fromkeys(cns_vivo + cns_op))  # merge preservando ordem
-
-        areas_vivo = self._unique_field(self.vivo_rows, "cidade")
-        areas_op = self._unique_field(self.op_rows, "cidade")
-        self.areas_locais = list(dict.fromkeys(areas_vivo + areas_op))  # merge preservando ordem
-
-    def _extract_vivo_rows(self):
-        raw = row_get(self.form, "dados_vivo_json", "[]")
-        try:
-            d = json.loads(raw) if isinstance(raw, str) else raw
-            if not isinstance(d, list): return []
-            rows = []
-            for item in d:
-                if not isinstance(item, dict): continue
-                row = {k: str(item.get(k,"")).strip() for k in (
-                    "ref","data","escopo","localidade","cn","sbc","mask",
-                    "endereco_link","cidade","uf","lat","long"
-                )}
-                if any(row.values()): rows.append(row)
-            return rows[:MAX_TABLE_ROWS]
-        except: return []
-
-    def _extract_op_rows(self):
-        raw = row_get(self.form, "dados_operadora_json", "[]")
-        try:
-            d = json.loads(raw) if isinstance(raw, str) else raw
-            if not isinstance(d, list): return []
-            rows = []
-            for item in d:
-                if not isinstance(item, dict): continue
-                row = {k: str(item.get(k,"")).strip() for k in (
-                    "ref","localidade","eto_lc","eot_ld","cn","sbc","faixa_ip",
-                    "concentracao","endereco_link","cidade","uf","lat","long"
-                )}
-                if any(row.values()): rows.append(row)
-            return rows[:MAX_TABLE_ROWS]
-        except: return []
-
-    def _unique_field(self, rows, field):
-        seen = []
-        for r in rows:
-            v = r.get(field, "").strip()
-            if v and v not in seen: seen.append(v)
-        return seen
-
-    def _extract_traffic(self):
-        """
-        Extrai flags de escopo (tráfego) do formulário.
-
-        FIX: O código original fazia padding para 3 e truncava em [:3].
-        Agora retorna TODOS os flags selecionados, sem limite.
-        Esses flags populam a coluna "Tráfego" nas tabelas Ponta A e Ponta B.
-        """
-        raw = row_get(self.form, "escopo_flags_json", "[]")
-        try:
-            p = json.loads(raw) if isinstance(raw, str) else raw
-            items = [str(x).strip() for x in (p if isinstance(p, list) else []) if str(x).strip()]
-        except:
-            items = []
-        return items  # Retorna TODOS — sem padding nem truncamento
-
-    def _extract_conc(self):
-        raw = row_get(self.form, "dados_operadora_json", "[]")
-        try:
-            d = json.loads(raw) if isinstance(raw, str) else raw
-            if not isinstance(d, list): return []
-            r = []
-            for i in d:
-                if not isinstance(i, dict): continue
-                c = {k: str(i.get(k,"")).strip() for k in ("ref","cn","cnl","cod_cni","status_link")}
-                if any(c.values()): r.append(c)
-            return r[:MAX_TABLE_ROWS]
-        except: return []
-
-    def _diagram_cfg(self):
-        f = self.form
-        def _fl(k,d):
-            try: return float(row_get(f,k,d))
-            except: return d
-        def _it(k,d):
-            try: return int(float(row_get(f,k,d)))
-            except: return d
-        ns = str(row_get(f,"roteador_op_no_stroke","")).lower() in ("1","true","yes","sim")
-        rs = 0.0 if ns else 0.009
-        ov = row_get(f,"roteador_op_stroke_width_pct",None)
-        if ov not in (None,""):
-            try: rs = float(ov)
-            except: pass
-        return {
-            "img": row_get(f,"diagram_image_path") or DEFAULT_DIAGRAM_IMAGE,
-            "vxy": parse_xy_percent(row_get(f,"vivo_label_xy_pct",""),(0.16,0.48)),
-            "oxy": parse_xy_percent(row_get(f,"operadora_label_xy_pct",""),(0.83,0.44)),
-            "lvxy": parse_xy_percent(row_get(f,"link_vivo_label_xy_pct",""),(0.49,0.53)),
-            "loxy": parse_xy_percent(row_get(f,"link_op_label_xy_pct",""),(0.49,0.35)),
-            "fsz": _fl("diagram_font_size_pct",0.040),
-            "lfsz": _fl("link_labels_font_size_pct",0.030),
-            "fp": row_get(f,"diagram_font_path",None),
-            "r1": parse_xy_percent(row_get(f,"roteador_op1_label_xy_pct",""),(0.64,0.58)),
-            "r2": parse_xy_percent(row_get(f,"roteador_op2_label_xy_pct",""),(0.64,0.39)),
-            "rfp": _fl("roteador_op_font_size_pct",0.010), "rsp": rs,
-            "bw": _it("diagram_max_w",1900), "bh": _it("diagram_max_h",650),
-            "aro": _it("diagram_anchor_row_offset",-3), "aco": _it("diagram_anchor_col_offset",1),
-        }
-
-    def _cw(self, ws, w):
-        for c,v in w.items(): ws.column_dimensions[get_column_letter(c)].width = v
-    def _bh(self, ws, r, sc, ec):
-        ws.merge_cells(start_row=r,start_column=sc,end_row=r,end_column=ec)
-        c=ws.cell(row=r,column=sc,value=f"VIVO — {self.nome}")
-        c.font=self.s.font_title; c.alignment=self.s.align_center; c.fill=self.s.fill_primary
-        ws.row_dimensions[r].height=24.0
-    def _st(self, ws, r, sc, ec, t):
-        ws.merge_cells(start_row=r,start_column=sc,end_row=r,end_column=ec)
-        c=ws.cell(row=r,column=sc,value=t)
-        c.font=self.s.font_subtitle; c.alignment=self.s.align_center; c.fill=self.s.fill_secondary
-        ws.row_dimensions[r].height=25.0
-    def _ps(self, ws, *, ls=False):
-        ws.sheet_view.showGridLines=False; ws.page_setup.paperSize=ws.PAPERSIZE_A4
-        ws.page_setup.orientation=ws.ORIENTATION_LANDSCAPE if ls else ws.ORIENTATION_PORTRAIT
-        ws.print_options.horizontalCentered=True
-        ws.page_margins.left=ws.page_margins.right=0.4; ws.page_margins.top=ws.page_margins.bottom=0.5
-    def _ca(self, ws, r1, r2, c1, c2):
-        for r in range(r1,r2+1):
-            for c in range(c1,c2+1):
-                ws.cell(row=r,column=c).fill=self.s.fill_white; ws.cell(row=r,column=c).border=self.s.no_border
-
-    # =====================================================================
-    # ABA: ÍNDICE
-    # =====================================================================
-    def _b_index(self):
-        s=self.s; ws=self.wb.active; ws.title="Índice"
-        for c in range(1,10): ws.column_dimensions[get_column_letter(c)].width=12.0
-        ws.column_dimensions["C"].width=8.0; ws.column_dimensions["D"].width=45.0
-        self._bh(ws,2,3,8); ws.row_dimensions[2].height=28.0
-        ws.merge_cells(start_row=4,start_column=3,end_row=4,end_column=8)
-        c=ws.cell(row=4,column=3,value="ANEXO 3: PROJETO TÉCNICO"); c.font=s.font_subtitle; c.alignment=s.align_center; c.fill=s.fill_secondary
-        ws.merge_cells(start_row=5,start_column=3,end_row=5,end_column=8)
-        c=ws.cell(row=5,column=3,value="PROJETO DE INTERLIGAÇÃO PARA ENCAMINHAMENTO DA TERMINAÇÃO DE CHAMADAS DE VOZ")
-        c.font=Font(name="Calibri",size=11,bold=True,color="FFFFFF"); c.alignment=s.align_center; c.fill=s.fill_secondary; ws.row_dimensions[5].height=30.0
-        for i,t in enumerate(["1. Versões","2. Projeto de Interligação","2.2. Diagrama de Interligação",
-            "2.3. Características do Projeto de Interligação e do Plano de Encaminhamento","2.4. Plano de Contingência",
-            "2.5. Concentração","2.6. Plan NUM_Operadora","2.7. Dados de MTL","2.8. SE REG III (Vivo STFC Concessionária)","2.9. Parâmetros de Programação"]):
-            r=7+i; ws.merge_cells(start_row=r,start_column=3,end_row=r,end_column=8)
-            c=ws.cell(row=r,column=3,value=t); c.font=Font(name="Calibri",size=11); c.alignment=s.align_left; c.fill=s.alt_fill(i); ws.row_dimensions[r].height=22.0
-        ws.freeze_panes="C7"; self._ps(ws)
-
-    # =====================================================================
-    # ABA: VERSÕES — FIX: usa escopo_completo (texto + flags)
-    # =====================================================================
-    def _b_versions(self):
-        s=self.s; ws=self.wb.create_sheet(title="Versões")
-        self._cw(ws,{1:2,2:2,3:8,4:12,5:28,6:28,7:28,8:10,9:18,10:10,11:2})
-        self._bh(ws,2,3,10); self._st(ws,4,3,10,"CONTROLE DE VERSÕES DO PTI")
-        for i,t in enumerate(["Versão","Data","Responsável Eng de ITX","Responsável Gestão de ITX","Escopo","CN","ÁREAS LOCAIS","ATA"]):
-            c=ws.cell(row=6,column=3+i,value=t); c.font=Font(name="Calibri",size=9,bold=True,color="FFFFFF"); c.alignment=s.align_center; c.fill=s.fill_light
-        ws.row_dimensions[6].height=25.0
-
-        # -----------------------------------------------------------------
-        # FIX: Dados da primeira versão puxados corretamente do formulário.
-        # Col 7 (Escopo) agora inclui texto livre + flags selecionados.
-        # Col 8 (CN) e Col 9 (Áreas Locais) agora também buscam de op_rows
-        # quando vivo_rows está vazio.
-        # -----------------------------------------------------------------
-        fd = {
-            4: self.created_str,
-            5: self.resp_eng,
-            6: self.resp_atk,
-            7: self.escopo_completo,   # ← FIX: era self.escopo_text
-            8: ", ".join(self.cns_unicos) if self.cns_unicos else "",
-            9: ", ".join(self.areas_locais) if self.areas_locais else "",
-        }
-        for i in range(10):
-            r=7+i; ws.row_dimensions[r].height=22.0; f=s.alt_fill(i)
-            ws.cell(row=r,column=3,value=i+1).fill=f; ws.cell(row=r,column=3).font=s.font_body; ws.cell(row=r,column=3).alignment=s.align_center
-            for col in range(4,11):
-                c=ws.cell(row=r,column=col); c.value=fd.get(col,"") if i==0 else ""; c.font=s.font_body; c.fill=f
-                c.alignment=s.align_wrap if col in (7,9) else (s.align_left if col in (5,6) else s.align_center)
-        ws.freeze_panes="C7"; self._ps(ws,ls=True)
-
-    # =====================================================================
-    # ABA: DIAGRAMA DE INTERLIGAÇÃO
-    # FIX: Tráfego (flags de escopo) e Mask preenchidos corretamente
-    #      em AMBAS as pontas (A=VIVO, B=Operadora).
-    # =====================================================================
-    def _b_diagram(self):
-        s=self.s; ws=self.wb.create_sheet(title="Diagrama de Interligação"); cfg=self._diagram_cfg(); n=self.nome
-
-        # -----------------------------------------------------------------
-        # FONTE DE DADOS: usa vivo_rows se existem, senão op_rows
-        # Cada linha = 1 diagrama completo, empilhados verticalmente
-        # -----------------------------------------------------------------
-        source_rows = self.vivo_rows if self.vivo_rows else self.op_rows
-        num_blocks = max(1, len(source_rows))
-        is_vivo_source = bool(self.vivo_rows)
-
-        # Layout fixo em colunas 3-14 (todos os blocos usam mesmas colunas)
-        LC = 3   # left col start
-        RC = 14  # right col end
-        MID = 9  # ponta B starts here
-
-        col_widths = {1: 2.0, 2: 2.0, 15: 2.0}
-        for c in range(LC, RC + 1):
-            col_widths[c] = 12.0
-        self._cw(ws, col_widths)
-
-        # ===== CABEÇALHO GLOBAL (linhas 2-13) =====
-        self._bh(ws, 2, LC, RC)
-        for r_row, t, bold in [
-            (4, f"Diagrama de Interligação entre a VIVO e a {n}", True),
-            (6, "2.2.1 DIAGRAMAÇÃO DO PROJETO SIP", True),
-            (7, "2.2.1.1 Anúncio de Redes pelos 2 Links SPC", True),
-            (8, f"A {n} abordará os endereços da VIVO conforme abaixo.", False),
-            (9, f"A VIVO abordará os endereços da {n} conforme abaixo.", False),
-            (11, "2.2.1.2 Parâmetros de Configuração do Link", True),
-        ]:
-            ws.merge_cells(start_row=r_row, start_column=LC, end_row=r_row, end_column=RC)
-            c = ws.cell(row=r_row, column=LC, value=t)
-            c.font = Font(name="Calibri", size=11 if bold else 10, bold=bold)
-            c.alignment = s.align_left if bold else s.align_wrap
-            ws.row_dimensions[r_row].height = 22.0 if bold else 25.0
-
-        # ASN (global)
-        for o, label, val in [(0, "ASN VIVO", "10429 (Público)"), (1, f"ASN {n}", self.asn_op)]:
-            r_row = 12 + o
-            ws.merge_cells(start_row=r_row, start_column=LC, end_row=r_row, end_column=LC+2)
-            ws.cell(row=r_row, column=LC, value=label).font = Font(name="Calibri", size=10, bold=True)
-            ws.cell(row=r_row, column=LC).alignment = s.align_center
-            ws.merge_cells(start_row=r_row, start_column=LC+3, end_row=r_row, end_column=LC+5)
-            ws.cell(row=r_row, column=LC+3, value=val).font = s.font_body
-            ws.cell(row=r_row, column=LC+3).alignment = s.align_center
-
-        # FLAGS DE ESCOPO = tráfego para ambas as pontas
-        traffic_items = [t for t in self.traffic if t]
-        num_traffic = max(len(traffic_items), 3)
-
-        # ===== BLOCOS VERTICAIS (1 por linha do formulário) =====
-        cursor = 15  # linha inicial do primeiro bloco
-
-        for b_idx in range(num_blocks):
-            src_row = source_rows[b_idx] if b_idx < len(source_rows) else {}
-
-            # Resolver dados cruzando vivo ↔ operadora
-            if is_vivo_source:
-                vivo_row = src_row
-                op_row = self._find_matching_op_row(src_row.get("cn",""), b_idx)
-            else:
-                op_row = src_row
-                vivo_row = self._find_matching_vivo_row(src_row.get("cn",""), b_idx)
-
-            # Extrair valores com fallback entre as tabelas
-            cn_val = vivo_row.get("cn","") or (op_row.get("cn","") if op_row else "")
-            mask_val = vivo_row.get("mask","") or ""
-            endereco_vivo = vivo_row.get("endereco_link","") or ""
-            sbc_vivo = vivo_row.get("sbc","") or ""
-            endereco_op = (op_row.get("endereco_link","") if op_row else "") or ""
-            faixa_ip_op = (op_row.get("faixa_ip","") if op_row else "") or ""
-            sbc_op = (op_row.get("sbc","") if op_row else "") or ""
-
-            # Resolver cidade/UF para o CN
-            cn_meta = CN_METADATA.get(cn_val.zfill(2), ("","")) if cn_val else ("","")
-            cn_cidade, cn_uf = cn_meta
-
-            # --- Linha 1 do bloco: CN + Cidade/UF + VRF ---
-            r = cursor
-            cn_label = f"CN {cn_val}"
-            if cn_cidade:
-                cn_label += f" — {cn_cidade}/{cn_uf}"
-            ws.merge_cells(start_row=r, start_column=LC, end_row=r, end_column=LC+4)
-            c = ws.cell(row=r, column=LC, value=cn_label if cn_val else "CN ___")
-            c.font = Font(name="Calibri", size=10, bold=True, color="FFFFFF")
-            c.alignment = s.align_center; c.fill = s.fill_light
-            ws.merge_cells(start_row=r, start_column=MID, end_row=r, end_column=RC)
-            c2 = ws.cell(row=r, column=MID, value="VRF: __________________________")
-            c2.font = Font(name="Calibri", size=10, bold=True, color="FFFFFF")
-            c2.alignment = s.align_center; c2.fill = s.fill_light
-            ws.row_dimensions[r].height = 25.0
-
-            # --- Linha 2: separador ---
-            cursor += 2
-
-            # --- Linhas Ponta A / Ponta B ---
-            r = cursor
-            for sc, ec, label, valor in [
-                (LC, LC+4, "Ponta A", "VIVO"),
-                (MID, RC, "Ponta B", n)
-            ]:
-                ws.merge_cells(start_row=r, start_column=sc, end_row=r, end_column=ec)
-                ws.cell(row=r, column=sc, value=label).font = Font(name="Calibri", size=10, bold=True)
-                ws.cell(row=r, column=sc).alignment = s.align_center
-                ws.cell(row=r, column=sc).fill = s.fill_neutral
-                ws.merge_cells(start_row=r+1, start_column=sc, end_row=r+1, end_column=ec)
-                ws.cell(row=r+1, column=sc, value=valor).font = Font(name="Calibri", size=10, bold=True)
-                ws.cell(row=r+1, column=sc).alignment = s.align_center
-            ws.row_dimensions[r].height = 22.0
-            ws.row_dimensions[r+1].height = 22.0
-            cursor += 3
-
-            # --- SBC de cada ponta (linha informativa) ---
-            r = cursor
-            ws.merge_cells(start_row=r, start_column=LC, end_row=r, end_column=LC+4)
-            ws.cell(row=r, column=LC, value=f"SBC: {sbc_vivo}" if sbc_vivo else "SBC: ___").font = Font(name="Calibri", size=9, bold=True)
-            ws.cell(row=r, column=LC).alignment = s.align_center
-            ws.merge_cells(start_row=r, start_column=MID, end_row=r, end_column=RC)
-            ws.cell(row=r, column=MID, value=f"SBC: {sbc_op}" if sbc_op else "SBC: ___").font = Font(name="Calibri", size=9, bold=True)
-            ws.cell(row=r, column=MID).alignment = s.align_center
-            ws.row_dimensions[r].height = 20.0
-            cursor += 1
-
-            # --- Cabeçalhos: Tráfego | Endereço IP | NET MASK (ambas pontas) ---
-            r = cursor
-            for lc_start in (LC, MID):
-                for i, h in enumerate(["Tráfego", "Endereço IP", "NET MASK"]):
-                    c = ws.cell(row=r, column=lc_start+i, value=h)
-                    c.font = s.font_subheader; c.alignment = s.align_center; c.fill = s.fill_light
-                    c.border = s.box_border
-            ws.row_dimensions[r].height = 25.0
-            cursor += 1
-
-            # --- DADOS DE TRÁFEGO (flags de escopo + endereços + mask) ---
-            for j in range(num_traffic):
-                r = cursor + j
-                ws.row_dimensions[r].height = 22.0
-                f = s.alt_fill(j)
-                traf_val = traffic_items[j] if j < len(traffic_items) else ""
-
-                # PONTA A (VIVO): Tráfego | IP (só 1ª linha) | MASK (todas)
-                ws.cell(row=r, column=LC, value=traf_val).font = s.font_small
-                ws.cell(row=r, column=LC).fill = f; ws.cell(row=r, column=LC).alignment = s.align_center; ws.cell(row=r, column=LC).border = s.box_border
-                ws.cell(row=r, column=LC+1, value=endereco_vivo if j == 0 else "").font = s.font_small
-                ws.cell(row=r, column=LC+1).fill = f; ws.cell(row=r, column=LC+1).alignment = s.align_center; ws.cell(row=r, column=LC+1).border = s.box_border
-                ws.cell(row=r, column=LC+2, value=mask_val).font = s.font_small  # TODAS as linhas
-                ws.cell(row=r, column=LC+2).fill = f; ws.cell(row=r, column=LC+2).alignment = s.align_center; ws.cell(row=r, column=LC+2).border = s.box_border
-
-                # Colunas intermediárias (gap visual)
-                for gc in range(LC+3, MID):
-                    ws.cell(row=r, column=gc).fill = f
-
-                # PONTA B (OPERADORA): Tráfego | IP (só 1ª linha) | MASK (todas)
-                ws.cell(row=r, column=MID, value=traf_val).font = s.font_small
-                ws.cell(row=r, column=MID).fill = f; ws.cell(row=r, column=MID).alignment = s.align_center; ws.cell(row=r, column=MID).border = s.box_border
-                ws.cell(row=r, column=MID+1, value=faixa_ip_op if j == 0 else "").font = s.font_small
-                ws.cell(row=r, column=MID+1).fill = f; ws.cell(row=r, column=MID+1).alignment = s.align_center; ws.cell(row=r, column=MID+1).border = s.box_border
-                ws.cell(row=r, column=MID+2, value=mask_val).font = s.font_small  # TODAS as linhas
-                ws.cell(row=r, column=MID+2).fill = f; ws.cell(row=r, column=MID+2).alignment = s.align_center; ws.cell(row=r, column=MID+2).border = s.box_border
-
-            cursor += num_traffic
-
-            # --- Resumo de endereços abaixo da tabela ---
-            r = cursor + 1
-            ws.merge_cells(start_row=r, start_column=LC, end_row=r, end_column=LC+4)
-            ws.cell(row=r, column=LC, value=f"Endereço (VIVO): {endereco_vivo}").font = s.font_small
-            ws.cell(row=r, column=LC).alignment = s.align_left
-            ws.merge_cells(start_row=r, start_column=MID, end_row=r, end_column=RC)
-            ws.cell(row=r, column=MID, value=f"Endereço ({n}): {endereco_op}").font = s.font_small
-            ws.cell(row=r, column=MID).alignment = s.align_left
-
-            # --- Espaçamento entre blocos ---
-            cursor = r + 3
-
-        # ===== IMAGEM DO DIAGRAMA (abaixo de todos os blocos) =====
-        img_row = cursor + 1
-        if not os.path.exists(cfg["img"]): raise FileNotFoundError(f"Imagem não encontrada: {cfg['img']}")
-        el=[{"text":"Roteador OP","xy_pct":cfg["r1"],"font_size_pct":cfg["rfp"],"stroke_width_pct":cfg["rsp"]},
-            {"text":"Roteador OP","xy_pct":cfg["r2"],"font_size_pct":cfg["rfp"],"stroke_width_pct":cfg["rsp"]},
-            {"text":"Link resp Vivo","xy_pct":cfg["lvxy"],"font_size_pct":cfg["lfsz"],"stroke_width_pct":0.006},
-            {"text":f"Link resp {n}","xy_pct":cfg["loxy"],"font_size_pct":cfg["lfsz"],"stroke_width_pct":0.006},
-            {"text":"RAC/RAV/HL4","xy_pct":(0.33,0.70),"font_size_pct":0.010,"stroke_width_pct":0.006},
-            {"text":"RAC/RAV/HL4","xy_pct":(0.34,0.60),"font_size_pct":0.010,"stroke_width_pct":0.006}]
-        ann=render_labels_on_image(image_path=cfg["img"],vivo_text="VIVO",operator_text=n,vivo_xy_pct=cfg["vxy"],operator_xy_pct=cfg["oxy"],font_path=cfg["fp"],font_size_pct=cfg["fsz"],stroke_width_pct=0.009,extra_labels=el)
-        xi=XLImage(ann)
-        try:
-            with PILImage.open(ann) as src: ow,oh=src.size
-        except: ow,oh=800,300
-        fw,fh=fit_size_keep_aspect(ow,oh,cfg["bw"],cfg["bh"]); xi.width,xi.height=fw,fh
-        ws.add_image(xi,f"{get_column_letter(LC+cfg['aco'])}{img_row+cfg['aro']}")
-        self._ps(ws,ls=True)
-
-    def _find_matching_op_row(self, cn, index):
-        """Busca linha da operadora que corresponde ao CN ou ao índice."""
-        if cn:
-            for op in self.op_rows:
-                if op.get("cn","") == cn:
-                    return op
-        if index < len(self.op_rows):
-            return self.op_rows[index]
-        return None
-
-    def _find_matching_vivo_row(self, cn, index):
-        """Busca linha da VIVO que corresponde ao CN ou ao índice."""
-        if cn:
-            for vr in self.vivo_rows:
-                if vr.get("cn","") == cn:
-                    return vr
-        if index < len(self.vivo_rows):
-            return self.vivo_rows[index]
-        return {}
-
-    # =====================================================================
-    # ABA: ENCAMINHAMENTO (inalterada)
-    # =====================================================================
-    def _b_routing(self):
-        s=self.s; ws=self.wb.create_sheet(title="Encaminhamento"); n=self.nome
-        self._cw(ws,{1:2,2:15,3:10,4:15,5:10,6:18,7:15,8:18,9:12,10:8,11:8,12:8,13:8,14:8,15:8,16:12,17:18,18:12,19:12,20:15,21:12,22:10,23:12,24:10,25:2})
-        self._bh(ws,2,2,24); self._st(ws,4,2,24,"2.3. CARACTERÍSTICAS DO PROJETO DE INTERLIGAÇÃO E DO PLANO DE ENCAMINHAMENTO")
-        h1=6; ws.row_dimensions[h1].height=30.0
-        for sc,ec,t,v in [(2,2,"ÁREA LOCAL",True),(3,6,"LOCALIZAÇÃO",False),(7,9,"DADOS DA ROTA",False),(10,11,"BANDA",False),(12,13,"CANAIS",False),(14,15,"CAPS",False),(16,16,"ATIVAÇÃO",True),(17,18,"ENCAMINHAMENTO",False),(19,20,"SINALIZAÇÃO",False),(21,24,"ENDEREÇO IP",False)]:
-            if v: ws.merge_cells(start_row=h1,start_column=sc,end_row=h1+2,end_column=ec)
-            else: ws.merge_cells(start_row=h1,start_column=sc,end_row=h1,end_column=ec)
-            c=ws.cell(row=h1,column=sc,value=t); c.font=s.font_subheader; c.alignment=s.align_center_wrap; c.fill=s.fill_secondary if v else s.fill_light; c.border=s.box_border
-        h2=h1+1; ws.row_dimensions[h2].height=25.0
-        for col,t in [(3,"CN"),(4,"POI/PPI VIVO"),(5,"CN"),(6,f"POI/PPI {n.upper()}"),(7,"PONTA A VIVO"),(8,f"PONTA B {n.upper()}"),(9,"TIPO DE TRÁFEGO"),(10,"EXIST."),(11,"PLAN."),(12,"EXIST."),(13,"PLAN."),(14,"EXIST."),(15,"PLAN."),(17,"DE A > B\n(FORMATO DE ENTREGA)"),(18,"DE B > A"),(19,"CODEC"),(20,"OBSERVAÇÃO")]:
-            ws.merge_cells(start_row=h2,start_column=col,end_row=h2+1,end_column=col); c=ws.cell(row=h2,column=col,value=t); c.font=Font(name="Calibri",size=7 if col==17 else 8,bold=True,color="FFFFFF"); c.alignment=s.align_center_wrap; c.fill=s.fill_accent; c.border=s.box_border
-        for sc,ec,t in [(21,22,"VIVO"),(23,24,n.upper())]:
-            ws.merge_cells(start_row=h2,start_column=sc,end_row=h2,end_column=ec); c=ws.cell(row=h2,column=sc,value=t); c.font=s.font_micro; c.alignment=s.align_center; c.fill=s.fill_accent; c.border=s.box_border
-        h3=h2+1; ws.row_dimensions[h3].height=25.0
-        for col,t in [(21,"IP ADDRESS"),(22,"NETMASK"),(23,"IP ADDRESS"),(24,"NETMASK")]:
-            c=ws.cell(row=h3,column=col,value=t); c.font=Font(name="Calibri",size=7,bold=True,color="FFFFFF"); c.alignment=s.align_center; c.fill=s.fill_light; c.border=s.box_border
-        ds=h3+1
-        for i in range(15):
-            r=ds+i; ws.row_dimensions[r].height=22.0; f=s.alt_fill(i)
-            for col in range(2,25): c=ws.cell(row=r,column=col,value=""); c.font=s.font_small; c.alignment=s.align_center; c.border=s.box_border; c.fill=f
-        self._ca(ws,1,1,1,30); self._ca(ws,3,3,1,30); self._ca(ws,5,5,1,30)
-        for col in (1,25):
-            for r in range(1,ds+20): ws.cell(row=r,column=col).fill=s.fill_white; ws.cell(row=r,column=col).border=s.no_border
-        ws.freeze_panes=f"B{ds}"; self._ps(ws,ls=True)
-
-    def _b_conc(self):
-        s=self.s; ws=self.wb.create_sheet(title="Concentração")
-        self._cw(ws,{1:2,2:2,3:8,4:8,5:12,6:12,7:25})
-        ws.merge_cells(start_row=2,start_column=3,end_row=2,end_column=7); c=ws.cell(row=2,column=3,value="2.5 - Concentração"); c.font=Font(name="Calibri",size=11,bold=True,color="FFFFFF"); c.fill=s.fill_primary; ws.row_dimensions[2].height=22.0
-        for r,t,it in [(3,"A 'Operadora' informou interesse em realizar a concentração de ALs conforme detalhado na tabela abaixo:",False),(4,'Caso necessite de incluir mais ALs, Favor inserir linhas adicionais de acordo com reunião que foi acordado o tema (coluna B - "Ref").',True)]:
-            ws.merge_cells(start_row=r,start_column=3,end_row=r,end_column=7); c=ws.cell(row=r,column=3,value=t); c.font=Font(name="Calibri",size=9 if it else 10,italic=it); c.alignment=s.align_wrap; c.fill=s.fill_background
-        hr=6
-        for t,col in [("Ref",3),("CN",4),("CNL",5),("Cod. CnI",6),("Status Link",7)]:
-            c=ws.cell(row=hr,column=col,value=t); c.font=Font(name="Calibri",size=10,bold=True,color="FFFFFF"); c.alignment=s.align_center; c.fill=s.fill_secondary
-        ws.row_dimensions[hr].height=25.0
-        for i in range(10):
-            r=hr+1+i; ws.row_dimensions[r].height=22.0; f=s.alt_fill(i); d=self.conc[i] if i<len(self.conc) else {}
-            for col,k in [(3,"ref"),(4,"cn"),(5,"cnl"),(6,"cod_cni"),(7,"status_link")]:
-                c=ws.cell(row=r,column=col,value=d.get(k,"")); c.font=s.font_body; c.fill=f; c.alignment=s.align_center if col!=7 else s.align_left
-        ws.freeze_panes=f"C{hr+1}"; self._ps(ws)
-
-    def _b_prefixes(self):
-        s=self.s; ws=self.wb.create_sheet(title="Plan Num_Oper")
-        self._cw(ws,{1:2,2:4,3:12,4:12,5:12,6:6,7:10,8:10,9:8,10:15}); self._bh(ws,2,2,10); self._st(ws,4,2,10,f"2.6. Tabela de Prefixos da {self.nome.upper()}")
-        ws.merge_cells(start_row=5,start_column=2,end_row=5,end_column=10); ws.cell(row=5,column=2,value='OBS: Caso necessite incluir mais faixas, inserir linhas adicionais (coluna B - "Ref").').font=Font(name="Calibri",size=9,italic=True); ws.cell(row=5,column=2).alignment=s.align_wrap; ws.cell(row=5,column=2).fill=s.fill_background
-        h1=7; ws.row_dimensions[h1].height=25.0
-        for sc,ec,t,v in [(2,2,"Ref",True),(3,3,"Município",True),(4,4,"ÁREA LOCAL",True),(5,5,"CÓDIGO CNL",True),(6,6,"CN",True),(7,8,"SERIE AUTORIZADA",False),(9,9,"EOT LOCAL",True),(10,10,"SNOA STFC / SMP",True)]:
-            if v: ws.merge_cells(start_row=h1,start_column=sc,end_row=h1+1,end_column=ec)
-            else: ws.merge_cells(start_row=h1,start_column=sc,end_row=h1,end_column=ec)
-            c=ws.cell(row=h1,column=sc,value=t); c.font=s.font_subheader; c.alignment=s.align_center; c.fill=s.fill_secondary; c.border=s.box_border
-        h2=h1+1; ws.row_dimensions[h2].height=30.0
-        for col,t in [(7,"INCLUÍNOS\nN8 N7 N6 N5"),(8,"FINAL\nN4 N3 N2 N1")]:
-            c=ws.cell(row=h2,column=col,value=t); c.font=s.font_micro; c.alignment=s.align_center_wrap; c.fill=s.fill_accent; c.border=s.box_border
-        ds=h2+1
-        for i in range(5):
-            r=ds+i; ws.row_dimensions[r].height=20.0; f=s.alt_fill(i)
-            for col in range(2,11): c=ws.cell(row=r,column=col,value=""); c.font=s.font_small; c.alignment=s.align_center; c.border=s.box_border; c.fill=f
-        ps=ds+6
-        for i,p in enumerate(["RN1","EOT Local","EOT LDN/LDI","CSP","Código Especial:","CNG:","RN2"]):
-            r=ps+i; ws.row_dimensions[r].height=20.0; f=s.alt_fill(i)
-            ws.cell(row=r,column=2,value=p).font=Font(name="Calibri",size=9,bold=True); ws.cell(row=r,column=2).border=s.box_border; ws.cell(row=r,column=2).fill=f
-            ws.cell(row=r,column=3,value="").border=s.box_border; ws.cell(row=r,column=3).fill=f
-        for o,t in [(0,"Operadora de transporte nas localidades onde não existir rota direta"),(1,"Transbordo nas localidades onde existe rota direta:")]:
-            ws.merge_cells(start_row=ps+o,start_column=5,end_row=ps+o,end_column=10); ws.cell(row=ps+o,column=5,value=t).font=Font(name="Calibri",size=9,bold=True)
-        tr=ps+7+1
-        for sc,ec,t in [(2,3,"UF"),(4,7,"SERIE AUTORIZADA")]:
-            ws.merge_cells(start_row=tr,start_column=sc,end_row=tr,end_column=ec); c=ws.cell(row=tr,column=sc,value=t); c.font=s.font_subheader; c.alignment=s.align_center; c.fill=s.fill_secondary; c.border=s.box_border
-        sr=tr+1
-        for sc,ec in [(2,3),(4,5),(6,7)]:
-            ws.merge_cells(start_row=sr,start_column=sc,end_row=sr,end_column=ec); ws.cell(row=sr,column=sc,value="").border=s.box_border; ws.cell(row=sr,column=sc).fill=s.fill_background
-        cr=sr+2
-        for o,t in [(0,"A programação de CNG ocorre pelo processo de portabilidade intrínseca - via ABR"),(1,"O encaminhamento do CNG será programado nas localidades onde o ponto de entrega for informado")]:
-            ws.merge_cells(start_row=cr+o,start_column=2,end_row=cr+o,end_column=10); ws.cell(row=cr+o,column=2,value=t).font=s.font_small
-        sm=cr+3; ws.merge_cells(start_row=sm,start_column=2,end_row=sm,end_column=10); ws.cell(row=sm,column=2,value="2.12 Tabela de Prefixos Vivo SMP").font=Font(name="Calibri",size=10,bold=True)
-        ws.merge_cells(start_row=sm+1,start_column=2,end_row=sm+1,end_column=10); ws.cell(row=sm+1,column=2,value="Os prefixos da VIVO SMP, poderão ser obtidos acessando o site www.telefonica.net.br/sp/transfer/").font=s.font_small
-        ws.freeze_panes=f"B{h1}"; self._ps(ws,ls=True)
-
-    def _b_mtl(self):
-        s=self.s; ws=self.wb.create_sheet(title="Dados MTL")
-        self._cw(ws,{1:2,2:6,3:8,4:10,5:12,6:15,7:15,8:20,9:15,10:18,11:18,12:20}); self._bh(ws,2,2,11); self._st(ws,4,2,11,"2.7. Dados de MTL")
-        ws.merge_cells(start_row=5,start_column=2,end_row=5,end_column=11); ws.cell(row=5,column=2,value="Tabela de dados MTL para interligação entre VIVO e operadora.").font=s.font_body; ws.cell(row=5,column=2).fill=s.fill_background
-        ws.merge_cells(start_row=6,start_column=2,end_row=6,end_column=11); ws.cell(row=6,column=2,value="Preencher com os dados técnicos dos circuitos de interligação.").font=Font(name="Calibri",size=9,italic=True); ws.cell(row=6,column=2).fill=s.fill_background
-        hr=8
-        for col,t in [(2,"Ref"),(3,"Cn"),(4,"ID"),(5,"MTL"),(6,"PONTA VIVO"),(7,"PONTA IMPERIAL"),(8,"DESIGNADOR DO CIRCUITO"),(9,"PROVEDOR"),(10,"Posição Física VIVO"),(11,"Posição Física OPERADORA"),(12,"OBSERVAÇÕES")]:
-            c=ws.cell(row=hr,column=col,value=t); c.font=s.font_subheader; c.alignment=s.align_center; c.fill=s.fill_secondary; c.border=s.box_border
-        ws.row_dimensions[hr].height=25.0
-        for i in range(10):
-            r=hr+1+i; ws.row_dimensions[r].height=20.0; f=s.alt_fill(i); ws.cell(row=r,column=2,value=i+1)
-            for col in range(2,13):
-                c=ws.cell(row=r,column=col);
-                if col!=2: c.value=""
-                c.font=s.font_small; c.border=s.box_border; c.fill=f; c.alignment=s.align_left if col==12 else s.align_center
-        ws.freeze_panes=f"B{hr+1}"; self._ps(ws,ls=True)
-
-    def _b_params(self):
-        s=self.s; ws=self.wb.create_sheet(title="Parâmetros de Programação"); n=self.nome
-        self._cw(ws,{1:2,2:50,3:35,4:15,5:12,6:35}); self._bh(ws,2,2,6); self._st(ws,4,2,6,"2.9 - Parâmetros de Programação")
-        ws.merge_cells(start_row=5,start_column=2,end_row=5,end_column=6)
-        ws.cell(row=5,column=2,value=f"Relação dos parâmetros de configuração de rotas SIP entre a TELEFÔNICA-VIVO e a Operadora {n.upper()}.").font=s.font_body; ws.cell(row=5,column=2).fill=s.fill_background
-        cur=[7]
-        def _h(t):
-            r=cur[0]; ws.merge_cells(start_row=r,start_column=2,end_row=r,end_column=6); c=ws.cell(row=r,column=2,value=t); c.font=Font(name="Calibri",size=11,bold=True,color="FFFFFF"); c.alignment=s.align_center; c.fill=s.fill_light; c.border=s.box_border; ws.row_dimensions[r].height=20.0; cur[0]+=1
-        def _ch():
-            r=cur[0]
-            for ci,t in enumerate(["Parâmetro",f"TELEFÔNICA VIVO <> {n.upper()}","Categoria","Cumpre?","Observação"],2):
-                c=ws.cell(row=r,column=ci,value=t); c.font=s.font_subheader; c.alignment=s.align_center; c.fill=s.fill_secondary; c.border=s.box_border
-            ws.row_dimensions[r].height=25.0; cur[0]+=1
-        def _r(data):
-            for i,rd in enumerate(data):
-                r=cur[0]; f=s.alt_fill(i)
-                for ci,v in enumerate(rd,2):
-                    c=ws.cell(row=r,column=ci,value=v); c.font=s.font_check if ci==5 and v=="X" else s.font_small
-                    c.alignment=s.align_left if ci==2 else s.align_center; c.fill=f; c.border=s.box_border
-                cur[0]+=1
-        def _sec(title,data,ch=False):
-            _h(title)
-            if ch: _ch()
-            _r(data); cur[0]+=1
-
-        ws.merge_cells(start_row=cur[0],start_column=2,end_row=cur[0],end_column=6)
-        c=ws.cell(row=cur[0],column=2,value="Interconexão Nacional"); c.font=Font(name="Calibri",size=11,bold=True,color="FFFFFF"); c.alignment=s.align_center; c.fill=s.fill_primary; c.border=s.box_border; cur[0]+=1
-        _sec("Informação do Gateway",[("Fabricante / Fornecedor","sipwise","Mandatório","X",""),("Modelo - Versão","Elementos Rede Fixa, Fixa I e Móvel","Mandatório","X","")],ch=True)
-        _sec("Tipo de Serviço",[("Voz","SIM","Mandatório","X",""),("Fax","SIM","Mandatório","X",""),("DTMF","SIM","Mandatório","X","")])
-        _sec("Protocolo",[("Tipo de Protocolo","SIP-I (Q.1912.5)","Mandatório","X","")])
-        _sec("Atributos SIP",[("SIP Version","SIP v2.1","Mandatório","X",""),("Protocolo de Transporte","UDP","Mandatório","X",""),("Endereço IP Gateway SIP","Gateway de Gateway - NNI","Mandatório","X",""),("IP ADDR do RTP","IP ADDR do RTP","Mandatório","X",""),("FW ou SBC antes do Gateway","Mandatório","Mandatório","X",""),("Envia DOMAIN na URI","P-Asserted-Identity e Diversion","Mandatório","X",""),("Envia DOMAIN IP","Mandatório","Mandatório","X",""),("Envia DOMAIN IP no SDP","Mandatório","Mandatório","X",""),("Envia DOMAIN IP no SDP para Controle","Mandatório","Mandatório","X",""),("Envia DOMAIN IP no SDP para Controle de QoS","Mandatório","Mandatório","X",""),("Envia DOMAIN IP no SDP para Controle de QoS e Segurança","Mandatório","Mandatório","X",""),("Envia DOMAIN IP no SDP para Controle de QoS e Segurança e Controle de Chamada","Mandatório","Mandatório","X",""),("Envia DOMAIN IP no SDP para Controle de QoS e Segurança e Controle de Sessão","Mandatório","Mandatório","X",""),("Envia DOMAIN IP no SDP para Controle de QoS e Segurança e Controle de Recursos","Mandatório","Mandatório","X",""),("Envia DOMAIN IP no SDP para Controle de QoS e Segurança e Controle de Política","Mandatório","Mandatório","X","")])
-        _sec("Codec Rede Móvel",[("AMR encaminhamento","","Mandatório","X",""),("2ª opção G.711a 20ms","","Mandatório","X","Não aceita codec g.711u")])
-        _sec("Codec Rede Fixa",[("G.711a 20ms","","Mandatório","X",""),("2ª opção G.729a 20ms","","Mandatório","X","Não aceita codec g.711u")])
-        _sec("DTMF",[("1ª Opção: RFC 2833 (Outband) com valor payload = 100","","Mandatório","X",""),("Todos os payloads de DTMF definidos no padrão (96-125) podem ser usados","","Mandatório","X","")])
-        _sec("FAX",[("Protocolo T.38 suportado","","Mandatório","X","")])
-        _sec("POS",[("Detecção do UPSEEED","Utilização do g711a em re-INVITE","Mandatório","X","Dados necessários no SDP"),("Detecção do UPSEEED","Utilização do g711u em re-INVITE","Mandatório","X","Dados necessários no SDP")])
-        _sec("Encaminhamento Enfrante",[("P-ASSERTED Identity (RFC 3325)","SIM - Fomento E.164","Mandatório","X",""),("Nature of address of Calling","SUB, NAT, UNKW","Mandatório","X",""),("B-NUMBER (Called Number)","E.164 - Padrão Roteamento","Mandatório","X",""),("Nature of address","SUB, NAT, UNKW","Mandatório","X","")])
-        _sec("Encaminhamento Sainte",[("A-NUMBER (Calling Number)","E.164 - Nacional","Mandatório","X",""),("P-Asserted Identity (RFC 3325)","SIM - Formato E.164","Mandatório","X",""),("Nature of address of Calling","SUB, NAT, UNKW","Mandatório","X",""),("B-NUMBER (Called Number)","E.164 - Padrão Roteamento","Mandatório","X",""),("Nature of address","SUB, NAT, UNKW","Mandatório","X","")])
-        _sec("Principais RFC's que devem estar habilitadas e/ou suportadas",[("3261 - SIP Base","","","",""),("3311 - UPDATE (PRACK)","","","",""),("3264/4028 - Offer/Answer - SDP","","","",""),("2833 - DTMF - RTP","","","",""),("RFC 3398 - SIP-I interworking","","","",""),("RFC 4033/4035 - DNSSEC","","","",""),("RFC 4566 - SDP","","","",""),("RFC 3606 - Early Media & Tone Generation","","","","SIP 180Ring (puro), o Proxy deverá gerar o RBT localmente")])
-        _sec("Método para alteração dos dados do SDP",[("Método Update","","Mandatório","","Antes do Atendimento"),("Método Update","","Mandatório","","Após atendimento")])
-        _sec("Negociação de Codec",[("É mandatório a utilização de re-invites pelo Origem para definição de codecs.","","Mandatório","X",""),("O ptime no SDP answer deve ser múltiplo inteiro de 20 para codecs móveis; 3GPP 26.114","","Mandatório","X",""),("Pacotes suportados às marcações USR, DSCP 46 ou EF para pacotes RTP","","Mandatório","X","")])
-        self._ps(ws,ls=True)
-
-    def build(self):
-        """Constrói o Workbook completo com todas as abas do PTI."""
-        logger.info(f"Gerando PTI Excel para '{self.nome}'...")
-        self._b_index(); self._b_versions(); self._b_diagram(); self._b_routing()
-        self._b_conc(); self._b_prefixes(); self._b_mtl(); self._b_params()
-        self.wb.properties.title=f"PTI — Completo — {self.nome}"
-        self.wb.properties.subject="Projeto Técnico de Interligação"
-        self.wb.properties.creator="VIVOHUB"
-        self.wb.active=0
-        logger.info("PTI Excel gerado com sucesso.")
-        return self.wb
-
-
-# =============================================================================
-# REGISTRO DE ROTAS HTTP
-# =============================================================================
-def _register_routes(app):
-
-    @app.get("/")
-    def index():
-        if "user_id" in session: return redirect(url_for(f"central_{session['role']}"))
-        return redirect(url_for("login"))
-
-    @app.get("/login")
-    def login(): return render_template("login.html")
-
-    @app.post("/login")
-    def login_post():
-        email=(request.form.get("email") or "").strip().lower(); password=request.form.get("password","")
-        db=get_db(); user=db.execute("SELECT * FROM users WHERE email = ?",(email,)).fetchone()
-        if not user or not check_password_hash(user["password_hash"],password):
-            flash("Credenciais inválidas.","danger"); return redirect(url_for("login"))
-        session.clear(); session["user_id"]=user["id"]; session["email"]=user["email"]; session["role"]=user["role"]
-        return redirect(url_for(f"central_{user['role']}"))
-
-    @app.get("/logout")
-    def logout(): session.clear(); flash("Sessão encerrada.","info"); return redirect(url_for("login"))
-
-    @app.get("/admin_login")
-    def admin_login(): return render_template("admin_login.html")
-
-    @app.post("/admin_login")
-    def admin_login_post():
-        if request.form.get("code","")==app.config["ADMIN_CODE"]:
-            session["is_admin"]=True; flash("Login de administrador efetuado.","success"); return redirect(url_for("register"))
-        flash("Código de administrador inválido.","danger"); return redirect(url_for("admin_login"))
-
-    @app.get("/register")
-    @admin_required
-    def register(): return render_template("register.html")
-
-    @app.post("/register")
-    @admin_required
-    def register_post():
-        email=(request.form.get("email") or "").strip().lower(); password=request.form.get("password",""); role=(request.form.get("role") or "").strip().lower()
-        if not email or not password or role not in ("engenharia","atacado"):
-            flash("Preencha todos os campos corretamente.","danger"); return redirect(url_for("register"))
-        db=get_db()
-        try:
-            db.execute("INSERT INTO users (email, password_hash, role) VALUES (?, ?, ?)",(email,generate_password_hash(password),role)); db.commit()
-            flash("Usuário criado com sucesso.","success")
-        except sqlite3.IntegrityError: flash("Este e-mail já está cadastrado.","warning")
-        return redirect(url_for("register"))
-
-    @app.get("/central_atacado")
-    @login_required
-    @role_required("atacado")
-    def central_atacado(): return render_template("central_atacado.html")
-
-    @app.get("/central_engenharia")
-    @login_required
-    @role_required("engenharia")
-    def central_engenharia(): return render_template("central_engenharia.html")
-
-    @app.get("/atacado_formularios")
-    @login_required
-    @role_required("atacado")
-    def atacado_form_list():
-        db=get_db(); q=(request.args.get("q") or "").strip(); status=(request.args.get("status") or "").strip(); sort=(request.args.get("sort") or "-created_at").strip()
-        sql,params=build_list_query("SELECT * FROM atacado_forms",search_term=q or None,status_filter=status or None,owner_id=session["user_id"],sort_key=sort)
-        return render_template("atacado_formularios.html",forms=db.execute(sql,params).fetchall(),counters=get_status_counters(db,"WHERE owner_id = ?",(session["user_id"],)))
-
-    @app.get("/atacado_formularios/new")
-    @login_required
-    @role_required("atacado")
-    def atacado_form_new():
-        db=get_db(); last=db.execute("SELECT responsavel_atacado FROM atacado_forms WHERE owner_id = ? AND COALESCE(responsavel_atacado,'')<>'' ORDER BY created_at DESC LIMIT 1",(session["user_id"],)).fetchone()
-        preset=(last["responsavel_atacado"] if last else "") or session.get("email","").split("@")[0].replace("."," ").title()
-        return render_template("formulario_atacado.html",form=None,preset_responsavel_atacado=preset)
-
-    @app.post("/atacado_formularios/new")
-    @login_required
-    @role_required("atacado")
-    def atacado_form_create():
-        payload=extract_form_payload(); payload["owner_id"]=session["user_id"]; payload["status"]=(payload.get("status") or "rascunho").lower(); payload["engenharia_params_json"]="{}"
-        truncated=validate_table_rows(payload)
-        if payload["status"]=="enviado" and not (payload.get("responsavel_atacado") or "").strip():
-            flash('Informe o "Responsável Gestão de ITX (Atacado)" antes de finalizar.',"warning"); return redirect(url_for("atacado_form_new"))
-        cols=["owner_id"]+list(TEXT_FIELDS)+list(BOOLEAN_FIELDS)+["escopo_flags_json","dados_vivo_json","dados_operadora_json","engenharia_params_json"]
-        db=get_db(); db.execute(f"INSERT INTO atacado_forms ({','.join(cols)}) VALUES ({','.join(['?']*len(cols))})",[payload.get(c) for c in cols]); db.commit()
-        flash("Formulário criado." + (f" Tabelas limitadas a {MAX_TABLE_ROWS} linhas." if truncated else ""),"success"); return redirect(url_for("atacado_form_list"))
-
-    @app.get("/atacado_formularios/<int:form_id>")
-    @login_required
-    @role_required("atacado")
-    def atacado_form_edit(form_id):
-        db=get_db(); form=db.execute("SELECT * FROM atacado_forms WHERE id = ? AND owner_id = ?",(form_id,session["user_id"])).fetchone()
-        if not form: abort(404)
-        return render_template("formulario_atacado.html",form=form)
-
-    @app.post("/atacado_formularios/<int:form_id>")
-    @login_required
-    @role_required("atacado")
-    def atacado_form_update(form_id):
-        db=get_db()
-        if not db.execute("SELECT id FROM atacado_forms WHERE id = ? AND owner_id = ?",(form_id,session["user_id"])).fetchone(): abort(404)
-        payload=extract_form_payload(); payload["updated_at"]=datetime.utcnow().isoformat(timespec="seconds"); truncated=validate_table_rows(payload)
-        if (payload.get("status") or "").lower()=="enviado" and not (payload.get("responsavel_atacado") or "").strip():
-            flash('Informe o "Responsável Gestão de ITX (Atacado)" antes de finalizar.',"warning"); return redirect(url_for("atacado_form_edit",form_id=form_id))
-        fields=list(TEXT_FIELDS)+list(BOOLEAN_FIELDS)+["escopo_flags_json","dados_vivo_json","dados_operadora_json"]
-        params=[payload.get(f) for f in fields]+[payload["updated_at"],form_id,session["user_id"]]
-        db.execute(f"UPDATE atacado_forms SET {', '.join([f'{f} = ?' for f in fields]+['updated_at = ?'])} WHERE id = ? AND owner_id = ?",params); db.commit()
-        flash("Formulário atualizado." + (f" Tabelas limitadas a {MAX_TABLE_ROWS} linhas." if truncated else ""),"success"); return redirect(url_for("atacado_form_list"))
-
-    @app.post("/atacado_formularios/<int:form_id>/delete")
-    @login_required
-    @role_required("atacado")
-    def atacado_form_delete(form_id):
-        db=get_db(); db.execute("DELETE FROM atacado_forms WHERE id = ? AND owner_id = ?",(form_id,session["user_id"])); db.commit()
-        flash("Formulário excluído.","info"); return redirect(url_for("atacado_form_list"))
-
-    @app.get("/engenharia_formularios")
-    @login_required
-    @role_required("engenharia")
-    def engenharia_form_list():
-        db=get_db(); q=(request.args.get("q") or "").strip(); status=(request.args.get("status") or "").strip(); sort=(request.args.get("sort") or "-created_at").strip()
-        sql,params=build_list_query("SELECT * FROM atacado_forms",search_term=q or None,status_filter=status or None,sort_key=sort)
-        forms=db.execute(sql,params).fetchall(); counters=get_status_counters(db)
-        ff=request.args.get("form")
-        if ff and ff.isdigit():
-            exports=db.execute("SELECT e.id,e.form_id,e.filename,e.size_bytes,e.created_at,f.nome_operadora FROM exports e JOIN atacado_forms f ON f.id=e.form_id WHERE e.form_id=? ORDER BY e.created_at DESC LIMIT 100",(int(ff),)).fetchall()
-        else:
-            exports=db.execute("SELECT e.id,e.form_id,e.filename,e.size_bytes,e.created_at,f.nome_operadora FROM exports e JOIN atacado_forms f ON f.id=e.form_id ORDER BY e.created_at DESC LIMIT 100").fetchall()
-        return render_template("engenharia_formularios.html",forms=forms,counters=counters,exports=exports,show_files=request.args.get("show_files")=="1",form_filter=ff)
-
-    @app.route("/engenharia_formularios/<int:form_id>",methods=["GET","POST"])
-    @login_required
-    @role_required("engenharia")
-    def engenharia_form_view(form_id):
-        db=get_db(); form=db.execute("SELECT * FROM atacado_forms WHERE id = ?",(form_id,)).fetchone()
-        if not form: abort(404)
-        if request.method=="POST":
-            resp_eng=(request.form.get("responsavel_engenharia") or "").strip()
-            if not resp_eng:
-                flash('Informe o "Responsável Eng de ITX" para salvar.',"warning"); return redirect(url_for("engenharia_form_view",form_id=form_id))
-            eng_json=_parse_json_dict(request.form.get("engenharia_params_json","") or "{}")
-            # FIX: Salvar também dados_vivo_json (antes era perdido no POST)
-            vivo_json=truncate_json_list(request.form.get("dados_vivo_json","[]"), "[]")
-            db.execute("UPDATE atacado_forms SET engenharia_params_json=?,responsavel_engenharia=?,dados_vivo_json=?,updated_at=? WHERE id=?",(eng_json,resp_eng,vivo_json,datetime.utcnow().isoformat(timespec="seconds"),form_id)); db.commit()
-            flash("Validação da Engenharia salva.","success"); return redirect(url_for("engenharia_form_list",show_files="1",form=form_id))
-        return render_template("formulario_atacado.html",form=form,readonly=True)
-
-    @app.get("/formularios/<int:form_id>/excel_index")
-    @login_required
-    def exportar_form_excel_index(form_id):
-        if not OPENPYXL_AVAILABLE:
-            flash("openpyxl não instalado.","warning"); return redirect(url_for("index"))
-        db=get_db(); form=db.execute("SELECT * FROM atacado_forms WHERE id = ?",(form_id,)).fetchone()
-        if not form: abort(404)
-        if session.get("role")=="atacado" and form["owner_id"]!=session.get("user_id"): abort(403)
-        wb=PTIWorkbookBuilder(form).build()
-        buf=BytesIO(); wb.save(buf); buf.seek(0)
-        nome=safe_filename(form["nome_operadora"] or "Operadora")
-        return send_file(buf,mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",as_attachment=True,download_name=f"PTI_Completo_{nome}_ID{form['id']}.xlsx")
-
-    @app.post("/engenharia_formularios/<int:form_id>/generate_excel")
-    @login_required
-    @role_required("engenharia")
-    def engenharia_generate_excel(form_id):
-        if not OPENPYXL_AVAILABLE:
-            flash("openpyxl não instalado.","warning"); return redirect(url_for("engenharia_form_list"))
-        db=get_db(); form=db.execute("SELECT id, nome_operadora FROM atacado_forms WHERE id = ?",(form_id,)).fetchone()
-        if not form: abort(404)
-        wb=Workbook(); wb.active.title="Índice"
-        ts=datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-        fname=f"PTI_Indice_{safe_filename(form['nome_operadora'] or 'Operadora')}_ID{form_id}_{ts}.xlsx"
-        fpath=os.path.join(app.config["EXPORT_DIR"],fname)
-        wb.save(fpath)
-        db.execute("INSERT INTO exports (form_id, filename, filepath, size_bytes) VALUES (?, ?, ?, ?)",(form_id,fname,fpath,os.path.getsize(fpath))); db.commit()
-        flash(f"Excel gerado: {fname}","success"); return redirect(url_for("engenharia_form_list",show_files="1",form=form_id))
-
-    @app.get("/engenharia_exports/<int:export_id>/download")
-    @login_required
-    @role_required("engenharia")
-    def engenharia_export_download(export_id):
-        db=get_db(); row=db.execute("SELECT filename, filepath FROM exports WHERE id = ?",(export_id,)).fetchone()
-        if not row: abort(404)
-        if not os.path.exists(row["filepath"]):
-            flash("Arquivo não encontrado.","warning"); return redirect(url_for("engenharia_form_list",show_files="1"))
-        return send_file(row["filepath"],mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",as_attachment=True,download_name=row["filename"])
-
-    @app.post("/engenharia_exports/<int:export_id>/delete")
-    @login_required
-    @role_required("engenharia")
-    def engenharia_export_delete(export_id):
-        db=get_db(); row=db.execute("SELECT filepath FROM exports WHERE id = ?",(export_id,)).fetchone()
-        if not row: abort(404)
-        try:
-            if os.path.exists(row["filepath"]): os.remove(row["filepath"])
-        except OSError: pass
-        db.execute("DELETE FROM exports WHERE id = ?",(export_id,)); db.commit()
-        flash("Arquivo removido.","info"); return redirect(url_for("engenharia_form_list",show_files="1"))
-
-    # =====================================================================
-    # API — SBC
-    # =====================================================================
-    @app.get("/api/sbc/suggest")
-    @login_required
-    @role_required("engenharia")
-    def api_sbc_suggest():
-        cn = request.args.get("cn", "").strip()
-        uf = request.args.get("uf", "").strip().upper()
-        analyzer: SBCAnalyzer = app.config["SBC_ANALYZER"]
-        if cn:
-            result = analyzer.suggest_for_cn(cn)
-        elif uf:
-            result = analyzer.suggest_for_uf(uf)
-        else:
-            return jsonify({"error": "Parâmetro 'cn' ou 'uf' é obrigatório."}), 400
-        return jsonify(asdict(result) if hasattr(result, '__dataclass_fields__') else {
-            "cn": result.cn, "uf": result.uf, "cidade": result.cidade,
-            "regional": result.regional, "source_file": result.source_file,
-            "source_modificado_em": result.source_modificado_em,
-            "data_medicao": result.data_medicao, "total_sbcs": result.total_sbcs,
-            "sbcs": result.sbcs, "fallback_usado": result.fallback_usado,
-            "fallback_origem": result.fallback_origem, "mensagem": result.mensagem,
-        })
-
-    @app.get("/api/sbc/overview")
-    @login_required
-    @role_required("engenharia")
-    def api_sbc_overview():
-        analyzer: SBCAnalyzer = app.config["SBC_ANALYZER"]
-        return jsonify(analyzer.get_overview())
-
-    @app.get("/api/sbc/health")
-    @login_required
-    @role_required("engenharia")
-    def api_sbc_health():
-        analyzer: SBCAnalyzer = app.config["SBC_ANALYZER"]
-        return jsonify(analyzer.health_check())
-
-    @app.get("/api/sbc/reload")
-    @login_required
-    @role_required("engenharia")
-    def api_sbc_reload():
-        analyzer: SBCAnalyzer = app.config["SBC_ANALYZER"]
-        measurements, aggregated = analyzer.processor.get_data(force_reload=True)
-        return jsonify({
-            "status": "reloaded", "measurements": len(measurements),
-            "aggregated_rows": len(aggregated),
-            "file_info": analyzer.processor.get_file_info(),
-        })
-
-    @app.get("/api/cns")
-    @login_required
-    def api_cns():
-        db=get_db(); rows=db.execute("SELECT codigo, COALESCE(nome,'') AS nome, COALESCE(uf,'') AS uf FROM cns WHERE ativo=1 ORDER BY codigo ASC").fetchall()
-        return jsonify([{"codigo":r["codigo"],"nome":r["nome"],"uf":r["uf"]} for r in rows])
-
-
-# =============================================================================
-# CLI COMMANDS
-# =============================================================================
-def _register_cli_commands(app):
-    @app.cli.command("create-user")
-    @click.argument("email")
-    @click.argument("password")
-    @click.argument("role")
-    def create_user_cmd(email, password, role):
-        role=role.strip().lower()
-        if role not in ("engenharia","atacado"):
-            click.echo("Role inválida. Use: engenharia ou atacado."); return
-        db=get_db()
-        try:
-            db.execute("INSERT INTO users (email, password_hash, role) VALUES (?, ?, ?)",(email.strip().lower(),generate_password_hash(password),role)); db.commit()
-            click.echo("Usuário criado com sucesso.")
-        except sqlite3.IntegrityError: click.echo("E-mail já cadastrado.")
-
-    @app.cli.command("seed-cns")
-    def seed_cns_cmd():
-        db=get_db(); _seed_cns(db); _apply_cn_metadata(db)
-        click.echo("Seed de CNs aplicado/atualizado.")
-
-    @app.cli.command("sbc-check")
-    def sbc_check_cmd():
-        analyzer: SBCAnalyzer = app.config["SBC_ANALYZER"]
-        health = analyzer.health_check()
-        click.echo(f"Diretório: {health['data_dir']} ({'OK' if health['data_dir_exists'] else 'NÃO ENCONTRADO'})")
-        click.echo(f"XLSX mais recente: {health.get('latest_file', 'Nenhum')}")
-        if health['file_info'].get('filename'):
-            info = health['file_info']
-            click.echo(f"  Medições: {info['total_measurements']}")
-            click.echo(f"  Linhas agregadas: {info['total_aggregated']}")
-            click.echo(f"  Modificado: {info['modified_at']}")
-
-    @app.cli.command("sbc-suggest")
-    @click.argument("cn")
-    def sbc_suggest_cmd(cn):
-        analyzer: SBCAnalyzer = app.config["SBC_ANALYZER"]
-        result = analyzer.suggest_for_cn(cn)
-        click.echo(f"\n{'='*60}")
-        click.echo(f"  SBC Suggestion para CN {result.cn} — {result.cidade} ({result.uf})")
-        click.echo(f"  Regional: {result.regional}")
-        click.echo(f"  Fonte: {result.source_file} ({result.source_modificado_em})")
-        click.echo(f"  Medição: {result.data_medicao}")
-        if result.fallback_usado:
-            click.echo(f"  ⚠️  Fallback: {result.fallback_origem}")
-        click.echo(f"{'='*60}")
-        click.echo(f"  {result.mensagem}")
-        click.echo(f"{'='*60}\n")
-        if not result.sbcs:
-            click.echo("  Nenhum SBC encontrado."); return
-        for i, sbc in enumerate(result.sbcs):
-            icon = "✅" if sbc.get("recomendado") else ("⚠️" if sbc.get("saude") in ("moderado","critico") else "  ")
-            click.echo(f"  {icon} #{i+1} {sbc['nome']} — {sbc.get('cidade','')} ({sbc['uf']})")
-            click.echo(f"     Modelo: {sbc['modelo']} | Serviços: {', '.join(sbc.get('servicos',[]))}")
-            click.echo(f"     CAPS avg: {sbc['caps_avg']} | máx {sbc['caps_max']} | mín {sbc['caps_min']} | último {sbc['caps_ultimo']}")
-            click.echo(f"     Tendência: {sbc['caps_tendencia']} | Medições: {sbc['total_medicoes']} | Status: {sbc['status_fonte']} | Saúde: {sbc['saude']}")
-            click.echo(f"     Score: {sbc['score']}/100 {'🏆 RECOMENDADO' if sbc.get('recomendado') else ''}")
-            if sbc.get('responsavel'): click.echo(f"     Responsável: {sbc['responsavel']}")
-            if sbc.get('prazo'): click.echo(f"     Prazo: {sbc['prazo']}")
-            click.echo(f"     Motivo: {sbc['motivo']}"); click.echo()
-
-
-# =============================================================================
-# ENTRYPOINT
-# =============================================================================
-app = create_app()
-
-if __name__ == "__main__":
-    app.run(debug=True)
+    /* Renderizar cada SBC */
+    data.sbcs.forEach((sbc)=>{
+      const card = document.createElement('div');
+      card.className = 'sbc-card' + (sbc.recomendado?' recommended':'');
+      const recBadge = sbc.recomendado
+        ? '<span class="sbc-card-badge sbc-badge-disponivel">✅ RECOMENDADO</span>'
+        : '';
+
+      /* Valores CAPS — tratar nulls/undefined */
+      const capsAvg    = fmt1(sbc.caps_avg);
+      const capsMax    = num(sbc.caps_max, 0);
+      const capsMin    = num(sbc.caps_min, 0);
+      const capsUltimo = num(sbc.caps_ultimo, 0);
+      const scoreVal   = num(sbc.score, 0);
+      const medCount   = num(sbc.total_medicoes, 0);
+      const saude      = sbc.saude || 'moderado';
+      const statusFonte = sbc.status_fonte || '—';
+      const tendencia  = sbc.caps_tendencia || 'estavel';
+      const modelo     = sbc.modelo || '—';
+      const servicos   = Array.isArray(sbc.servicos) ? sbc.servicos.join(', ') : (sbc.servicos||'—');
+      const sbcCidade  = sbc.cidade || '';
+      const sbcResp    = sbc.responsavel || '';
+      const sbcPrazo   = sbc.prazo || '';
+      const sbcNome    = sbc.nome || '—';
+
+      /* Meta inferior: responsável, prazo, semana */
+      let metaItems = '';
+      if(sbcCidade) metaItems += `<span><i class="bi bi-geo-alt"></i> ${sbcCidade}/${sbc.uf||uf}</span>`;
+      if(sbcResp) metaItems += `<span><i class="bi bi-person"></i> ${sbcResp}</span>`;
+      if(sbcPrazo) metaItems += `<span><i class="bi bi-calendar-event"></i> ${sbcPrazo}</span>`;
+      if(sbc.dia_mais_recente) metaItems += `<span><i class="bi bi-clock"></i> ${sbc.dia_mais_recente}</span>`;
+      const metaBlock = metaItems ? `<div class="sbc-card-meta">${metaItems}</div>` : '';
+
+      card.innerHTML = `
+        <div class="sbc-card-header">
+          <span class="sbc-card-name">${sbcNome}${sbcCidade ? '<span class="sbc-card-cidade">'+sbcCidade+'</span>':''}</span>
+          <div class="d-flex gap-1 align-items-center">
+            ${statusFonteBadge(statusFonte)}
+            <span class="sbc-card-badge ${badgeClass(saude)}">${saudeLabel(saude)}</span>
+            ${recBadge}
+          </div>
+        </div>
+        <div class="sbc-caps-bar-wrap">
+          <div class="sbc-caps-bar ${scoreBarClass(scoreVal)}" style="width:${Math.min(100,Math.max(2,scoreVal))}%"></div>
+        </div>
+        <div class="sbc-card-details">
+          <span>Modelo: <strong>${modelo}</strong></span>
+          <span>Serviços: ${servicos||'—'}</span>
+          <span>CAPS avg: <strong>${capsAvg}</strong> · máx: <strong>${capsMax}</strong> · mín: ${capsMin}</span>
+          <span>CAPS último: <strong>${capsUltimo}</strong> · ${tendenciaHTML(tendencia)}</span>
+          <span>Medições: ${medCount} ${statusFonte!=='—' ? '· Status XLSX: <strong>'+statusFonte+'</strong>' : ''}</span>
+          <span>Score: <strong>${scoreVal}/100</strong></span>
+        </div>
+        ${metaBlock}
+        <div class="sbc-card-footer">
+          <span class="sbc-score" style="color:${scoreVal>=70?'#198754':scoreVal>=40?'#997404':'#dc3545'}">Score: ${scoreVal}/100</span>
+          <span class="sbc-reason">${sbc.motivo||''}</span>
+          <button type="button" class="btn btn-sm btn-outline-hub sbc-use-btn" data-sbc-name="${sbcNome}">
+            Usar na linha ${_activeRowIndex+1}
+          </button>
+        </div>`;
+      card.querySelector('.sbc-use-btn').addEventListener('click', ()=> fillSbc(sbcNome, _activeRowIndex));
+      listEl.appendChild(card);
+    });
+    panel.style.display='block';
+  }
+
+  function fillSbc(sbcName, rowIdx){
+    const rows = document.querySelectorAll('#tableVivo tbody tr');
+    if(rowIdx>=0 && rowIdx<rows.length){
+      const inp = rows[rowIdx].querySelectorAll('td')[5]?.querySelector('input');
+      if(inp){
+        inp.value = sbcName;
+        inp.style.transition='background .3s'; inp.style.background='#d1e7dd';
+        setTimeout(()=>{ inp.style.background=''; }, 1200);
+        setDirty();
+      }
+    }
+  }
+
+  /**
+   * Busca SBCs por CN ou UF — a API aceita ambos os parâmetros.
+   * Prioridade: CN > UF (CN é mais específico).
+   */
+  async function fetchSuggestion(cn, rowIndex, uf){
+    cn = cn ? String(cn).trim().replace(/\D/g,'').slice(0,2) : '';
+    uf = uf ? String(uf).trim().toUpperCase().replace(/[^A-Z]/g,'').slice(0,2) : '';
+
+    /* Precisa de pelo menos CN (2 dígitos) OU UF (2 letras) */
+    if(cn.length<2 && uf.length<2){ panel.style.display='none'; return; }
+
+    /* Construir query string */
+    const queryKey = cn.length>=2 ? `cn=${cn}` : `uf=${uf}`;
+    const cacheKey = queryKey + ':' + rowIndex;
+    if(cacheKey===_lastCn && _activeRowIndex===rowIndex) return;
+    _lastCn=cacheKey; _activeRowIndex=rowIndex;
+
+    if(_fetchTimeout) clearTimeout(_fetchTimeout);
+    _fetchTimeout = setTimeout(async ()=>{
+      panel.style.display='block'; loadEl.style.display='block';
+      listEl.innerHTML=''; emptyEl.style.display='none'; fallEl.style.display='none';
+      try{
+        const resp = await fetch(`/api/sbc/suggest?${queryKey}`);
+        if(!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const json = await resp.json();
+        console.log('[SBC] Resposta API:', JSON.stringify(json, null, 2).slice(0,800));
+        renderCards(json);
+      } catch(err){
+        loadEl.style.display='none'; emptyEl.style.display='block';
+        emptyEl.textContent='Erro ao buscar SBCs. Verifique o diretório de dados.';
+        console.warn('SBC fetch error:', err);
+      }
+    }, 350);
+  }
+
+  return { fetch: fetchSuggestion, fillSbc };
+})();
+
+/* ===== AUTO-PREENCHER Cidade/UF + DISPARAR SBC (por CN ou UF) ===== */
+function wireCnAutoFill(tr){
+  const cnInp    = tr.querySelector('input[data-field="cn"]');
+  const ufInp    = tr.querySelector('input[data-field="uf"]');
+  const cidInp   = tr.querySelector('input[data-field="cidade"]');
+  if(!cnInp || !ufInp || !cidInp) return;
+
+  /* Handler do CN: preenche cidade/UF + dispara SBC */
+  const cnHandler = ()=>{
+    const v = (cnInp.value||'').replace(/\D/g,'').slice(0,2);
+    cnInp.value = v;
+    const info = resolveCityUF(v);
+    if(info.cidade) cidInp.value = info.cidade;
+    if(info.uf) ufInp.value = info.uf;
+    setDirty();
+    if(engineerMode && v.length===2){
+      const rowIdx = Array.from(tr.parentElement.children).indexOf(tr);
+      SBC.fetch(v, rowIdx, info.uf||'');
+    }
+  };
+  cnInp.addEventListener('change', cnHandler);
+  cnInp.addEventListener('blur', cnHandler);
+
+  /* Handler da UF: dispara SBC diretamente pela UF quando CN está vazio */
+  const ufHandler = ()=>{
+    const ufVal = (ufInp.value||'').toUpperCase().replace(/[^A-Z]/g,'').slice(0,2);
+    ufInp.value = ufVal;
+    setDirty();
+    if(engineerMode && ufVal.length===2){
+      const cnVal = (cnInp.value||'').replace(/\D/g,'');
+      const rowIdx = Array.from(tr.parentElement.children).indexOf(tr);
+      if(cnVal.length>=2){
+        /* CN disponível → buscar por CN (mais preciso) */
+        SBC.fetch(cnVal, rowIdx, ufVal);
+      } else {
+        /* Sem CN → buscar direto pela UF */
+        SBC.fetch('', rowIdx, ufVal);
+      }
+    }
+  };
+  ufInp.addEventListener('change', ufHandler);
+  ufInp.addEventListener('blur', ufHandler);
+
+  /* Inicializar se já tem dados */
+  if((cnInp.value||'').trim().length>=2) cnHandler();
+  else if((ufInp.value||'').trim().length>=2) ufHandler();
+}
+
+/* ===== TABELAS DINÂMICAS ===== */
+(function(){
+  let vivoInit=[], opInit=[];
+  const fe = document.getElementById('formTecnico');
+  if(fe){
+    try{ const d=fe.getAttribute('data-vivo-json');      if(d) vivoInit=JSON.parse(d); } catch(_){}
+    try{ const d=fe.getAttribute('data-operadora-json'); if(d) opInit=JSON.parse(d);   } catch(_){}
+  }
+  const tv=document.querySelector('#tableVivo tbody');
+  const to=document.querySelector('#tableOperadora tbody');
+
+  function addRowVivo(v={}){
+    if(!tv) return;
+    if(tv.children.length>=ROW_CAP){ alert('Máximo de '+ROW_CAP+' linhas.'); return; }
+    const tr=document.createElement('tr');
+    const cols=[
+      {k:'ref'},{k:'data'},{k:'escopo'},{k:'localidade'},
+      {k:'cn',attrs:{'data-field':'cn',list:'cnList',inputmode:'numeric',pattern:'\\d{2}',maxlength:'2'}},
+      {k:'sbc'},{k:'mask'},{k:'endereco_link'},
+      {k:'cidade',attrs:{'data-field':'cidade'}},
+      {k:'uf',attrs:{'data-field':'uf',maxlength:'2'}},
+      {k:'lat'},{k:'long'}
+    ];
+    cols.forEach(({k,attrs})=>{
+      const td=document.createElement('td');
+      const inp=mkInput(k.toUpperCase(),attrs||{});
+      inp.value=(v[k]??''); td.appendChild(inp); tr.appendChild(td);
+    });
+    const a=document.createElement('td'); a.className='text-center table-actions'; a.appendChild(mkRemoveBtn()); tr.appendChild(a);
+    tv.appendChild(tr); wireCnAutoFill(tr); updateCounters(); setDirty();
+  }
+
+  function addRowOperadora(v={}){
+    if(!to) return;
+    if(to.children.length>=ROW_CAP){ alert('Máximo de '+ROW_CAP+' linhas.'); return; }
+    const tr=document.createElement('tr');
+    ['ref','localidade','eto_lc','eot_ld'].forEach(k=>{
+      const td=document.createElement('td'); const inp=mkInput(k.toUpperCase()); inp.value=v[k]??''; td.appendChild(inp); tr.appendChild(td);
+    });
+    {const td=document.createElement('td');const inp=mkInput('CN',{'data-field':'cn',list:'cnList',inputmode:'numeric',pattern:'\\d{2}',maxlength:'2'});inp.value=v['cn']??'';td.appendChild(inp);tr.appendChild(td);}
+    {const td=document.createElement('td');const inp=mkInput('SBC');inp.value=v['sbc']??'';td.appendChild(inp);tr.appendChild(td);}
+    {const td=document.createElement('td');const inp=mkInput('Faixa de IP');inp.value=v['faixa_ip']??'';td.appendChild(inp);tr.appendChild(td);}
+    const tdC=document.createElement('td');tdC.appendChild(mkCheck());tdC.querySelector('input').checked=!!v.concentracao;tr.appendChild(tdC);
+    [{k:'endereco_link'},{k:'cidade',attrs:{'data-field':'cidade'}},{k:'uf',attrs:{'data-field':'uf',maxlength:'2'}},{k:'lat'},{k:'long'}].forEach(({k,attrs})=>{
+      const td=document.createElement('td');const inp=mkInput(k.toUpperCase(),attrs||{});inp.value=v[k]??'';td.appendChild(inp);tr.appendChild(td);
+    });
+    if(!engineerMode){const a=document.createElement('td');a.className='text-center table-actions';a.appendChild(mkRemoveBtn());tr.appendChild(a);}
+    to.appendChild(tr); wireCnAutoFill(tr); updateCounters(); setDirty();
+  }
+
+  (Array.isArray(vivoInit)?vivoInit:[]).forEach(addRowVivo);
+  (Array.isArray(opInit)?opInit:[]).forEach(addRowOperadora);
+
+  document.getElementById('addRowVivo')?.addEventListener('click',()=>addRowVivo({}));
+  document.getElementById('clearRowsVivo')?.addEventListener('click',()=>{if(tv){tv.innerHTML='';updateCounters();setDirty();}});
+  document.getElementById('addRowOperadora')?.addEventListener('click',()=>addRowOperadora({}));
+  document.getElementById('clearRowsOperadora')?.addEventListener('click',()=>{if(to){to.innerHTML='';updateCounters();setDirty();}});
+  updateCounters();
+})();
+
+/* ===== ENGENHARIA CHECKLIST HYDRATE ===== */
+(function(){
+  if(!engineerMode) return;
+  let saved={};
+  const fe=document.getElementById('formTecnico');
+  if(fe){ try{ const d=fe.getAttribute('data-engenharia-json'); if(d) saved=JSON.parse(d); } catch(_){} }
+  document.querySelectorAll('#eng-section .eng-flag[data-key]').forEach(chk=>{
+    const key=chk.getAttribute('data-key');
+    if(Object.prototype.hasOwnProperty.call(saved,key)) chk.checked=!!saved[key];
+  });
+  if(typeof saved.notes==='string'){
+    const n=document.getElementById('eng_notes'); if(n) n.value=saved.notes;
+  }
+  document.getElementById('engCheckAll')?.addEventListener('click',()=>{document.querySelectorAll('#eng-section .eng-flag').forEach(c=>c.checked=true);setDirty();});
+  document.getElementById('engUncheckAll')?.addEventListener('click',()=>{document.querySelectorAll('#eng-section .eng-flag').forEach(c=>c.checked=false);setDirty();});
+})();
+
+/* ===== QUAL? TOGGLE ===== */
+(function(){
+  const at=document.getElementById('atendimento'), qg=document.getElementById('qualGroup');
+  function toggle(){ if(qg) qg.classList.toggle('d-none',!(at?.value||'').startsWith('REG')); setDirty(); }
+  if(at){ at.addEventListener('change',toggle); toggle(); }
+})();
+
+/* ===== ESCOPO FLAGS (Atacado) ===== */
+(function(){
+  if(engineerMode) return;
+  const h=document.getElementById('escopo_flags_json'); if(!h) return;
+  const flags=(function(){try{return JSON.parse(h.value||'[]');}catch(_){return[];}})();
+  document.querySelectorAll('.esc-flag').forEach(chk=>{
+    if(flags.includes(chk.getAttribute('data-flag'))) chk.checked=true;
+    chk.addEventListener('change',()=>{
+      const cur=[]; document.querySelectorAll('.esc-flag:checked').forEach(c=>cur.push(c.getAttribute('data-flag')));
+      h.value=JSON.stringify(cur); setDirty();
+    });
+  });
+})();
+
+/* ===== VALIDAÇÃO E SUBMIT ===== */
+const form=document.getElementById('formTecnico');
+function setStatus(v){ const s=document.getElementById('status'); if(s) s.value=v; }
+function finalizeSubmit(){
+  if(!confirm('Confirmar finalização do Pré-PTI? Após enviar, ele seguirá para revisão da Engenharia.')) return false;
+  setStatus('enviado'); return true;
+}
+function showSpinner(id,show){
+  const b=document.getElementById(id),s=b?.querySelector('.spinner-border');
+  if(b) b.disabled=!!show; if(s) s.classList.toggle('d-none',!show);
+}
+
+window.addEventListener('beforeunload',(e)=>{if(isDirty&&!submitting){e.preventDefault();e.returnValue='';}});
+
+document.getElementById('resetForm')?.addEventListener('click',()=>{
+  form.reset(); form.classList.remove('was-validated');
+  const tv=document.querySelector('#tableVivo tbody');if(tv) tv.innerHTML='';
+  const to=document.querySelector('#tableOperadora tbody');if(to) to.innerHTML='';
+  const qg=document.getElementById('qualGroup');if(qg) qg.classList.add('d-none');
+  const at=document.getElementById('atendimento');if(at) at.value='';
+  updateCounters(); setDirty(); window.scrollTo({top:0,behavior:'smooth'});
+});
+
+document.querySelectorAll('#formTecnico input:not([type="hidden"]),#formTecnico select,#formTecnico textarea').forEach(el=>{
+  el.addEventListener('input',setDirty); el.addEventListener('change',setDirty);
+});
+
+form.addEventListener('submit',(e)=>{
+  const vivoH=document.getElementById('dados_vivo_json');
+  const opH=document.getElementById('dados_operadora_json');
+  if(engineerMode && document.getElementById('tableVivo'))  vivoH.value=JSON.stringify(serializeTableVivo());
+  if(!engineerMode && document.getElementById('tableOperadora')) opH.value=JSON.stringify(serializeTableOperadora());
+
+  if(engineerMode){
+    const data={};
+    document.querySelectorAll('#eng-section .eng-flag[data-key]').forEach(chk=>{ data[chk.getAttribute('data-key')]=!!chk.checked; });
+    const n=document.getElementById('eng_notes'); if(n&&n.value.trim()) data.notes=n.value.trim();
+    document.getElementById('engenharia_params_json').value=JSON.stringify(data);
+  }
+
+  if(!form.checkValidity()){
+    e.preventDefault(); e.stopPropagation(); form.classList.add('was-validated');
+    const inv=form.querySelector(':invalid');
+    if(inv){inv.scrollIntoView({behavior:'smooth',block:'center'});inv.focus({preventScroll:true});}
+    return;
+  }
+  submitting=true; form.classList.add('was-validated');
+  if(engineerMode) showSpinner('btnSaveEng',true);
+  else if(document.activeElement?.id==='btnFinish') showSpinner('btnFinish',true);
+  else showSpinner('btnSave',true);
+});
+
+/* ===== HOTKEYS ===== */
+document.addEventListener('keydown',(e)=>{
+  if(e.target&&['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName)){
+    if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='s'){
+      e.preventDefault();
+      if(engineerMode) document.getElementById('btnSaveEng')?.click();
+      else{setStatus('rascunho');document.getElementById('btnSave')?.click();}
+    }
+    return;
+  }
+  if(e.key==='g'||e.key==='G') window.scrollTo({top:0,behavior:'smooth'});
+});
+
+/* ===== TOOLTIPS ===== */
+document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(el=>new bootstrap.Tooltip(el));
+</script>
+{% endblock %}
