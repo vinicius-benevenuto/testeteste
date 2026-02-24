@@ -2394,226 +2394,108 @@ class PTIWorkbookBuilder:
 
     def _b_conc(self):
         """
-        Aba Concentração — tabela enriquecida com dados cruzados.
-
-        Colunas:
-          A(1)=margem | B(2)=Ref | C(3)=CN | D(4)=Área Local |
-          E(5)=UF | F(6)=CNL | G(7)=Cod.CnI | H(8)=Localidade |
-          I(9)=SBC | J(10)=Concentração | K(11)=EOT LC |
-          L(12)=EOT LD | M(13)=IP Operadora | N(14)=Status Link |
-          O(15)=margem
-
-        Fontes: self.conc (expandido), cross-ref com vivo_rows via CN.
+        Aba Concentração — 5 colunas: Ref | CN | CNL | Cod. CnI | Status Link
+        Apenas linhas com dados reais (sem linhas vazias extras).
         """
         s = self.s
         ws = self.wb.create_sheet(title="Concentração")
         n = self.nome
 
-        # --- Larguras base (serão auto-ajustadas) ---
-        col_w = {
-            1: 2, 2: 6, 3: 8, 4: 16, 5: 6, 6: 10, 7: 10,
-            8: 18, 9: 16, 10: 18, 11: 10, 12: 10, 13: 16,
-            14: 14, 15: 2,
-        }
-        max_w = {c: w for c, w in col_w.items()}
+        # --- Larguras ---
+        col_w = {1: 2, 2: 8, 3: 8, 4: 12, 5: 12, 6: 25}
+        max_w = dict(col_w)
+        last_col = 6  # cols 2-6 (B-F): margem em 1 e 7
 
         def _tw(col, val):
             if val:
                 cw = len(str(val)) * 1.15 + 2
                 if cw > max_w.get(col, 0):
-                    max_w[col] = min(cw, 40)
+                    max_w[col] = min(cw, 35)
 
-        last_col = 14  # última coluna de dados
+        align_wrap = Alignment(horizontal="center", vertical="center",
+                               wrap_text=True)
 
-        # ===== CABEÇALHO GLOBAL =====
+        # ===== BANNER + TÍTULO =====
         self._bh(ws, 2, 2, last_col)
         self._st(ws, 4, 2, last_col, "2.5 - Concentração")
 
-        # ===== TEXTO INTRODUTÓRIO =====
-        intro_texts = [
-            (5, f"A '{n.upper()}' informou interesse em realizar a concentração "
-                f"de ALs conforme detalhado na tabela abaixo:", False),
+        # ===== TEXTOS INTRODUTÓRIOS =====
+        for row, text, italic in [
+            (5, f"A '{n.upper()}' informou interesse em realizar a "
+                f"concentração de ALs conforme detalhado na tabela abaixo:",
+             False),
             (6, 'Caso necessite de incluir mais ALs, Favor inserir linhas '
                 'adicionais de acordo com reunião que foi acordado o tema '
                 '(coluna B - "Ref").', True),
-        ]
-        for row, text, italic in intro_texts:
+        ]:
             ws.merge_cells(start_row=row, start_column=2,
                            end_row=row, end_column=last_col)
             c = ws.cell(row=row, column=2, value=text)
-            c.font = Font(name="Calibri", size=9 if italic else 10, italic=italic)
+            c.font = Font(name="Calibri", size=9 if italic else 10,
+                          italic=italic)
             c.alignment = Alignment(horizontal="left", vertical="center",
                                     wrap_text=True)
             c.fill = s.fill_background
-            ws.row_dimensions[row].height = 30.0 if italic else 22.0
+            ws.row_dimensions[row].height = 28.0 if italic else 22.0
 
-        # ===== CABEÇALHO DA TABELA =====
+        # ===== CABEÇALHO =====
         hr = 8
+        ws.row_dimensions[hr].height = 25.0
         headers = [
-            (2, "Ref"),
-            (3, "CN"),
-            (4, "Área Local"),
-            (5, "UF"),
-            (6, "CNL"),
-            (7, "Cod. CnI"),
-            (8, "Localidade\n(POI/PPI)"),
-            (9, "SBC"),
-            (10, "Concentração"),
-            (11, "EOT LC"),
-            (12, "EOT LD"),
-            (13, "IP Operadora"),
-            (14, "Status Link"),
+            (2, "Ref"), (3, "CN"), (4, "CNL"),
+            (5, "Cod. CnI"), (6, "Status Link"),
         ]
-        ws.row_dimensions[hr].height = 30.0
         for col, txt in headers:
             c = ws.cell(row=hr, column=col, value=txt)
-            c.font = Font(name="Calibri", size=9, bold=True, color="FFFFFF")
-            c.alignment = Alignment(horizontal="center", vertical="center",
-                                    wrap_text=True)
+            c.font = Font(name="Calibri", size=10, bold=True, color="FFFFFF")
+            c.alignment = align_wrap
             c.fill = s.fill_secondary
             c.border = s.box_border
 
-        # ===== DADOS — cruzamento conc ↔ vivo_rows ↔ CN_METADATA =====
-        conc_rows = self.conc if self.conc else []
-        num_data = max(len(conc_rows), 1)
+        # ===== DADOS — apenas linhas com conteúdo =====
+        conc_rows = [d for d in self.conc if any(d.values())] if self.conc else []
+        ds = hr + 1
 
-        # Helper: buscar vivo_row pelo CN para enriquecer
-        def _find_vivo_by_cn(cn_val):
-            if not cn_val:
-                return {}
-            cn_norm = cn_val.strip()
-            for vr in self.vivo_rows:
-                if vr.get("cn", "").strip() == cn_norm:
-                    return vr
-            return {}
-
-        # Helper: resolver SBC via UF quando ausente
-        def _sbc_fallback(uf, cidade):
-            if not uf:
-                return ""
-            resolved = self._resolve_sbc_for_uf(uf, cidade)
-            return resolved["nome"] if resolved else ""
-
-        ds = hr + 1  # primeira linha de dados
-        align_wrap = Alignment(horizontal="center", vertical="center",
-                               wrap_text=True)
-        align_left_wrap = Alignment(horizontal="left", vertical="center",
-                                    wrap_text=True)
-
-        for i in range(num_data):
+        for i, d in enumerate(conc_rows):
             r = ds + i
-            d = conc_rows[i] if i < len(conc_rows) else {}
+            ws.row_dimensions[r].height = 22.0
             f = s.alt_fill(i)
 
-            # --- Extrair campos base ---
-            ref_val = d.get("ref", "")
-            cn_val = d.get("cn", "")
-            cnl_val = d.get("cnl", "")
-            cod_cni = d.get("cod_cni", "")
-            status = d.get("status_link", "")
-            localidade = d.get("localidade", "")
-            conc_val = d.get("concentracao", "")
-            uf_val = d.get("uf", "")
-            cidade = d.get("cidade", "")
-            sbc_val = d.get("sbc", "")
-            ip_op = d.get("faixa_ip", "") or d.get("endereco_link", "")
-            eot_lc = d.get("eto_lc", "")
-            eot_ld = d.get("eot_ld", "")
-
-            # --- Cross-reference com vivo_row pelo CN ---
-            vr = _find_vivo_by_cn(cn_val)
-            if not cidade and vr:
-                cidade = vr.get("cidade", "")
-            if not uf_val and vr:
-                uf_val = vr.get("uf", "")
-            if not sbc_val and vr:
-                sbc_val = vr.get("sbc", "")
-            if not localidade and vr:
-                localidade = vr.get("localidade", "")
-
-            # --- Fallback via CN_METADATA ---
-            if cn_val and (not cidade or not uf_val):
-                cn_meta = CN_METADATA.get(cn_val.zfill(2))
-                if cn_meta:
-                    if not cidade:
-                        cidade = cn_meta[0]
-                    if not uf_val:
-                        uf_val = cn_meta[1]
-
-            # --- SBC obrigatório via UF (fallback XLSX) ---
-            if not sbc_val and uf_val:
-                sbc_val = _sbc_fallback(uf_val, cidade)
-
-            # --- Ref automático se ausente ---
-            if not ref_val and d:
-                ref_val = str(i + 1)
-
-            # --- Montar linha de dados ---
             row_vals = {
-                2:  ref_val,
-                3:  cn_val or "[FALTA: CN]",
-                4:  cidade or "[FALTA: Área Local]",
-                5:  uf_val or "[FALTA: UF]",
-                6:  cnl_val,
-                7:  cod_cni,
-                8:  localidade,
-                9:  sbc_val or "[FALTA: SBC]",
-                10: conc_val,
-                11: eot_lc,
-                12: eot_ld,
-                13: ip_op,
-                14: status,
+                2: d.get("ref", ""),
+                3: d.get("cn", ""),
+                4: d.get("cnl", ""),
+                5: d.get("cod_cni", ""),
+                6: d.get("status_link", ""),
             }
 
-            # Calcular altura necessária (wrap_text)
-            max_lines = 1
-            for col_num, val in row_vals.items():
-                if val:
-                    lines = str(val).count("\n") + 1
-                    w = max_w.get(col_num, 12)
-                    char_lines = max(1, int(len(str(val)) / (w * 0.9)) + 1)
-                    max_lines = max(max_lines, lines, char_lines)
-            row_h = max(22.0, max_lines * 15.0)
-            ws.row_dimensions[r].height = row_h
-
-            # Renderizar células
             for col_num in range(2, last_col + 1):
                 val = row_vals.get(col_num, "")
                 c = ws.cell(row=r, column=col_num, value=val)
-                c.border = s.box_border
+                c.font = s.font_body
                 c.fill = f
-
-                # Fonte: itálica laranja para campos [FALTA]
-                if isinstance(val, str) and val.startswith("[FALTA:"):
-                    c.font = Font(name="Calibri", size=8, italic=True,
-                                  color="FF6600")
-                else:
-                    c.font = s.font_small
-
-                # Alignment: esquerda para campos longos
-                if col_num in (8, 10, 14):
-                    c.alignment = align_left_wrap
-                else:
-                    c.alignment = align_wrap
-
+                c.border = s.box_border
+                c.alignment = Alignment(
+                    horizontal="left" if col_num == 6 else "center",
+                    vertical="center", wrap_text=True,
+                )
                 _tw(col_num, val)
 
         # ===== AUTO-ADJUST LARGURAS =====
-        last_data_row = ds + num_data - 1
         for col_num, w in max_w.items():
             ws.column_dimensions[get_column_letter(col_num)].width = max(
                 col_w.get(col_num, 8), w
             )
 
-        # ===== MARGENS LATERAIS =====
-        last_row = last_data_row
-        for col in (1, 15):
+        # ===== MARGENS =====
+        last_row = ds + len(conc_rows)
+        for col in (1, last_col + 1):
             for r in range(1, last_row + 3):
                 ws.cell(row=r, column=col).fill = s.fill_white
                 ws.cell(row=r, column=col).border = s.no_border
 
         ws.freeze_panes = f"C{ds}"
-        self._ps(ws, ls=True)
+        self._ps(ws)
 
     def _b_prefixes(self):
         """
