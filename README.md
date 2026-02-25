@@ -1,1 +1,1 @@
---user-data-dir="C:\Users\Vinicius\AppData\Local\Google\Chrome\User Data" "COLE_AQUI_SEU_LINK_DO_POWER_BI"
+--user-data-dir="C:\Users\Vinicius\AppData\Local\Google\Chrome\User Data" --profile-directory="Default" "SEU_LINK_AQUI"
