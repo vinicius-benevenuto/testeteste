@@ -1,1 +1,1 @@
---user-data-dir="C:\Users\Vinicius\AppData\Local\Google\Chrome\User Data" --profile-directory="Default" "SEU_LINK_AQUI"
+C:\Program Files\Microsoft\Edge\Application\msedge.exe
