@@ -1,1 +1,1 @@
---user-data-dir="C:\ChromePAD" "SEU_LINK_DO_POWER_BI" 
+"C:\Program Files\Google\Chrome\Application\chrome.exe" --user-data-dir="C:\ChromePAD" "https://app.powerbi.com/groups/me/reports/XYZ/ReportSection"
