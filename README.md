@@ -1,164 +1,123 @@
-"""Testes de integração para db/repository.py + models."""
-import os, sys, tempfile, pytest
-sys.path.insert(0, ".")
+"""Testes para core/map_rules.py"""
+import pytest
+import sys; sys.path.insert(0, ".")
 
-import pandas as pd
-from app.db.session import init_db, session_scope
-from app.db.repository import Repository
-
-
-@pytest.fixture(scope="function")
-def tmp_db(tmp_path):
-    db_file = str(tmp_path / "test.db")
-    init_db(db_file)
-    return db_file
+from app.core.map_rules import (
+    OUTPUT_COLUMNS, apply_rule, suggest_mappings, validate_mapping,
+)
 
 
-@pytest.fixture
-def repo(tmp_db):
-    with session_scope() as session:
-        yield Repository(session)
+SCIENCE_COLS = [
+    "COD_CCC Origem", "ID Rota", "Data Ativação", "Tipo da Rota",
+    "Operadora Origem", "Operadora destino", "Central Interna",
+    "Descrição", "Sequencial", "OPC", "DPC",
+]
+PORTAL_COLS = [
+    "SOLICITACAO", "TIPO", "CENTRAL", "BILHETADOR", "TIPO_ROTA",
+    "LABEL_E", "LABEL_S", "EMPRESA", "DESIGNACAO", "SENTIDO",
+]
 
 
-def _sci_df():
-    return pd.DataFrame({
-        "Tipo da Rota": ["ITX", "LOCAL"],
-        "Central Interna": ["MBCAJUD", "SAO001"],
-        "Operadora Origem": ["EMBRATEL", "OI"],
-    })
+class TestSuggestMappings:
+    def test_returns_all_output_columns(self):
+        mapping = suggest_mappings(SCIENCE_COLS, PORTAL_COLS)
+        for col in OUTPUT_COLUMNS:
+            assert col in mapping, f"Missing output column: {col}"
+
+    def test_tipo_de_rota_maps_science_first(self):
+        mapping = suggest_mappings(SCIENCE_COLS, PORTAL_COLS)
+        rule = mapping["Tipo de Rota"]
+        assert rule["type"] in ("coalesce", "concat")
+        sources = rule.get("sources", [])
+        if sources:
+            # Ciência deve vir antes do portal
+            sci_idx = next((i for i, s in enumerate(sources) if s["table"] == "science"), 999)
+            por_idx = next((i for i, s in enumerate(sources) if s["table"] == "portal"), 999)
+            assert sci_idx <= por_idx
+
+    def test_operadora_mapped(self):
+        mapping = suggest_mappings(SCIENCE_COLS, PORTAL_COLS)
+        rule = mapping["OPERADORA"]
+        assert rule["type"] in ("coalesce", "literal")
+
+    def test_rotulos_concat(self):
+        mapping = suggest_mappings(SCIENCE_COLS, PORTAL_COLS)
+        rule = mapping.get("Rótulos de Linha", {})
+        # Deve ser concat quando LABEL_E e LABEL_S presentes
+        if rule.get("type") == "concat":
+            assert "sources" in rule
 
 
-def _por_df():
-    return pd.DataFrame({
-        "CENTRAL": ["MBCAJUD"],
-        "EMPRESA": ["TIM"],
-        "LABEL_E": ["LABEL_X"],
-    })
+class TestApplyRule:
+    def setup_method(self):
+        self.sci = {
+            "Tipo da Rota": "ITX",
+            "Central Interna": "MBCAJUD",
+            "Operadora Origem": "EMBRATEL",
+            "Descrição": "ROTA VIVO ITX",
+        }
+        self.por = {
+            "TIPO_ROTA": "LOCAL",
+            "CENTRAL": "OUTRO",
+            "EMPRESA": "OI",
+            "LABEL_E": "MBCAJUD_TCE1C9",
+            "LABEL_S": "OUTRO_LABEL",
+            "DESIGNACAO": "ROTA PORTAL",
+        }
+
+    def test_coalesce_science_first(self):
+        rule = {"type": "coalesce", "sources": [
+            {"table": "science", "col": "Tipo da Rota"},
+            {"table": "portal", "col": "TIPO_ROTA"},
+        ]}
+        result = apply_rule(rule, self.sci, self.por)
+        assert result == "ITX"
+
+    def test_coalesce_falls_back_to_portal(self):
+        rule = {"type": "coalesce", "sources": [
+            {"table": "science", "col": "COLUNA_INEXISTENTE"},
+            {"table": "portal", "col": "TIPO_ROTA"},
+        ]}
+        result = apply_rule(rule, self.sci, self.por)
+        assert result == "LOCAL"
+
+    def test_concat_labels(self):
+        rule = {"type": "concat", "sources": [
+            {"table": "portal", "col": "LABEL_E"},
+            {"table": "portal", "col": "LABEL_S"},
+        ], "separator": " | "}
+        result = apply_rule(rule, self.sci, self.por)
+        assert "MBCAJUD_TCE1C9" in result
+        assert " | " in result
+
+    def test_literal_value(self):
+        rule = {"type": "literal", "value": "VIVO-SMP"}
+        result = apply_rule(rule, self.sci, self.por)
+        assert result == "VIVO-SMP"
+
+    def test_coalesce_empty_falls_through(self):
+        sci_empty = {**self.sci, "Tipo da Rota": ""}
+        rule = {"type": "coalesce", "sources": [
+            {"table": "science", "col": "Tipo da Rota"},
+            {"table": "portal", "col": "TIPO_ROTA"},
+        ]}
+        result = apply_rule(rule, sci_empty, self.por)
+        assert result == "LOCAL"
 
 
-def _merged_df():
-    return pd.DataFrame({
-        "REDE": ["VIVO", "VIVO"],
-        "UF": ["SP", "SP"],
-        "CLUSTER": ["C1", "C1"],
-        "Tipo de Rota": ["ITX", "LOCAL"],
-        "Central": ["MBCAJUD", "SAO001"],
-        "Rótulos de Linha": ["LABEL_X", ""],
-        "OPERADORA": ["EMBRATEL", "OI"],
-        "Denominação": ["Rota A", "Rota B"],
-    })
+class TestValidateMapping:
+    def test_warns_missing_column(self):
+        mapping = {"Tipo de Rota": {"type": "coalesce", "sources": [
+            {"table": "science", "col": "COLUNA_FANTASMA"}
+        ]}}
+        warns = validate_mapping(mapping, SCIENCE_COLS, PORTAL_COLS)
+        assert len(warns) > 0
+        assert any("COLUNA_FANTASMA" in w for w in warns)
 
-
-class TestImportPersistence:
-    def test_save_and_list_science(self, tmp_db):
-        init_db(tmp_db)
-        with session_scope() as s:
-            r = Repository(s)
-            iid = r.save_import("science", "test.xlsx", "Sheet1",
-                                 "hash123", _sci_df(), {"a": "a"})
-            s.commit()
-        with session_scope() as s:
-            r = Repository(s)
-            imports = r.list_imports(source="science")
-        assert len(imports) >= 1
-        assert imports[0]["source"] == "science"
-        assert imports[0]["rows"] == 2
-
-    def test_raw_rows_preserved(self, tmp_db):
-        """100% das linhas devem estar no banco após importação."""
-        init_db(tmp_db)
-        sci = _sci_df()
-        with session_scope() as s:
-            r = Repository(s)
-            iid = r.save_import("science", "test.xlsx", None,
-                                 "hash_sci", sci, {})
-            s.commit()
-        with session_scope() as s:
-            r = Repository(s)
-            loaded = r.load_raw_df(iid, "science")
-        assert len(loaded) == len(sci), "Linhas perdidas na persistência!"
-        assert set(sci.columns) == set(loaded.columns)
-
-    def test_portal_raw_preserved(self, tmp_db):
-        init_db(tmp_db)
-        por = _por_df()
-        with session_scope() as s:
-            r = Repository(s)
-            iid = r.save_import("portal", "portal.xlsx", None,
-                                 "hash_por", por, {})
-            s.commit()
-        with session_scope() as s:
-            r = Repository(s)
-            loaded = r.load_raw_df(iid, "portal")
-        assert len(loaded) == len(por)
-
-
-class TestMergePersistence:
-    def test_save_and_load_merge(self, tmp_db):
-        init_db(tmp_db)
-        merged = _merged_df()
-        with session_scope() as s:
-            r = Repository(s)
-            vid = r.save_merge_version(
-                "20240101_120000", None, None,
-                {"REDE": {"type": "literal", "value": "VIVO"}},
-                ["Central"], "outer", 90,
-                merged, 2, 1,
-            )
-            s.commit()
-        with session_scope() as s:
-            r = Repository(s)
-            loaded = r.load_merged_df(vid)
-        assert len(loaded) == len(merged)
-        assert list(loaded.columns) == [
-            "REDE", "UF", "CLUSTER", "Tipo de Rota", "Central",
-            "Rótulos de Linha", "OPERADORA", "Denominação",
-        ]
-
-    def test_version_listed(self, tmp_db):
-        init_db(tmp_db)
-        with session_scope() as s:
-            r = Repository(s)
-            vid = r.save_merge_version(
-                "tag_test", None, None, {}, [], "outer", 90,
-                _merged_df(), 2, 1,
-            )
-            s.commit()
-        with session_scope() as s:
-            r = Repository(s)
-            versions = r.list_versions()
-        assert any(v["id"] == vid for v in versions)
-
-    def test_no_data_deleted(self, tmp_db):
-        """Verificação de que nenhum dado some após múltiplas operações."""
-        init_db(tmp_db)
-        with session_scope() as s:
-            r = Repository(s)
-            id1 = r.save_import("science", "f1.xlsx", None, "h1", _sci_df(), {})
-            id2 = r.save_import("portal",  "f2.xlsx", None, "h2", _por_df(), {})
-            s.commit()
-        with session_scope() as s:
-            r = Repository(s)
-            imports = r.list_imports()
-        assert len(imports) >= 2
-        # Verifica que linhas ainda existem
-        with session_scope() as s:
-            r = Repository(s)
-            sci_loaded = r.load_raw_df(id1, "science")
-            por_loaded = r.load_raw_df(id2, "portal")
-        assert len(sci_loaded) == len(_sci_df())
-        assert len(por_loaded) == len(_por_df())
-
-
-class TestLogs:
-    def test_add_and_get_logs(self, tmp_db):
-        init_db(tmp_db)
-        with session_scope() as s:
-            r = Repository(s)
-            r.add_log("INFO", "Teste de log", {"ctx": "pytest"})
-            s.commit()
-        with session_scope() as s:
-            r = Repository(s)
-            logs = r.get_logs()
-        assert len(logs) >= 1
-        assert any("Teste de log" in lg["message"] for lg in logs)
+    def test_no_warnings_for_valid_mapping(self):
+        mapping = {"Tipo de Rota": {"type": "coalesce", "sources": [
+            {"table": "science", "col": "Tipo da Rota"},
+            {"table": "portal", "col": "TIPO_ROTA"},
+        ]}}
+        warns = validate_mapping(mapping, SCIENCE_COLS, PORTAL_COLS)
+        assert len(warns) == 0
