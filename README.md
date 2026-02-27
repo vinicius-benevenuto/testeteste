@@ -65,3 +65,4 @@
     "join_type 'outer' garante que nenhuma linha seja perdida."
   ]
 }
+ 
