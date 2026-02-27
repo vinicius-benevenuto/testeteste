@@ -1,81 +1,64 @@
 """
-core/normalize.py
-Normalização de DataFrames: labels de colunas, tipos, datas.
-Os dados brutos são preservados inalterados; só os headers são normalizados.
+core/validate.py
+Validação e relatório de qualidade dos dados.
 """
 from __future__ import annotations
-import re
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List
 
 import pandas as pd
 
-from app.utils.encoding import normalize_column_label, normalize_columns
 from app.utils.logging_utils import get_logger
 
 log = get_logger(__name__)
 
-# Padrões de data aceitos
-_DATE_FORMATS = ["%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y", "%d/%m/%y", "%Y/%m/%d"]
 
-
-def apply_column_normalization(df: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, str]]:
-    """
-    Normaliza os headers do DataFrame:
-    - Corrige mojibake
-    - Colapsa espaços duplos
-    Retorna (df_com_headers_normalizados, {original: normalizado}).
-    Os dados das células não são alterados.
-    """
-    rename_map = normalize_columns(list(df.columns))
-    # Lida com duplicatas após normalização
-    seen: Dict[str, int] = {}
-    final_rename: Dict[str, str] = {}
-    for orig, norm in rename_map.items():
-        if norm in seen:
-            seen[norm] += 1
-            norm = f"{norm}_{seen[norm]}"
-        else:
-            seen[norm] = 0
-        final_rename[orig] = norm
-
-    df = df.rename(columns=final_rename)
-    changed = {k: v for k, v in final_rename.items() if k != v}
-    if changed:
-        log.info("Colunas normalizadas: %d renomeadas", len(changed))
-    return df, final_rename
-
-
-def coerce_dates(series: pd.Series) -> pd.Series:
-    """Tenta converter série de strings para datas ISO. Mantém original em falha."""
-    def _try_parse(val: str) -> str:
-        if not val or not isinstance(val, str):
-            return val
-        for fmt in _DATE_FORMATS:
-            try:
-                import datetime
-                return datetime.datetime.strptime(val.strip(), fmt).strftime("%Y-%m-%d")
-            except ValueError:
-                continue
-        return val
-    return series.map(_try_parse)
-
-
-def infer_and_coerce_types(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Tenta inferir e converter tipos (datas, inteiros).
-    Preserva os valores originais se a conversão falhar.
-    Tudo permanece como string — só adiciona metadados de tipo.
-    """
+def generate_report(df: pd.DataFrame, name: str = "tabela") -> Dict:
+    """Gera relatório de qualidade: nulos, duplicatas, estatísticas básicas."""
+    total = len(df)
+    report: Dict = {
+        "tabela": name,
+        "total_linhas": total,
+        "total_colunas": len(df.columns),
+        "colunas": [],
+    }
     for col in df.columns:
-        col_lower = col.lower()
-        if any(kw in col_lower for kw in ("data", "dt_", "date", "ativacao", "desativacao")):
-            df[col] = coerce_dates(df[col])
-    return df
+        series = df[col]
+        empty = int(series.eq("").sum() + series.isna().sum())
+        unique = int(series.nunique())
+        report["colunas"].append({
+            "coluna": col,
+            "vazios": empty,
+            "pct_vazio": round(empty / total * 100, 1) if total else 0,
+            "unicos": unique,
+            "exemplo": str(series.dropna().iloc[0]) if not series.dropna().empty else "",
+        })
+    return report
 
 
-def strip_whitespace(df: pd.DataFrame) -> pd.DataFrame:
-    """Remove espaços em branco do início/fim de todos os valores string."""
-    str_cols = df.select_dtypes(include="object").columns
-    for col in str_cols:
-        df[col] = df[col].str.strip()
-    return df
+def check_duplicates(df: pd.DataFrame, key_cols: List[str]) -> Dict:
+    """Conta duplicatas pelas colunas-chave definidas."""
+    existing = [c for c in key_cols if c in df.columns]
+    if not existing:
+        return {"key_cols": key_cols, "total": len(df), "duplicatas": 0, "unicos": len(df)}
+    dup_mask = df.duplicated(subset=existing, keep=False)
+    return {
+        "key_cols": existing,
+        "total": len(df),
+        "duplicatas": int(dup_mask.sum()),
+        "unicos": int(len(df) - dup_mask.sum()),
+    }
+
+
+def validate_output(df: pd.DataFrame) -> List[str]:
+    """Valida o DataFrame de saída. Retorna lista de avisos."""
+    from app.core.map_rules import OUTPUT_COLUMNS
+    warnings: List[str] = []
+    missing = [c for c in OUTPUT_COLUMNS if c not in df.columns]
+    if missing:
+        warnings.append(f"⚠️ Colunas faltando na saída: {missing}")
+    for col in OUTPUT_COLUMNS:
+        if col in df.columns:
+            pct_empty = df[col].eq("").mean() * 100
+            if pct_empty > 80:
+                warnings.append(f"⚠️ '{col}': {pct_empty:.0f}% de valores vazios.")
+    return warnings
