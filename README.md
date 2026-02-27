@@ -1,64 +1,68 @@
 """
-core/validate.py
-Validação e relatório de qualidade dos dados.
+utils/encoding.py
+Corrige mojibake em labels de colunas. Dados brutos nunca são alterados.
 """
 from __future__ import annotations
+import re, unicodedata
 from typing import Dict, List
 
-import pandas as pd
+_MOJIBAKE: Dict[str, str] = {
+    "Ã§": "ç",
+    "Ã£": "ã",
+    "Ã³": "ó",
+    "Ã©": "é",
+    "Ã­": "í",
+    "Ãº": "ú",
+    "Ã¡": "á",
+    "Ã ": "à",
+    "Ã¢": "â",
+    "Ãµ": "õ",
+    "Ã‡": "Ç",
+    "Ã‰": "É",
+    "Ãƒ": "Ã",
+    "Ã‚": "Â",
+    "\xe3\x83": "ã",
+}
 
-from app.utils.logging_utils import get_logger
+def fix_mojibake(text: str) -> str:
+    if not isinstance(text, str):
+        return str(text)
+    for bad, good in _MOJIBAKE.items():
+        text = text.replace(bad, good)
+    try:
+        fixed = text.encode("latin-1").decode("utf-8")
+        ctrl_orig = sum(1 for c in text if unicodedata.category(c).startswith("C"))
+        ctrl_fix  = sum(1 for c in fixed if unicodedata.category(c).startswith("C"))
+        if ctrl_fix <= ctrl_orig:
+            return fixed
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        pass
+    return text
 
-log = get_logger(__name__)
+def normalize_column_label(col: str) -> str:
+    col = fix_mojibake(str(col))
+    return re.sub(r"\s+", " ", col).strip()
 
+def normalize_column_key(col: str) -> str:
+    col = normalize_column_label(col)
+    col = unicodedata.normalize("NFKD", col)
+    col = "".join(c for c in col if not unicodedata.combining(c))
+    col = col.upper().strip()
+    col = re.sub(r"[\s\-/\\()]+", "_", col)
+    return re.sub(r"_+", "_", col).strip("_")
 
-def generate_report(df: pd.DataFrame, name: str = "tabela") -> Dict:
-    """Gera relatório de qualidade: nulos, duplicatas, estatísticas básicas."""
-    total = len(df)
-    report: Dict = {
-        "tabela": name,
-        "total_linhas": total,
-        "total_colunas": len(df.columns),
-        "colunas": [],
-    }
-    for col in df.columns:
-        series = df[col]
-        empty = int(series.eq("").sum() + series.isna().sum())
-        unique = int(series.nunique())
-        report["colunas"].append({
-            "coluna": col,
-            "vazios": empty,
-            "pct_vazio": round(empty / total * 100, 1) if total else 0,
-            "unicos": unique,
-            "exemplo": str(series.dropna().iloc[0]) if not series.dropna().empty else "",
-        })
-    return report
+def normalize_columns(columns: List[str]) -> Dict[str, str]:
+    return {col: normalize_column_label(col) for col in columns}
 
+def detect_encoding_from_bytes(sample: bytes) -> str:
+    try:
+        import chardet
+        return chardet.detect(sample).get("encoding") or "utf-8"
+    except ImportError:
+        try:
+            sample.decode("utf-8"); return "utf-8"
+        except UnicodeDecodeError:
+            return "latin-1"
 
-def check_duplicates(df: pd.DataFrame, key_cols: List[str]) -> Dict:
-    """Conta duplicatas pelas colunas-chave definidas."""
-    existing = [c for c in key_cols if c in df.columns]
-    if not existing:
-        return {"key_cols": key_cols, "total": len(df), "duplicatas": 0, "unicos": len(df)}
-    dup_mask = df.duplicated(subset=existing, keep=False)
-    return {
-        "key_cols": existing,
-        "total": len(df),
-        "duplicatas": int(dup_mask.sum()),
-        "unicos": int(len(df) - dup_mask.sum()),
-    }
-
-
-def validate_output(df: pd.DataFrame) -> List[str]:
-    """Valida o DataFrame de saída. Retorna lista de avisos."""
-    from app.core.map_rules import OUTPUT_COLUMNS
-    warnings: List[str] = []
-    missing = [c for c in OUTPUT_COLUMNS if c not in df.columns]
-    if missing:
-        warnings.append(f"⚠️ Colunas faltando na saída: {missing}")
-    for col in OUTPUT_COLUMNS:
-        if col in df.columns:
-            pct_empty = df[col].eq("").mean() * 100
-            if pct_empty > 80:
-                warnings.append(f"⚠️ '{col}': {pct_empty:.0f}% de valores vazios.")
-    return warnings
+def safe_filename(name: str) -> str:
+    return re.sub(r"[^\w.\-() ]", "_", name)[:255]
