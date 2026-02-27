@@ -1,16 +1,18 @@
-"""utils/ids.py — Geração de IDs únicos e hash de arquivos."""
+"""utils/logging_utils.py — Logger estruturado."""
 from __future__ import annotations
-import hashlib, uuid
-from datetime import datetime, timezone
+import json, logging, sys
+from typing import Any, Dict, Optional
 
-def new_uuid() -> str:
-    return str(uuid.uuid4())
+def get_logger(name: str = "data_merger") -> logging.Logger:
+    logger = logging.getLogger(name)
+    if not logger.handlers:
+        h = logging.StreamHandler(sys.stdout)
+        h.setFormatter(logging.Formatter(
+            "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S"))
+        logger.addHandler(h)
+        logger.setLevel(logging.DEBUG)
+    return logger
 
-def file_hash(content: bytes) -> str:
-    return hashlib.sha256(content).hexdigest()
-
-def version_tag() -> str:
-    return datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-
-def short_id() -> str:
-    return uuid.uuid4().hex[:8]
+def build_context(**kw: Any) -> str:
+    return json.dumps(kw, default=str, ensure_ascii=False)
