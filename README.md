@@ -1,258 +1,193 @@
-/* =========================================================
-   TEMA VIVO — Paleta global
-   ========================================================= */
-   :root {
-    /* Paleta base (Vivo) */
-    --vivo-primary-700: #4b0073;
-    --vivo-primary-600: #5a008a;
-    --vivo-primary-500: #660099;   /* principal */
-    --vivo-primary-400: #7B2CBF;   /* hover/acento */
-    --vivo-primary-300: #9D4EDD;   /* tom claro */
-    --vivo-primary-200: #c9a6f3;
-  
-    --vivo-bg-light: #F8F5FC;
-    --vivo-bg-dark: #111217;
-    --vivo-text-dark: #1A1A1A;
-    --vivo-text-light: #e9e9ee;
-  
-    /* Injeção nas variáveis Bootstrap */
-    --bs-primary: var(--vivo-primary-500);
-    --bs-primary-rgb: 102, 0, 153;
-    --bs-secondary: var(--vivo-primary-500);
-    --bs-success: var(--vivo-primary-500);
-    --bs-info: var(--vivo-primary-500);
-    --bs-warning: var(--vivo-primary-500);
-    --bs-danger: var(--vivo-primary-500);
-    --bs-link-color: var(--vivo-primary-500);
-    --bs-link-hover-color: var(--vivo-primary-400);
-  }
-  
-  /* =========================================================
-     Navbar
-     ========================================================= */
-  .navbar {
-    background-color: var(--vivo-primary-500) !important;
-    border-bottom: 3px solid rgba(157, 78, 221, .25);
-  }
-  .navbar .navbar-brand,
-  .navbar .nav-link,
-  .navbar .btn { color: #fff !important; }
-  .navbar .nav-link:hover,
-  .navbar .btn:hover { color: #f2e9ff !important; }
-  
-  /* =========================================================
-     Botões — padroniza TUDO para o roxo Vivo
-     ========================================================= */
-  .btn,
-  .btn-primary,
-  .btn-success,
-  .btn-info,
-  .btn-warning,
-  .btn-danger,
-  .btn-secondary {
-    background-color: var(--vivo-primary-500) !important;
-    border-color: var(--vivo-primary-500) !important;
-    color: #fff !important;
-  }
-  .btn:hover,
-  .btn:focus {
-    background-color: var(--vivo-primary-400) !important;
-    border-color: var(--vivo-primary-400) !important;
-    color: #fff !important;
-  }
-  .btn-outline-secondary,
-  .btn-outline-primary {
-    color: var(--vivo-primary-500) !important;
-    border-color: var(--vivo-primary-500) !important;
-    background: transparent !important;
-  }
-  .btn-outline-secondary:hover,
-  .btn-outline-primary:hover {
-    color: #fff !important;
-    background-color: var(--vivo-primary-500) !important;
-    border-color: var(--vivo-primary-500) !important;
-  }
-  
-  /* =========================================================
-     Cards & Títulos
-     ========================================================= */
-  .card { border-color: rgba(102, 0, 153, .20); }
-  .card-title,
-  h1,h2,h3,h4,h5,h6 { color: var(--vivo-primary-500); }
-  
-  /* =========================================================
-     Links
-     ========================================================= */
-  a { color: var(--vivo-primary-500); }
-  a:hover { color: var(--vivo-primary-400); }
-  
-  /* =========================================================
-     Tabela — cabeçalho duplo "sticky" + rolagem
-     ========================================================= */
-  .table-responsive {
-    max-height: calc(100vh - 280px);
-    overflow: auto;
-    border-top: 1px solid rgba(0,0,0,.06);
-  }
-  .table thead tr:first-child th {
-    position: sticky;
-    top: 0;
-    z-index: 3;
-    background: var(--bs-body-bg, #fff);
-    box-shadow: inset 0 -1px 0 rgba(0,0,0,.08);
-    text-transform: uppercase;
-    font-weight: 600;
-    color: var(--vivo-primary-600);
-  }
-  .table thead tr:nth-child(2) th {
-    position: sticky;
-    top: 42px;
-    z-index: 2;
-    background: var(--bs-body-bg, #fff);
-    box-shadow: inset 0 -1px 0 rgba(0,0,0,.06);
-  }
-  .table td, .table th {
-    white-space: nowrap;
-    text-overflow: ellipsis;
-    overflow: hidden;
-    vertical-align: middle;
-  }
-  .table-hover > tbody > tr:hover {
-    --bs-table-accent-bg: rgba(102, 0, 153, .06);
-  }
-  
-  /* Filtros (inputs) */
-  .filtro-coluna,
-  .filtro-data-inicial,
-  .filtro-data-final {
-    min-width: 10rem;
-  }
-  
-  /* Paginação */
-  #paginacao .pagination .page-link {
-    border-color: rgba(102, 0, 153, .25);
-    color: var(--vivo-primary-500);
-    background: transparent;
-  }
-  #paginacao .pagination .page-item.active .page-link {
-    background-color: var(--vivo-primary-500);
-    border-color: var(--vivo-primary-500);
-    color: #fff;
-  }
-  
-  /* =========================================================
-     Dashboard — gráfico estável
-     ========================================================= */
-  .chart-wrap { position: relative; width: 100%; height: 240px; }
-  #grafico-rede { display: block; width: 100% !important; height: 100% !important; }
-  
-  #contagem-stfc, #contagem-smp { font-variant-numeric: tabular-nums; }
-  
-  /* =========================================================
-     Loading overlay
-     ========================================================= */
-  #carregando { background: rgba(0,0,0,.35); z-index: 1080; }
-  
-  /* =========================================================
-     Tema escuro
-     ========================================================= */
-  html[data-bs-theme="dark"] {
-    --bs-body-bg: var(--vivo-bg-dark);
-    --bs-body-color: var(--vivo-text-light);
-  }
-  html[data-bs-theme="dark"] .navbar { border-bottom-color: rgba(255,255,255,.12); }
-  html[data-bs-theme="dark"] .card {
-    background-color: #171923;
-    border-color: rgba(255,255,255,.08);
-  }
-  html[data-bs-theme="dark"] .table thead tr:first-child th,
-  html[data-bs-theme="dark"] .table thead tr:nth-child(2) th {
-    background: #171923;
-    color: #e9d7ff;
-    box-shadow: inset 0 -1px 0 rgba(255,255,255,.06);
-  }
-  html[data-bs-theme="dark"] #paginacao .pagination .page-link {
-    color: #e9d7ff; border-color: rgba(255,255,255,.15);
-  }
-  html[data-bs-theme="dark"] #paginacao .pagination .page-item.active .page-link {
-    background-color: var(--vivo-primary-400);
-    border-color: var(--vivo-primary-400);
-  }
-  
-  /* =========================================================
-     Mensagem inicial
-     ========================================================= */
-  #mensagem-inicial.alert {
-    border-color: rgba(102, 0, 153, .25);
-    background: var(--vivo-bg-light);
-    color: #3b0764;
-  }
-  
-  /* Detalhes */
-  #card-tabela .card-footer { border-top: 2px solid rgba(102,0,153,.12); }
-  .sticky-top { top: 0; }
-  
-  /* =========================================================
-     Agente IA — container e bolhas
-     ========================================================= */
-  #ia-mensagens {
-    background: var(--bs-body-bg);
-    border: 1px solid rgba(0,0,0,.06);
-    border-radius: .5rem;
-    padding: .5rem .75rem;
-    min-height: 260px;
-    max-height: 60vh;
-    overflow: auto;
-    scroll-behavior: auto;
-  }
-  html[data-bs-theme="dark"] #ia-mensagens {
-    border-color: rgba(255,255,255,.10);
-  }
-  
-  .ia-msg {
-    background: transparent;
-    margin-bottom: .5rem;
-    line-height: 1.35;
-  }
-  
-  .ia-msg.ia-user {
-    text-align: right;
-    background: rgba(102, 0, 153, .08);
-    color: var(--vivo-primary-600);
-    border: 1px solid rgba(102,0,153,.20);
-    border-radius: .66rem;
-    padding: .4rem .6rem;
-    display: inline-block;
-    max-width: 100%;
-  }
-  
-  .ia-msg.ia-bot {
-    background: rgba(0,0,0,.04);
-    border: 1px solid rgba(0,0,0,.08);
-    border-radius: .66rem;
-    padding: .55rem .7rem;
-    display: block;
-  }
-  html[data-bs-theme="dark"] .ia-msg.ia-bot {
-    background: rgba(255,255,255,.04);
-    border-color: rgba(255,255,255,.12);
-  }
-  
-  /* Botões de sugestão do agente */
-  .ia-sugestao.btn {
-    padding: .2rem .55rem;
-    border-width: 1px;
-    font-size: .85rem;
-  }
-  
-  /* =========================================================
-     Responsividade
-     ========================================================= */
-  @media (max-width: 991.98px) {
-    .table-responsive {
-      max-height: calc(100vh - 360px);
-    }
-    #ia-mensagens {
-      max-height: 50vh;
-    }
-  }
+Contexto & Persona
+Você é um desenvolvedor sênior full‑stack especializado em Python 3.11, pandas, SQLite e desenvolvimento de UIs acessíveis. Seu objetivo é construir um aplicativo pronto para produção que permita ao usuário carregar dois arquivos de planilhas, combinar colunas específicas, visualizar, filtrar, exportar e persistir os dados em SQLite, garantindo que nenhum dado se perca.
+
+1) Objetivo do App
+Criar um aplicativo (preferencialmente web em Python) que:
+1. Permite upload de dois arquivos (inicialmente .xlsx, mas o design deve suportar .xls, .csv, .parquet no futuro).
+2. Cada arquivo contém uma tabela (Science e Portal de Cadastros).
+3. O app deve selecionar colunas de cada tabela e gerar uma tabela combinada com as colunas finais:
+[REDE, UF, CLUSTER, Tipo de Rota, Central, Rótulos de Linha, OPERADORA, Denominação]
+4. O usuário deve ver a tabela final num grid com filtros por coluna estilo Excel (filtros fáceis de usar).
+5. Salvar todos os dados (originais + transformados) em SQLite (com versionamento de importações e trilhas de auditoria).
+6. Nenhum dado pode sumir — manter 100% das linhas e colunas importadas, com rastreabilidade completa.
+7. Interface limpa, responsiva, em PT-BR e com acessibilidade (navegação por teclado, contraste adequado, ARIA).
+
+2) Especificações das Tabelas de Entrada
+Tabela 1 – “Science” (esquema fornecido):
+[COD_CCC Origem, ID Rota, Data AtivaÃ§Ã£o, Data DesativaÃ§Ã£o, Sentido, Tipo,
+ OP destino, Ãrea Ponta A - Engenharia, Ãrea Ponta A - MediaÃ§Ã£o, Ãrea Ponta B,
+ ServiÃ§o, DescriÃ§Ã£o, Operadora Origem, OP Origem, Central Origem, Operadora destino,
+ Sequencial, Sigla Tipo DireÃ§Ã£o, Central Interna, COD_CCC Interna, OPC, DPC,
+ Num SSI, CNL, Atendimento MÃ³vel/Fixo, Gateway, SinalizaÃ§Ã£o da Rota,
+ Tipo da Rota, Tipo de Trafego]
+
+Tabela 2 – “Portal de Cadastros” (esquema fornecido):
+[row_number, SOLICITACAO, TIPO, CENTRAL, BILHETADOR, TIPO_ROTA, TIPO_REGISTRO, ROTA_E,
+ ROTA_S, LABEL_E, LABEL_S, EMPRESA, EOT, OC, INTERCON, ECR, OPC, DPC, DESIGNACAO,
+ CATEGORIA, CATEG_DESCRICAO, SENTIDO, SINALIZACAO, ROTA_EXCLUSIVA, CNL_PPI, PPI,
+ DT_ATIVACAO, TRAF_CURSADO, CSP, DT_CADASTRO, RESP_CADASTRO, DT_EXECUCAO,
+ RESP_EXECUCAO, Obs]
+
+Observação de codificação: há casos de mojibake (ex.: AtivaÃ§Ã£o, DescriÃ§Ã£o). O app deve corrigir e padronizar acentuação nos rótulos de colunas (labels) sem alterar o conteúdo dos dados. Manter a versão original também.
+
+3) Colunas Finais (saída) e Mapeamento
+A saída deve ter exatamente estas colunas:
+[REDE, UF, CLUSTER, Tipo de Rota, Central, Rótulos de Linha, OPERADORA, Denominação]
+
+Implementar um Assistente de Mapeamento que:
+- Sugere mapeamentos automáticos a partir de nomes semelhantes e sinônimos.
+- Permite o usuário confirmar/editar o mapeamento.
+- Suporta regras de precedência (ex.: usar coluna da Science se existir; senão, da Portal).
+- Suporta fórmulas simples (concatenação/COALESCE) para preencher um campo com múltiplas colunas de origem.
+- Permite definir chaves de junção entre as tabelas (ex.: Central + Tipo de Rota + Sentido), com opção de junção exata ou aproximação (fuzzy) sob confirmação do usuário.
+- Permite definir valores padrão e tabelas de referência para campos não presentes nas fontes (ex.: REDE, UF, CLUSTER).
+
+Sugestões de mapeamento (defaults, o usuário pode trocar):
+- Tipo de Rota → Science["Tipo da Rota"] ou Portal["TIPO_ROTA"] (priorize Science)
+- Central → Science["Central Interna"] ou Portal["CENTRAL"]
+- Rótulos de Linha → Portal["LABEL_E"] ou Portal["LABEL_S"] (use concat com separador quando ambas existirem)
+- OPERADORA → escolha configurável entre Science["Operadora Origem"], Science["Operadora destino"] e Portal["EMPRESA"]
+- Denominação → Science["Descrição"] (corrigindo acentos) ou Portal["DESIGNACAO"]
+- REDE / UF / CLUSTER → permitir:
+  a) upload de tabela de referência (ex.: por CNL ou Central),
+  b) definição manual (valor global),
+  c) derivação por regra (ex.: regex, prefixos), com confirmação do usuário.
+
+Exemplo de linha alvo (demonstração):
+REDE: VIVO-SMP
+UF: SE
+CLUSTER: CLUSTER 3
+Tipo de Rota: ITX
+Central: MBCAJUD
+Rótulos de Linha: MBCAJUD_TCE1C9
+OPERADORA: EMBRATEL
+Denominação: ROTA VIVO ITX EMBRATEL LC EM ESTÂNCIA (CN 79) - FTW
+
+Importante: Sempre preservar 100% das linhas/colunas originais em tabelas “raw” no SQLite, mesmo que não participem da saída final. Nada pode sumir.
+
+4) Armazenamento em SQLite (persistência e auditoria)
+- Banco: data/app.db (configurável).
+- Tabelas sugeridas:
+  - imports (id, fonte, filename, sheet, file_hash, rows, cols, created_at)
+  - raw_science e raw_portal com import_id como coluna (ou tabelas particionadas por import)
+  - column_renames (import_id, original_name, normalized_name)
+  - mappings (version_id, target_col, rule_json)
+  - merged_results (version_id, row_id, REDE, UF, CLUSTER, Tipo_de_Rota, Central, Rotulos_de_Linha, OPERADORA, Denominacao, source_keys_json)
+  - logs (timestamp, level, message, context_json)
+- Transações: toda importação e merge devem ser transacionais.
+- Versionamento: cada execução de merge cria um version_id para rastreabilidade.
+- Não deletar dados: usar flags (is_active) se necessário; nunca perder histórico.
+
+5) UI e Acessibilidade
+- Stack recomendada: Streamlit com st-aggrid para filtros estilo Excel.
+  Alternativa: Dash (Plotly) com DataTable, se justificar.
+- Recursos mínimos:
+  - Upload de arquivos (seleção de planilha/sheet no caso de XLSX).
+  - Preview das tabelas importadas.
+  - Assistente de Mapeamento (UI passo a passo).
+  - Definição de chaves de junção (com validação e contagem de matches).
+  - Grid interativo com filtros por coluna (texto, número, lista, data), ordenar, congelar colunas, pesquisa rápida.
+  - Botões: Salvar no SQLite, Exportar CSV/XLSX, Baixar log, Baixar dicionário de mapeamento.
+- Acessibilidade (WCAG):
+  - Navegação completa por teclado.
+  - Labels/aria-labels em inputs.
+  - Contraste adequado.
+  - Mensagens de erro descritivas.
+  - Evitar depender apenas de cores para informação.
+
+6) Qualidade de Dados e Segurança
+- Normalização de nomes de colunas: trim, remoção de espaços duplos, preservação de acentos corretos; manter aliases originais. Corrigir casos de mojibake em labels (não no conteúdo).
+- Tipos: inferir tipos, tratar datas (DD/MM/YYYY), inteiros, strings.
+- Validação: relatório com contagem de nulos, duplicados por chaves definidas e estatísticas básicas.
+- Erros: mensagens amigáveis, logging (níveis INFO/WARN/ERROR) e exceções tratadas.
+- Segurança: sanitizar nomes de arquivos; sem execução de macros/código; nenhum dado enviado para fora (privacidade).
+- Desempenho: suportar pelo menos 200 mil linhas por arquivo; usar leitura sob demanda e escrita em chunks no SQLite se necessário.
+
+7) Lógica de Junção e Fusão de Colunas
+- Permitir o usuário escolher chaves de junção (ex.: Central, Tipo de Rota, Sentido).
+- Tipo de junção padrão: outer (para não “sumir” linhas).
+- Para campos de saída com múltiplas fontes, usar COALESCE na ordem de precedência escolhida.
+- Para Rótulos de Linha, se LABEL_E e LABEL_S existirem, permitir concatenação com separador " | ".
+- Oferecer fuzzy matching opcional (ex.: Central com pequena variação), pedindo confirmação do usuário e produzindo relatório de confiança.
+
+8) Entregáveis
+1. Código completo do app.
+2. requirements.txt (ex.: streamlit, pandas, sqlalchemy, openpyxl, xlrd, pyarrow, python-dotenv, unidecode, chardet, st-aggrid).
+3. Instruções de execução claras no README.md (como instalar, streamlit run app.py, variáveis de ambiente).
+4. Testes com pytest (unidade e integração):
+   - Leitura de arquivos multi-formato
+   - Normalização de colunas
+   - Mapeamento configurável
+   - Junção e merge sem perda
+   - Escrita/leitura no SQLite
+5. Exemplos: pastas samples/ com 2 arquivos de exemplo (mock) e mapping.json de exemplo.
+6. Dockerfile opcional.
+
+9) Boas Práticas (Obrigatórias)
+- Código modular e tipado (type hints).
+- Docstrings e comentários claros.
+- Separar camadas: io/ (import/export), core/ (transform/join), db/ (persistência), ui/ (páginas/flows), utils/ (helpers).
+- SQLAlchemy para a camada de DB (não usar apenas sqlite3).
+- Config via .env e defaults seguros.
+- UX em PT-BR.
+- Nenhuma perda de dados: provar via testes e via contadores no relatório pós-merge.
+
+10) Esqueleto Sugerido (arquivos)
+app/
+  app.py
+  ui/
+    pages.py
+    mapping_wizard.py
+    grid.py
+  core/
+    normalize.py
+    map_rules.py
+    merge.py
+    validate.py
+  io/
+    readers.py
+    writers.py
+  db/
+    models.py
+    session.py
+    repository.py
+  utils/
+    logging.py
+    encoding.py
+    ids.py
+  tests/
+    test_readers.py
+    test_merge.py
+    test_db.py
+    test_mapping.py
+  samples/
+    science_exemplo.xlsx
+    portal_exemplo.xlsx
+  requirements.txt
+  README.md
+
+11) Fluxo do Usuário
+1) Upload dos dois arquivos → escolher planilha (XLSX) → preview.
+2) Assistente de Mapeamento: escolher fontes para cada coluna final (com sugestões).
+3) Definir chaves de junção + tipo de junção (padrão: outer).
+4) Gerar Tabela Final → visualizar no grid com filtros e busca.
+5) Salvar no SQLite (cria imports e version_id) → Exportar CSV/XLSX se desejar.
+6) Relatório: contagem de linhas por fonte, linhas no resultado, colunas mapeadas, nulos e duplicatas.
+
+12) Critérios de Aceite
+- Consegue importar .xlsx (com seleção de sheet) e está preparado para .xls, .csv, .parquet.
+- Nenhum dado some: todas as colunas e linhas ficam preservadas nas tabelas raw_* com import_id.
+- Usuário consegue mapear para [REDE, UF, CLUSTER, Tipo de Rota, Central, Rótulos de Linha, OPERADORA, Denominação].
+- Grid com filtros por coluna estilo Excel, ordenar, buscar.
+- SQLite com versionamento de importações e merges; logs e auditoria.
+- Acessibilidade: navegação por teclado e rótulos ARIA.
+- Testes passando (leitura, mapeamento, merge, persistência).
+
+13) Observações Técnicas
+- Corrigir mojibake apenas nos nomes das colunas (labels), preservando dados brutos em raw.
+- Para performance, usar chunksize em CSV e to_sql(if_exists="append").
+- Em Streamlit, usar st-aggrid para filtros avançados (menus de filtro com operadores “contém”, “igual”, etc.).
+- Persistir também o JSON de regras de mapeamento e chaves de junção usadas em cada versão.
+- Exportações devem refletir exatamente o que o usuário vê no grid (após filtros aplicados), com opção de exportar resultado completo.
+
+Agora gere o código completo do aplicativo com base nas especificações acima, incluindo requirements.txt, README.md com passo a passo, e testes com pytest. Escreva o código pronto para rodar localmente com "streamlit run app.py". Se fizer alguma suposição, explique claramente no README e torne-a configurável no UI.
