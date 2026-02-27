@@ -1,21 +1,11 @@
 """
-app.ui — interface Streamlit.
-Expõe as funções de renderização de cada página.
+tests — suite de testes do Data Merger.
+Configura o path para que 'from app.xxx' funcione em todos os módulos de teste.
 """
-from app.ui.pages import (
-    render_history_page,
-    render_logs_page,
-    render_mapping_page,
-    render_merge_page,
-    render_upload_page,
-    render_validation_page,
-)
+import sys
+from pathlib import Path
 
-__all__ = [
-    "render_upload_page",
-    "render_mapping_page",
-    "render_merge_page",
-    "render_validation_page",
-    "render_history_page",
-    "render_logs_page",
-]
+# Garante que a raiz do projeto está no sys.path
+_ROOT = Path(__file__).parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
