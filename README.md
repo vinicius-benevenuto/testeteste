@@ -1,130 +1,95 @@
-"""Testes para core/merge.py — verificação de não-perda de dados."""
-import pytest
+"""Testes para utils/encoding.py e core/normalize.py"""
 import sys; sys.path.insert(0, ".")
-
+import pytest
 import pandas as pd
-from app.core.map_rules import OUTPUT_COLUMNS
-from app.core.merge import build_merged_df, count_join_matches
+
+from app.utils.encoding import (
+    fix_mojibake, normalize_column_key, normalize_column_label,
+    normalize_columns,
+)
+from app.core.normalize import apply_column_normalization, strip_whitespace
 
 
-def _sci_df() -> pd.DataFrame:
-    return pd.DataFrame({
-        "Tipo da Rota": ["ITX", "LOCAL", "ITX"],
-        "Central Interna": ["MBCAJUD", "SAO001", "CWB002"],
-        "Operadora Origem": ["EMBRATEL", "OI", "CLARO"],
-        "Descrição": ["Rota A", "Rota B", "Rota C"],
-        "Sequencial": ["1", "2", "3"],
-    })
+class TestFixMojibake:
+    def test_ativacao(self):
+        assert fix_mojibake("AtivaÃ§Ã£o") in ("Ativação", "Ativação")
+
+    def test_descricao(self):
+        assert fix_mojibake("DescriÃ§Ã£o") in ("Descrição", "Descrição")
+
+    def test_clean_text_unchanged(self):
+        text = "Central Interna"
+        assert fix_mojibake(text) == text
+
+    def test_handles_non_string(self):
+        assert isinstance(fix_mojibake(123), str)
 
 
-def _por_df() -> pd.DataFrame:
-    return pd.DataFrame({
-        "TIPO_ROTA": ["ITX", "LOCAL"],
-        "CENTRAL": ["MBCAJUD", "SAO001"],
-        "EMPRESA": ["TIM", "VIVO"],
-        "LABEL_E": ["LABEL_X", "LABEL_Y"],
-        "LABEL_S": ["LABEL_XS", "LABEL_YS"],
-        "DESIGNACAO": ["Designação 1", "Designação 2"],
-    })
+class TestNormalizeColumnLabel:
+    def test_double_spaces_collapsed(self):
+        assert normalize_column_label("col  name") == "col name"
+
+    def test_strip_whitespace(self):
+        assert normalize_column_label("  col  ") == "col"
+
+    def test_preserves_accents(self):
+        label = normalize_column_label("Área Ponta A")
+        assert "Área" in label or "Area" in label
+
+    def test_mojibake_corrected(self):
+        label = normalize_column_label("DescriÃ§Ã£o")
+        assert "Ã" not in label
 
 
-def _default_mapping() -> dict:
-    return {
-        "REDE":             {"type": "literal", "value": "VIVO"},
-        "UF":               {"type": "literal", "value": "SP"},
-        "CLUSTER":          {"type": "literal", "value": "C1"},
-        "Tipo de Rota":     {"type": "coalesce", "sources": [
-                                {"table": "science", "col": "Tipo da Rota"},
-                                {"table": "portal", "col": "TIPO_ROTA"}]},
-        "Central":          {"type": "coalesce", "sources": [
-                                {"table": "science", "col": "Central Interna"},
-                                {"table": "portal", "col": "CENTRAL"}]},
-        "Rótulos de Linha": {"type": "concat", "sources": [
-                                {"table": "portal", "col": "LABEL_E"},
-                                {"table": "portal", "col": "LABEL_S"}],
-                             "separator": " | "},
-        "OPERADORA":        {"type": "coalesce", "sources": [
-                                {"table": "science", "col": "Operadora Origem"},
-                                {"table": "portal", "col": "EMPRESA"}]},
-        "Denominação":      {"type": "coalesce", "sources": [
-                                {"table": "science", "col": "Descrição"},
-                                {"table": "portal", "col": "DESIGNACAO"}]},
-    }
+class TestNormalizeColumnKey:
+    def test_uppercase(self):
+        assert normalize_column_key("central") == "CENTRAL"
+
+    def test_removes_accents(self):
+        key = normalize_column_key("Área")
+        assert "Ã" not in key
+
+    def test_spaces_to_underscore(self):
+        assert normalize_column_key("tipo de rota") == "TIPO_DE_ROTA"
+
+    def test_multiple_spaces(self):
+        key = normalize_column_key("tipo  de  rota")
+        assert "TIPO" in key and "ROTA" in key
 
 
-class TestBuildMergedDf:
-    def test_output_has_all_required_columns(self):
-        sci, por = _sci_df(), _por_df()
-        result, _ = build_merged_df(sci, por, _default_mapping(),
-                                     join_keys=[], join_type="outer")
-        for col in OUTPUT_COLUMNS:
-            assert col in result.columns, f"Missing: {col}"
+class TestApplyColumnNormalization:
+    def test_returns_tuple(self):
+        df = pd.DataFrame({"colA": [1], "colB": [2]})
+        result, rename_map = apply_column_normalization(df)
+        assert isinstance(result, pd.DataFrame)
+        assert isinstance(rename_map, dict)
 
-    def test_outer_join_preserves_all_science_rows(self):
-        """Outer join deve manter todas as linhas do Science."""
-        sci, por = _sci_df(), _por_df()
-        result, report = build_merged_df(sci, por, _default_mapping(),
-                                          join_keys=["Central"], join_type="outer")
-        # Com outer join, todas as 3 linhas do science devem aparecer
-        assert len(result) >= len(sci)
+    def test_mojibake_header_fixed(self):
+        df = pd.DataFrame({"AtivaÃ§Ã£o": ["val1"], "Normal": ["val2"]})
+        result, rename_map = apply_column_normalization(df)
+        cols = list(result.columns)
+        assert all("Ã" not in c for c in cols)
 
-    def test_inner_join_reduces_rows(self):
-        """Inner join pode reduzir linhas."""
-        sci, por = _sci_df(), _por_df()
-        result_outer, _ = build_merged_df(sci, por, _default_mapping(),
-                                           join_keys=["Central"], join_type="outer")
-        result_inner, _ = build_merged_df(sci, por, _default_mapping(),
-                                           join_keys=["Central"], join_type="inner")
-        assert len(result_outer) >= len(result_inner)
+    def test_data_not_altered(self):
+        df = pd.DataFrame({"col": ["AtivaÃ§Ã£o data"]})
+        result, _ = apply_column_normalization(df)
+        # Dados brutos preservados
+        assert result.iloc[0, 0] == "AtivaÃ§Ã£o data"
 
-    def test_literal_values_applied(self):
-        sci, por = _sci_df(), _por_df()
-        result, _ = build_merged_df(sci, por, _default_mapping(),
-                                     join_keys=[], join_type="outer")
-        assert (result["REDE"] == "VIVO").all()
-        assert (result["UF"] == "SP").all()
+    def test_no_duplicate_columns_after_norm(self):
+        df = pd.DataFrame({"Col A": [1], "Col  A": [2]})
+        result, _ = apply_column_normalization(df)
+        assert len(result.columns) == len(set(result.columns))
 
-    def test_coalesce_uses_science_first(self):
-        sci, por = _sci_df(), _por_df()
-        result, _ = build_merged_df(sci, por, _default_mapping(),
-                                     join_keys=[], join_type="outer")
-        # Primeira linha: EMBRATEL (science) não OI/VIVO (portal)
-        assert result["OPERADORA"].iloc[0] == "EMBRATEL"
-
-    def test_no_extra_columns_in_output(self):
-        sci, por = _sci_df(), _por_df()
-        result, _ = build_merged_df(sci, por, _default_mapping(),
-                                     join_keys=[], join_type="outer")
-        assert set(result.columns) == set(OUTPUT_COLUMNS)
-
-    def test_report_row_counts(self):
-        sci, por = _sci_df(), _por_df()
-        _, report = build_merged_df(sci, por, _default_mapping(),
-                                     join_keys=[], join_type="outer")
-        assert report["rows_science"] == len(sci)
-        assert report["rows_portal"] == len(por)
-        assert report["rows_merged"] == report["rows_merged"]  # consistência
+    def test_100_percent_rows_preserved(self):
+        n = 1000
+        df = pd.DataFrame({"colA": range(n), "colB": ["x"] * n})
+        result, _ = apply_column_normalization(df)
+        assert len(result) == n
 
 
-class TestCountJoinMatches:
-    def test_perfect_match(self):
-        sci = pd.DataFrame({"Central": ["A", "B", "C"]})
-        por = pd.DataFrame({"CENTRAL": ["A", "B", "C"]})
-        stats = count_join_matches(sci, por, "Central", "CENTRAL")
-        assert stats["matches"] == 3
-        assert stats["sci_only"] == 0
-        assert stats["por_only"] == 0
-
-    def test_partial_match(self):
-        sci = pd.DataFrame({"Central": ["A", "B", "X"]})
-        por = pd.DataFrame({"CENTRAL": ["A", "B", "Y"]})
-        stats = count_join_matches(sci, por, "Central", "CENTRAL")
-        assert stats["matches"] == 2
-        assert stats["sci_only"] == 1
-        assert stats["por_only"] == 1
-
-    def test_no_match(self):
-        sci = pd.DataFrame({"Central": ["A"]})
-        por = pd.DataFrame({"CENTRAL": ["Z"]})
-        stats = count_join_matches(sci, por, "Central", "CENTRAL")
-        assert stats["matches"] == 0
+class TestStripWhitespace:
+    def test_strips_values(self):
+        df = pd.DataFrame({"col": ["  value  ", "  other  "]})
+        result = strip_whitespace(df)
+        assert result["col"].tolist() == ["value", "other"]
