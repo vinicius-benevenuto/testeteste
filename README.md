@@ -1,25 +1,18 @@
 """
-app.utils — utilitários compartilhados.
-Expõe as funções mais usadas de encoding, IDs e logging.
+app.io — leitura e escrita de arquivos.
+Expõe as funções públicas de readers e writers.
 """
-from app.utils.encoding import (
-    fix_mojibake,
-    normalize_column_label,
-    normalize_column_key,
-    normalize_columns,
-    safe_filename,
-)
-from app.utils.ids import file_hash, new_uuid, version_tag
-from app.utils.logging_utils import get_logger
+from app.io.readers import list_sheets, read_file, read_file_metadata
+from app.io.writers import logs_to_text, to_csv_bytes, to_mapping_json, to_xlsx_bytes
 
 __all__ = [
-    "fix_mojibake",
-    "normalize_column_label",
-    "normalize_column_key",
-    "normalize_columns",
-    "safe_filename",
-    "file_hash",
-    "new_uuid",
-    "version_tag",
-    "get_logger",
+    # leitura
+    "read_file",
+    "read_file_metadata",
+    "list_sheets",
+    # escrita
+    "to_csv_bytes",
+    "to_xlsx_bytes",
+    "to_mapping_json",
+    "logs_to_text",
 ]
