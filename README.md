@@ -1,32 +1,21 @@
 """
-app.db — camada de persistência.
-Expõe os modelos, a sessão e o repositório para uso externo.
+app.ui — interface Streamlit.
+Expõe as funções de renderização de cada página.
 """
-from app.db.models import (
-    ColumnRename,
-    Import,
-    LogEntry,
-    MappingVersion,
-    MergedRow,
-    RawPortal,
-    RawScience,
+from app.ui.pages import (
+    render_history_page,
+    render_logs_page,
+    render_mapping_page,
+    render_merge_page,
+    render_upload_page,
+    render_validation_page,
 )
-from app.db.repository import Repository
-from app.db.session import get_session, init_db, session_scope
 
 __all__ = [
-    # modelos
-    "Import",
-    "ColumnRename",
-    "RawScience",
-    "RawPortal",
-    "MappingVersion",
-    "MergedRow",
-    "LogEntry",
-    # sessão
-    "init_db",
-    "get_session",
-    "session_scope",
-    # repositório
-    "Repository",
+    "render_upload_page",
+    "render_mapping_page",
+    "render_merge_page",
+    "render_validation_page",
+    "render_history_page",
+    "render_logs_page",
 ]
