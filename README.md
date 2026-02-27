@@ -1,18 +1,38 @@
 """
-app.io — leitura e escrita de arquivos.
-Expõe as funções públicas de readers e writers.
+app.core — lógica de negócio.
+Expõe as funções e constantes principais de cada submódulo.
 """
-from app.io.readers import list_sheets, read_file, read_file_metadata
-from app.io.writers import logs_to_text, to_csv_bytes, to_mapping_json, to_xlsx_bytes
+from app.core.map_rules import (
+    DEFAULT_MAPPING,
+    OUTPUT_COLUMNS,
+    apply_rule,
+    suggest_mappings,
+    validate_mapping,
+)
+from app.core.merge import build_merged_df, count_join_matches
+from app.core.normalize import (
+    apply_column_normalization,
+    infer_and_coerce_types,
+    strip_whitespace,
+)
+from app.core.validate import check_duplicates, generate_report, validate_output
 
 __all__ = [
-    # leitura
-    "read_file",
-    "read_file_metadata",
-    "list_sheets",
-    # escrita
-    "to_csv_bytes",
-    "to_xlsx_bytes",
-    "to_mapping_json",
-    "logs_to_text",
+    # map_rules
+    "OUTPUT_COLUMNS",
+    "DEFAULT_MAPPING",
+    "suggest_mappings",
+    "apply_rule",
+    "validate_mapping",
+    # merge
+    "build_merged_df",
+    "count_join_matches",
+    # normalize
+    "apply_column_normalization",
+    "strip_whitespace",
+    "infer_and_coerce_types",
+    # validate
+    "generate_report",
+    "check_duplicates",
+    "validate_output",
 ]
