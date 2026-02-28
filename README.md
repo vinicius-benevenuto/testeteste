@@ -1,33 +1,80 @@
-PS C:\Users\40418843\Desktop\novo-modelo-controle-de-rotas-cadastradas> $env:PYTHONPATH = "."; py -m streamlit run app.py
->> 
+"""io/readers.py — Leitura multi-formato: xlsx, xls, csv, parquet."""
+from __future__ import annotations
+import io
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple, Union
 
-  You can now view your Streamlit app in your browser.
+import pandas as pd
+from app.utils.encoding import detect_encoding
+from app.utils.logging_utils import get_logger
 
-  Local URL: http://localhost:8501
-  Network URL: http://192.168.0.75:8501
+log = get_logger(__name__)
+FileInput = Union[str, Path, bytes, io.BytesIO]
 
-2026-02-28 13:12:44 [INFO] app.io.readers: CSV lido: 123972 × 29 (enc=latin-1)
-2026-02-28 13:12:44 [INFO] app.core.normalize: Colunas normalizadas: 10 renomeadas
-2026-02-28 13:12:49.503 Please replace `use_container_width` with `width`.
+def _to_bytesio(src: FileInput) -> Tuple[io.BytesIO, str]:
+    if isinstance(src, (str, Path)):
+        p = Path(src); return io.BytesIO(p.read_bytes()), p.name
+    if isinstance(src, bytes):
+        return io.BytesIO(src), "upload"
+    if isinstance(src, io.BytesIO):
+        src.seek(0); return src, "upload"
+    raise TypeError(f"Tipo não suportado: {type(src)}")
 
-`use_container_width` will be removed after 2025-12-31.
+def list_sheets(src: FileInput) -> List[str]:
+    buf, name = _to_bytesio(src)
+    ext = Path(name).suffix.lower()
+    if ext not in (".xlsx", ".xls"): return []
+    return pd.ExcelFile(buf, engine="openpyxl" if ext == ".xlsx" else "xlrd").sheet_names
 
-For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
-2026-02-28 13:13:16 [INFO] app.io.readers: CSV lido: 123972 × 29 (enc=latin-1)
-2026-02-28 13:13:16 [INFO] app.core.normalize: Colunas normalizadas: 10 renomeadas
-C:\Users\40418843\AppData\Roaming\Python\Python312\site-packages\openpyxl\styles\stylesheet.py:237: UserWarning: Workbook contains no default style, apply openpyxl's default
-  warn("Workbook contains no default style, apply openpyxl's default")
-2026-02-28 13:13:27 [ERROR] app.ui.pages: Upload error: 'dict' object has no attribute 'fillna'
-Traceback (most recent call last):
-  File "C:\Users\40418843\Desktop\novo-modelo-controle-de-rotas-cadastradas\app\ui\pages.py", line 65, in _handle_upload
-    df = read_file(io.BytesIO(raw), filename=uploaded_file.name, sheet=sheet)
-         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\Users\40418843\Desktop\novo-modelo-controle-de-rotas-cadastradas\app\io\readers.py", line 40, in read_file
-    df = df.fillna("")
-         ^^^^^^^^^
-AttributeError: 'dict' object has no attribute 'fillna'
-2026-02-28 13:13:27.234 Please replace `use_container_width` with `width`.
+def read_file(src: FileInput, filename: str = "",
+              sheet: Optional[Union[str, int]] = 0) -> pd.DataFrame:
+    """Lê qualquer formato suportado. Tudo como string, preserva dados brutos."""
+    buf, auto = _to_bytesio(src)
+    name = filename or auto
+    ext  = Path(name).suffix.lower()
 
-`use_container_width` will be removed after 2025-12-31.
+    if ext in (".xlsx", ".xls"):
+        engine = "openpyxl" if ext == ".xlsx" else "xlrd"
+        # sheet=None retornaria dict; garantimos sempre um único sheet
+        sheet_name = sheet if sheet is not None else 0
+        result = pd.read_excel(buf, sheet_name=sheet_name, engine=engine,
+                               dtype=str, keep_default_na=False)
+        # Segurança extra: se ainda vier dict, pega a primeira aba
+        if isinstance(result, dict):
+            result = next(iter(result.values()))
+        df = result.fillna("")
+        log.info("%s lido: %d × %d (sheet=%s)", name, len(df), len(df.columns), sheet_name)
+        return df
 
-For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+    if ext == ".csv":
+        raw = buf.read()
+        enc = detect_encoding(raw[:65_536])
+        for e in [enc, "utf-8", "latin-1"]:
+            try:
+                df = pd.read_csv(io.BytesIO(raw), sep=None, engine="python",
+                                 encoding=e, dtype=str, keep_default_na=False,
+                                 on_bad_lines="skip")
+                df = df.fillna("")
+                log.info("CSV lido: %d × %d (enc=%s)", len(df), len(df.columns), e)
+                return df
+            except Exception:
+                continue
+        raise ValueError("Não foi possível ler o CSV.")
+
+    if ext == ".parquet":
+        df = pd.read_parquet(buf).astype(str).fillna("")
+        log.info("Parquet lido: %d × %d", len(df), len(df.columns))
+        return df
+
+    log.warning("Extensão '%s' desconhecida — tentando CSV.", ext)
+    buf.seek(0)
+    return read_file(buf, filename=name.replace(ext, ".csv"), sheet=sheet)
+
+def read_file_metadata(src: FileInput, filename: str = "") -> Dict:
+    buf, auto = _to_bytesio(src)
+    name = filename or auto
+    ext  = Path(name).suffix.lower()
+    sheets = []
+    if ext in (".xlsx", ".xls"):
+        buf.seek(0); sheets = list_sheets(buf)
+    return {"filename": name, "ext": ext, "sheets": sheets}
