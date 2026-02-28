@@ -1,14 +1,6 @@
-"""utils/logging_utils.py — Logger estruturado."""
-from __future__ import annotations
-import logging, sys
-
-def get_logger(name: str = "data_merger") -> logging.Logger:
-    logger = logging.getLogger(name)
-    if not logger.handlers:
-        h = logging.StreamHandler(sys.stdout)
-        h.setFormatter(logging.Formatter(
-            "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S"))
-        logger.addHandler(h)
-        logger.setLevel(logging.DEBUG)
-    return logger
+"""utils — utilitários compartilhados."""
+from app.utils.encoding import fix_mojibake, normalize_column_label, normalize_column_key, normalize_columns, safe_filename
+from app.utils.ids import new_uuid, file_hash, version_tag
+from app.utils.logging_utils import get_logger
+__all__ = ["fix_mojibake","normalize_column_label","normalize_column_key","normalize_columns",
+           "safe_filename","new_uuid","file_hash","version_tag","get_logger"]
