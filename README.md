@@ -1,75 +1,36 @@
-"""io/readers.py — Leitura multi-formato: xlsx, xls, csv, parquet."""
+"""io/writers.py — Exportação CSV/XLSX/JSON/log."""
 from __future__ import annotations
-import io
-from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
-
+import io, json
+from typing import List
 import pandas as pd
-from app.utils.encoding import detect_encoding
 from app.utils.logging_utils import get_logger
 
 log = get_logger(__name__)
-FileInput = Union[str, Path, bytes, io.BytesIO]
 
-def _to_bytesio(src: FileInput) -> Tuple[io.BytesIO, str]:
-    if isinstance(src, (str, Path)):
-        p = Path(src); return io.BytesIO(p.read_bytes()), p.name
-    if isinstance(src, bytes):
-        return io.BytesIO(src), "upload"
-    if isinstance(src, io.BytesIO):
-        src.seek(0); return src, "upload"
-    raise TypeError(f"Tipo não suportado: {type(src)}")
+def to_csv_bytes(df: pd.DataFrame) -> bytes:
+    buf = io.StringIO()
+    df.to_csv(buf, index=False)
+    result = buf.getvalue().encode("utf-8-sig")
+    log.info("CSV: %d linhas, %d cols", len(df), len(df.columns))
+    return result
 
-def list_sheets(src: FileInput) -> List[str]:
-    buf, name = _to_bytesio(src)
-    ext = Path(name).suffix.lower()
-    if ext not in (".xlsx", ".xls"): return []
-    return pd.ExcelFile(buf, engine="openpyxl" if ext == ".xlsx" else "xlrd").sheet_names
-
-def read_file(src: FileInput, filename: str = "",
-              sheet: Optional[Union[str, int]] = 0) -> pd.DataFrame:
-    """Lê qualquer formato suportado. Tudo como string, preserva dados brutos."""
-    buf, auto = _to_bytesio(src)
-    name = filename or auto
-    ext  = Path(name).suffix.lower()
-
-    if ext in (".xlsx", ".xls"):
-        engine = "openpyxl" if ext == ".xlsx" else "xlrd"
-        df = pd.read_excel(buf, sheet_name=sheet, engine=engine,
-                           dtype=str, keep_default_na=False)
-        df = df.fillna("")
-        log.info("%s lido: %d × %d (sheet=%s)", name, len(df), len(df.columns), sheet)
-        return df
-
-    if ext == ".csv":
-        raw = buf.read()
-        enc = detect_encoding(raw[:65_536])
-        for e in [enc, "utf-8", "latin-1"]:
-            try:
-                df = pd.read_csv(io.BytesIO(raw), sep=None, engine="python",
-                                 encoding=e, dtype=str, keep_default_na=False,
-                                 on_bad_lines="skip")
-                df = df.fillna("")
-                log.info("CSV lido: %d × %d (enc=%s)", len(df), len(df.columns), e)
-                return df
-            except Exception:
-                continue
-        raise ValueError("Não foi possível ler o CSV.")
-
-    if ext == ".parquet":
-        df = pd.read_parquet(buf).astype(str).fillna("")
-        log.info("Parquet lido: %d × %d", len(df), len(df.columns))
-        return df
-
-    log.warning("Extensão '%s' desconhecida — tentando CSV.", ext)
+def to_xlsx_bytes(df: pd.DataFrame, sheet: str = "Dados") -> bytes:
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as w:
+        df.to_excel(w, index=False, sheet_name=sheet)
+        ws = w.sheets[sheet]
+        for col_cells in ws.columns:
+            mlen = max((len(str(c.value or "")) for c in col_cells), default=8)
+            ws.column_dimensions[col_cells[0].column_letter].width = min(mlen + 2, 60)
+        ws.freeze_panes = "A2"
     buf.seek(0)
-    return read_file(buf, filename=name.replace(ext, ".csv"), sheet=sheet)
+    log.info("XLSX: %d linhas", len(df))
+    return buf.read()
 
-def read_file_metadata(src: FileInput, filename: str = "") -> Dict:
-    buf, auto = _to_bytesio(src)
-    name = filename or auto
-    ext  = Path(name).suffix.lower()
-    sheets = []
-    if ext in (".xlsx", ".xls"):
-        buf.seek(0); sheets = list_sheets(buf)
-    return {"filename": name, "ext": ext, "sheets": sheets}
+def to_mapping_json(mapping: dict) -> bytes:
+    return json.dumps(mapping, ensure_ascii=False, indent=2).encode("utf-8")
+
+def logs_to_text(logs: List[dict]) -> bytes:
+    lines = [f"[{r.get('timestamp','')}] {r.get('level','')}: {r.get('message','')}"
+             for r in logs]
+    return "\n".join(lines).encode("utf-8")
