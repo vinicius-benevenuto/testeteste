@@ -1,202 +1,139 @@
 """
-core/map_rules.py
-Regras de mapeamento de negócio:
-  - REDE: VIVO-SMP (Science) | VIVO-STFC (Portal) | VIVO-SMP (ambos)
-  - UF: via CNL→CN→UF (resolvido pelo repositório)
-  - CLUSTER/Rótulos/Denominação: via Arquivo 3 com fallbacks
-  - Tipo de Rota: Portal.TIPO_ROTA → Science.Sinalização da Rota
-  - Central: Portal.CENTRAL → Science.Central Origem
-  - OPERADORA: Arquivo 3 → Portal.EMPRESA → Science.Operadora Origem
+core/merge.py
+Junção Science + Portal + Arquivo 3 com REDE/UF/CLUSTER/etc.
+Garante outer join: nenhuma linha perdida.
 """
 from __future__ import annotations
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
+
+import pandas as pd
+
+from app.core.map_rules import (
+    OUTPUT_COLUMNS, build_output_row, build_ref_index,
+)
 from app.utils.logging_utils import get_logger
 
 log = get_logger(__name__)
 
-OUTPUT_COLUMNS = [
-    "REDE", "UF", "CLUSTER", "Tipo de Rota",
-    "Central", "Rótulos de Linha", "OPERADORA", "Denominação",
-]
-
-# ── Regra REDE ────────────────────────────────────────────────────────────
-
-def derive_rede(source_tag: str) -> str:
-    """
-    source_tag: SCIENCE | PORTAL | BOTH
-    BOTH → prioriza SMP (Science contribuiu).
-    """
-    tag = source_tag.upper()
-    if tag in ("SCIENCE", "BOTH"):
-        return "VIVO-SMP"
-    return "VIVO-STFC"
-
-# ── Coalesce genérico ─────────────────────────────────────────────────────
-
-def coalesce(*values: str) -> str:
-    """Retorna o primeiro valor não-vazio."""
-    for v in values:
-        s = str(v or "").strip()
-        if s:
-            return s
-    return ""
-
-# ── Tipo de Rota ──────────────────────────────────────────────────────────
-
-def derive_tipo_rota(portal_row: Dict, science_row: Dict,
-                     portal_col: str = "TIPO_ROTA",
-                     sci_col: str = "Sinalização da Rota") -> Tuple[str, str]:
-    """Retorna (valor, origem)."""
-    v = coalesce(portal_row.get(portal_col, ""), science_row.get(sci_col, ""))
-    orig = "PORTAL" if portal_row.get(portal_col, "").strip() else "SCIENCE"
-    return v.strip().upper(), orig
-
-# ── Central ───────────────────────────────────────────────────────────────
-
-def derive_central(portal_row: Dict, science_row: Dict,
-                   portal_col: str = "CENTRAL",
-                   sci_col: str = "Central Origem") -> Tuple[str, str]:
-    v = coalesce(portal_row.get(portal_col, ""), science_row.get(sci_col, ""))
-    orig = "PORTAL" if portal_row.get(portal_col, "").strip() else "SCIENCE"
-    return v.strip().upper(), orig
-
-# ── Rótulos de Linha ──────────────────────────────────────────────────────
-
-def derive_rotulos(portal_row: Dict, label_e: str = "LABEL_E",
-                   label_s: str = "LABEL_S", concat: bool = True,
-                   sep: str = " | ") -> str:
-    e = str(portal_row.get(label_e, "") or "").strip()
-    s = str(portal_row.get(label_s, "") or "").strip()
-    if concat and e and s:
-        return f"{e}{sep}{s}"
-    return e or s
-
-# ── OPERADORA ─────────────────────────────────────────────────────────────
-
-def derive_operadora(arq3_val: str, portal_row: Dict,
-                     science_row: Dict,
-                     sci_op_col: str = "Operadora Origem") -> str:
-    return coalesce(
-        arq3_val,
-        portal_row.get("EMPRESA", ""),
-        science_row.get(sci_op_col, ""),
-        science_row.get("Operadora destino", ""),
-    ).strip().upper()
-
-# ── Match no Arquivo 3 ────────────────────────────────────────────────────
-
-def build_ref_index(ref_df) -> Dict[str, Dict]:
-    """
-    Constrói índice do Arquivo 3 para lookup rápido.
-    Chaves: central|tipo_de_rota  e  central|rotulos
-    """
-    import pandas as pd
-    index: Dict[str, Dict] = {}
-    if ref_df is None or (hasattr(ref_df, "empty") and ref_df.empty):
-        return index
-    for _, row in ref_df.iterrows():
-        central = str(row.get("Central", "") or "").strip().upper()
-        tipo    = str(row.get("Tipo de Rota", "") or "").strip().upper()
-        rotulos = str(row.get("Rótulos de Linha", "") or "").strip().upper()
-        rec     = row.to_dict()
-        if central and tipo:
-            index[f"{central}|TR|{tipo}"] = rec
-        if central and rotulos:
-            index[f"{central}|RL|{rotulos}"] = rec
-    return index
+_SCI = "_sci"
+_POR = "_por"
+_ALL_OUTPUT = OUTPUT_COLUMNS + ["_source_tag", "_central_src",
+                                  "_tipo_rota_src", "_arq3_match", "_cnl_val"]
 
 
-def lookup_ref(central: str, tipo_rota: str, rotulos: str,
-               ref_index: Dict[str, Dict]) -> Optional[Dict]:
-    """Busca no Arquivo 3 por chave Central+TipoRota, depois Central+Rótulos."""
-    c = central.strip().upper()
-    t = tipo_rota.strip().upper()
-    r = rotulos.strip().upper()
-    return (ref_index.get(f"{c}|TR|{t}") or
-            ref_index.get(f"{c}|RL|{r}"))
+def _prefix(df: pd.DataFrame, pfx: str) -> pd.DataFrame:
+    return df.rename(columns={c: f"{c}{pfx}" for c in df.columns})
 
-# ── Linha completa ────────────────────────────────────────────────────────
 
-def build_output_row(
-    sci_row: Dict,
-    por_row: Dict,
-    source_tag: str,
-    ref_index: Dict[str, Dict],
+def build_merged_df(
+    science_df: pd.DataFrame,
+    portal_df: pd.DataFrame,
+    ref_df: Optional[pd.DataFrame],
     uf_map: Dict[str, str],
-    config: Dict,
-) -> Dict:
+    join_keys_sci: List[str],   # colunas em science_df usadas para junção
+    join_keys_por: List[str],   # colunas em portal_df usadas para junção
+    join_type: str = "outer",
+    config: Optional[Dict] = None,
+) -> Tuple[pd.DataFrame, Dict]:
     """
-    Constrói uma linha de saída com todas as 8 colunas + _source_tag.
-    config: dicionário com opções configuráveis pelo usuário.
+    Une Science + Portal (outer join padrão).
+    Aplica regras de negócio linha a linha.
+    Retorna (merged_df_com_OUTPUT_COLUMNS + _aux, relatorio).
     """
-    # ── Central e Tipo de Rota primeiro (usados como chave de lookup) ──
-    central, central_src = derive_central(
-        por_row, sci_row,
-        portal_col=config.get("central_portal_col", "CENTRAL"),
-        sci_col=config.get("central_sci_col", "Central Origem"),
-    )
-    tipo_rota, tr_src = derive_tipo_rota(
-        por_row, sci_row,
-        portal_col=config.get("tipo_rota_portal_col", "TIPO_ROTA"),
-        sci_col=config.get("tipo_rota_sci_col", "Sinalização da Rota"),
-    )
+    config = config or {}
+    ref_index = build_ref_index(ref_df)
+    rows_sci = len(science_df)
+    rows_por = len(portal_df)
 
-    # ── Rótulos portal (para lookup e fallback) ──
-    rotulos_portal = derive_rotulos(
-        por_row,
-        label_e=config.get("label_e_col", "LABEL_E"),
-        label_s=config.get("label_s_col", "LABEL_S"),
-        concat=config.get("concat_labels", True),
-        sep=config.get("label_sep", " | "),
-    )
+    # ── Junção ──────────────────────────────────────────────────────────
+    if join_keys_sci and join_keys_por and \
+       all(k in science_df.columns for k in join_keys_sci) and \
+       all(k in portal_df.columns  for k in join_keys_por):
+        merged = _exact_join(science_df, portal_df,
+                              join_keys_sci, join_keys_por, join_type)
+    else:
+        log.warning("Sem chaves de junção válidas — concatenação posicional.")
+        merged = _positional_join(science_df, portal_df)
 
-    # ── Lookup no Arquivo 3 ──
-    ref = lookup_ref(central, tipo_rota, rotulos_portal, ref_index)
+    # ── Aplicar regras por linha ─────────────────────────────────────────
+    sci_cols = list(science_df.columns)
+    por_cols = list(portal_df.columns)
+    records = []
 
-    # ── REDE ──
-    rede = derive_rede(source_tag)
+    for _, row in merged.iterrows():
+        sci_row = {c: str(row.get(f"{c}{_SCI}", "") or "").strip() for c in sci_cols}
+        por_row = {c: str(row.get(f"{c}{_POR}", "") or "").strip() for c in por_cols}
 
-    # ── UF via CNL → CN → UF ──
-    cnl_val = coalesce(
-        sci_row.get(config.get("cnl_sci_col", "CNL"), ""),
-        por_row.get(config.get("cnl_por_col", "CNL_PPI"), ""),
-        por_row.get("PPI", ""),
-    ).strip()
-    uf = uf_map.get(cnl_val, "")
-    if not uf and cnl_val:
-        uf = uf_map.get(cnl_val.lstrip("0"), "")
-    # Fallback: UF do Arquivo 3
-    if not uf and ref:
-        uf = str(ref.get("UF", "") or "").strip()
+        # source_tag: distingue origem da linha
+        has_sci = any(v for v in sci_row.values())
+        has_por = any(v for v in por_row.values())
+        if has_sci and has_por:
+            tag = "BOTH"
+        elif has_sci:
+            tag = "SCIENCE"
+        else:
+            tag = "PORTAL"
 
-    # ── Campos do Arquivo 3 ──
-    cluster     = str(ref.get("CLUSTER", "") or "").strip() if ref else ""
-    rotulos     = str(ref.get("Rótulos de Linha", "") or "").strip() if ref else rotulos_portal
-    denominacao = str(ref.get("Denominação", "") or "").strip() if ref else coalesce(
-        sci_row.get(config.get("denominacao_sci_col", "Descrição"), ""),
-        por_row.get("DESIGNACAO", ""),
-    )
-    operadora = derive_operadora(
-        str(ref.get("OPERADORA", "") or "").strip() if ref else "",
-        por_row, sci_row,
-        sci_op_col=config.get("operadora_sci_col", "Operadora Origem"),
-    )
+        out_row = build_output_row(sci_row, por_row, tag, ref_index, uf_map, config)
+        records.append(out_row)
 
-    log.debug("Row central=%s tipo=%s tag=%s uf=%s arq3_match=%s",
-              central, tipo_rota, source_tag, uf, ref is not None)
+    result = pd.DataFrame(records)
+    # Garante colunas de saída mesmo se vazia
+    for col in OUTPUT_COLUMNS:
+        if col not in result.columns:
+            result[col] = ""
 
+    report = {
+        "rows_science":       rows_sci,
+        "rows_portal":        rows_por,
+        "rows_merged":        len(result),
+        "join_type":          join_type,
+        "arq3_match_count":   int(result.get("_arq3_match", pd.Series()).eq("True").sum()),
+        "uf_missing":         int(result["UF"].eq("").sum()),
+        "cluster_missing":    int(result["CLUSTER"].eq("").sum()),
+        "source_breakdown":   result["_source_tag"].value_counts().to_dict()
+                              if "_source_tag" in result.columns else {},
+    }
+    log.info("Merge: %d linhas (sci=%d por=%d arq3_matches=%d)",
+             len(result), rows_sci, rows_por, report["arq3_match_count"])
+    return result, report
+
+
+def _exact_join(sci: pd.DataFrame, por: pd.DataFrame,
+                sci_keys: List[str], por_keys: List[str],
+                join_type: str) -> pd.DataFrame:
+    sci_w = _prefix(sci.copy(), _SCI)
+    por_w = _prefix(por.copy(), _POR)
+    l_on = [f"{k}{_SCI}" for k in sci_keys]
+    r_on = [f"{k}{_POR}" for k in por_keys]
+    # Normaliza chaves
+    for c in l_on: sci_w[c] = sci_w[c].str.strip().str.upper()
+    for c in r_on: por_w[c] = por_w[c].str.strip().str.upper()
+    merged = pd.merge(sci_w, por_w, left_on=l_on, right_on=r_on, how=join_type)
+    log.info("Exact join: %d linhas (type=%s)", len(merged), join_type)
+    return merged
+
+
+def _positional_join(sci: pd.DataFrame, por: pd.DataFrame) -> pd.DataFrame:
+    sci_w = _prefix(sci.copy(), _SCI)
+    por_w = _prefix(por.copy(), _POR)
+    max_rows = max(len(sci_w), len(por_w))
+    sci_w = sci_w.reindex(range(max_rows))
+    por_w = por_w.reindex(range(max_rows))
+    return pd.concat([sci_w.reset_index(drop=True),
+                      por_w.reset_index(drop=True)], axis=1).fillna("")
+
+
+def count_join_matches(science_df: pd.DataFrame, portal_df: pd.DataFrame,
+                        sci_key: str, por_key: str) -> Dict:
+    if sci_key not in science_df.columns or por_key not in portal_df.columns:
+        return {"error": "coluna não encontrada"}
+    sci_vals = set(science_df[sci_key].str.strip().str.upper().dropna())
+    por_vals = set(portal_df[por_key].str.strip().str.upper().dropna())
     return {
-        "REDE":             rede,
-        "UF":               uf,
-        "CLUSTER":          cluster,
-        "Tipo de Rota":     tipo_rota,
-        "Central":          central,
-        "Rótulos de Linha": rotulos,
-        "OPERADORA":        operadora,
-        "Denominação":      denominacao,
-        "_source_tag":      source_tag,
-        "_central_src":     central_src,
-        "_tipo_rota_src":   tr_src,
-        "_arq3_match":      str(ref is not None),
-        "_cnl_val":         cnl_val,
+        "sci_unique": len(sci_vals),
+        "por_unique": len(por_vals),
+        "matches":    len(sci_vals & por_vals),
+        "sci_only":   len(sci_vals - por_vals),
+        "por_only":   len(por_vals - sci_vals),
     }
