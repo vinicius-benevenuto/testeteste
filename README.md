@@ -1,94 +1,75 @@
-"""db/session.py — Engine, init e session_scope."""
+"""io/readers.py — Leitura multi-formato: xlsx, xls, csv, parquet."""
 from __future__ import annotations
-import os
-from contextlib import contextmanager
+import io
 from pathlib import Path
-from typing import Generator
+from typing import Dict, List, Optional, Tuple, Union
 
-from sqlalchemy import create_engine, event, text
-from sqlalchemy.orm import Session, sessionmaker
+import pandas as pd
+from app.utils.encoding import detect_encoding
+from app.utils.logging_utils import get_logger
 
-from app.db.models import Base
+log = get_logger(__name__)
+FileInput = Union[str, Path, bytes, io.BytesIO]
 
-_DEFAULT_DB = Path("data") / "app.db"
-_engine = None
-_SessionLocal = None
+def _to_bytesio(src: FileInput) -> Tuple[io.BytesIO, str]:
+    if isinstance(src, (str, Path)):
+        p = Path(src); return io.BytesIO(p.read_bytes()), p.name
+    if isinstance(src, bytes):
+        return io.BytesIO(src), "upload"
+    if isinstance(src, io.BytesIO):
+        src.seek(0); return src, "upload"
+    raise TypeError(f"Tipo não suportado: {type(src)}")
 
+def list_sheets(src: FileInput) -> List[str]:
+    buf, name = _to_bytesio(src)
+    ext = Path(name).suffix.lower()
+    if ext not in (".xlsx", ".xls"): return []
+    return pd.ExcelFile(buf, engine="openpyxl" if ext == ".xlsx" else "xlrd").sheet_names
 
-def init_db(db_path: str | None = None) -> None:
-    global _engine, _SessionLocal
-    path = db_path or os.environ.get("DATABASE_PATH", str(_DEFAULT_DB))
-    Path(path).parent.mkdir(parents=True, exist_ok=True)
-    _engine = create_engine(
-        f"sqlite:///{path}",
-        connect_args={"check_same_thread": False},
-        echo=False,
-    )
+def read_file(src: FileInput, filename: str = "",
+              sheet: Optional[Union[str, int]] = 0) -> pd.DataFrame:
+    """Lê qualquer formato suportado. Tudo como string, preserva dados brutos."""
+    buf, auto = _to_bytesio(src)
+    name = filename or auto
+    ext  = Path(name).suffix.lower()
 
-    @event.listens_for(_engine, "connect")
-    def _pragmas(conn, _):
-        cur = conn.cursor()
-        for p in ("PRAGMA journal_mode=WAL",
-                  "PRAGMA foreign_keys=ON",
-                  "PRAGMA synchronous=NORMAL"):
-            cur.execute(p)
-        cur.close()
+    if ext in (".xlsx", ".xls"):
+        engine = "openpyxl" if ext == ".xlsx" else "xlrd"
+        df = pd.read_excel(buf, sheet_name=sheet, engine=engine,
+                           dtype=str, keep_default_na=False)
+        df = df.fillna("")
+        log.info("%s lido: %d × %d (sheet=%s)", name, len(df), len(df.columns), sheet)
+        return df
 
-    _SessionLocal = sessionmaker(bind=_engine, autocommit=False, autoflush=False)
-    Base.metadata.create_all(_engine)
-    _create_views(_engine)
+    if ext == ".csv":
+        raw = buf.read()
+        enc = detect_encoding(raw[:65_536])
+        for e in [enc, "utf-8", "latin-1"]:
+            try:
+                df = pd.read_csv(io.BytesIO(raw), sep=None, engine="python",
+                                 encoding=e, dtype=str, keep_default_na=False,
+                                 on_bad_lines="skip")
+                df = df.fillna("")
+                log.info("CSV lido: %d × %d (enc=%s)", len(df), len(df.columns), e)
+                return df
+            except Exception:
+                continue
+        raise ValueError("Não foi possível ler o CSV.")
 
+    if ext == ".parquet":
+        df = pd.read_parquet(buf).astype(str).fillna("")
+        log.info("Parquet lido: %d × %d", len(df), len(df.columns))
+        return df
 
-def _create_views(engine) -> None:
-    """Cria ou recria as views de leitura rápida."""
-    views = {
-        "v_merged_latest": """
-            CREATE VIEW IF NOT EXISTS v_merged_latest AS
-            SELECT mr.*
-            FROM merged_results mr
-            JOIN mapping_versions mv ON mr.version_id = mv.id
-            WHERE mv.id = (
-                SELECT id FROM mapping_versions
-                WHERE is_active = 1
-                ORDER BY created_at DESC LIMIT 1
-            )
-        """,
-        "v_quality_pending": """
-            CREATE VIEW IF NOT EXISTS v_quality_pending AS
-            SELECT mr.*
-            FROM merged_results mr
-            JOIN mapping_versions mv ON mr.version_id = mv.id
-            WHERE mv.id = (
-                SELECT id FROM mapping_versions
-                WHERE is_active = 1
-                ORDER BY created_at DESC LIMIT 1
-            )
-            AND (
-                mr.UF IS NULL OR mr.UF = '' OR
-                mr.CLUSTER IS NULL OR mr.CLUSTER = '' OR
-                mr.Denominacao IS NULL OR mr.Denominacao = ''
-            )
-        """,
-    }
-    with engine.connect() as conn:
-        for name, ddl in views.items():
-            conn.execute(text(ddl))
-        conn.commit()
+    log.warning("Extensão '%s' desconhecida — tentando CSV.", ext)
+    buf.seek(0)
+    return read_file(buf, filename=name.replace(ext, ".csv"), sheet=sheet)
 
-
-def get_session() -> Session:
-    if _SessionLocal is None:
-        init_db()
-    return _SessionLocal()
-
-
-@contextmanager
-def session_scope() -> Generator[Session, None, None]:
-    s = get_session()
-    try:
-        yield s; s.commit()
-    except Exception:
-        s.rollback(); raise
-    finally:
-        s.close()
-
+def read_file_metadata(src: FileInput, filename: str = "") -> Dict:
+    buf, auto = _to_bytesio(src)
+    name = filename or auto
+    ext  = Path(name).suffix.lower()
+    sheets = []
+    if ext in (".xlsx", ".xls"):
+        buf.seek(0); sheets = list_sheets(buf)
+    return {"filename": name, "ext": ext, "sheets": sheets}
