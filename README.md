@@ -1,121 +1,145 @@
-"""Testes — merge Science + Portal + Arquivo 3."""
-import sys; sys.path.insert(0, ".")
+"""Testes — persistência SQLite, versões e auditoria."""
+import sys, json; sys.path.insert(0, ".")
 import pytest, pandas as pd
-from app.core.merge import build_merged_df, count_join_matches
-from app.core.map_rules import OUTPUT_COLUMNS, build_ref_index
+from app.db.session import init_db, session_scope
+from app.db.repository import Repository
 
-@pytest.fixture
-def sci():
+@pytest.fixture(autouse=True)
+def db(tmp_path):
+    init_db(str(tmp_path / "test.db"))
+
+def _sci():
     return pd.DataFrame({
-        "Central Interna":     ["MBCAJUD","SAOPAULO01","BELOHZ01"],
-        "Tipo da Rota":        ["ITX","LOCAL","ITX"],
-        "Sinalização da Rota": ["SS7","R2","SS7"],
-        "Operadora Origem":    ["EMBRATEL","OI","CLARO"],
-        "Descrição":           ["Rota A","Rota B","Rota C"],
-        "CNL":                 ["79001","11001","31001"],
-        "Central Origem":      ["MBCAJUD","SAOPAULO01","BELOHZ01"],
+        "Central Interna": ["CA","CB"], "Tipo da Rota": ["ITX","LOCAL"],
+        "Operadora Origem": ["E1","OI"], "CNL": ["79001","11001"],
     })
 
-@pytest.fixture
-def por():
+def _por():
     return pd.DataFrame({
-        "CENTRAL":   ["MBCAJUD","SAOPAULO01"],
-        "TIPO_ROTA": ["ITX","LOCAL"],
-        "EMPRESA":   ["EMBRATEL","OI"],
-        "LABEL_E":   ["MBCAJUD_L1","SPO01_L1"],
-        "LABEL_S":   ["MBCAJUD_L2","SPO01_L2"],
-        "DESIGNACAO":["Des A","Des B"],
-        "CNL_PPI":   ["79001","11001"],
+        "CENTRAL": ["CA"], "TIPO_ROTA": ["ITX"],
+        "EMPRESA": ["E1"], "CNL_PPI": ["79001"],
     })
 
-@pytest.fixture
-def ref():
+def _merged():
     return pd.DataFrame({
-        "REDE":             ["VIVO-SMP","VIVO-SMP"],
-        "UF":               ["SE","SP"],
-        "CLUSTER":          ["CL-SE","CL-SP"],
-        "Tipo de Rota":     ["ITX","LOCAL"],
-        "Central":          ["MBCAJUD","SAOPAULO01"],
-        "Rótulos de Linha": ["MBCAJUD_L1 | MBCAJUD_L2","SPO01_L1 | SPO01_L2"],
-        "OPERADORA":        ["EMBRATEL","OI"],
-        "Denominação":      ["ROTA SE","ROTA SP"],
+        "REDE": ["VIVO-SMP"], "UF": ["SE"], "CLUSTER": ["CL-SE"],
+        "Tipo de Rota": ["ITX"], "Central": ["CA"],
+        "Rótulos de Linha": ["L1"], "OPERADORA": ["E1"],
+        "Denominação": ["Rota A"], "_source_tag": ["BOTH"],
     })
 
-@pytest.fixture
-def uf_map():
-    return {"79001":"SE","11001":"SP","31001":"MG"}
+class TestImportPersistence:
+    def test_save_science_import(self):
+        with session_scope() as s:
+            r = Repository(s)
+            iid = r.save_import("SCIENCE","sci.xlsx",None,"hash123",_sci(),{})
+        assert len(iid) == 36
 
-class TestMerge:
-    def test_output_columns_present(self, sci, por, ref, uf_map):
-        result, _ = build_merged_df(sci, por, ref, uf_map,
-                                     ["Central Interna"],["CENTRAL"],"outer")
-        for col in OUTPUT_COLUMNS:
-            assert col in result.columns, f"Coluna ausente: {col}"
+    def test_raw_science_preserved(self):
+        with session_scope() as s:
+            r = Repository(s)
+            iid = r.save_import("SCIENCE","sci.xlsx",None,"h1",_sci(),{})
+        with session_scope() as s:
+            r = Repository(s)
+            df = r.load_raw_df(iid,"SCIENCE")
+        assert len(df) == 2
 
-    def test_outer_join_preserves_all_science_rows(self, sci, por, ref, uf_map):
-        result, _ = build_merged_df(sci, por, ref, uf_map,
-                                     ["Central Interna"],["CENTRAL"],"outer")
-        assert len(result) >= len(sci)
+    def test_save_portal_import(self):
+        with session_scope() as s:
+            r = Repository(s)
+            iid = r.save_import("PORTAL","por.xlsx",None,"h2",_por(),{})
+        assert iid
 
-    def test_outer_join_preserves_all_portal_rows(self, sci, por, ref, uf_map):
-        result, _ = build_merged_df(sci, por, ref, uf_map,
-                                     ["Central Interna"],["CENTRAL"],"outer")
-        assert len(result) >= len(por)
+    def test_list_imports_returns_all(self):
+        with session_scope() as s:
+            r = Repository(s)
+            r.save_import("SCIENCE","s.xlsx",None,"h1",_sci(),{})
+            r.save_import("PORTAL","p.xlsx",None,"h2",_por(),{})
+        with session_scope() as s:
+            r = Repository(s)
+            imps = r.list_imports()
+        assert len(imps) == 2
 
-    def test_rede_smp_when_science_contributes(self, sci, por, ref, uf_map):
-        result, _ = build_merged_df(sci, por, ref, uf_map,
-                                     ["Central Interna"],["CENTRAL"],"outer")
-        both_rows = result[result["_source_tag"].isin(["SCIENCE","BOTH"])]
-        assert (both_rows["REDE"] == "VIVO-SMP").all()
-
-    def test_uf_resolved_from_map(self, sci, por, ref, uf_map):
-        result, _ = build_merged_df(sci, por, ref, uf_map,
-                                     ["Central Interna"],["CENTRAL"],"outer")
-        se_rows = result[result["Central"] == "MBCAJUD"]
-        assert (se_rows["UF"] == "SE").any()
-
-    def test_cluster_from_arq3(self, sci, por, ref, uf_map):
-        result, _ = build_merged_df(sci, por, ref, uf_map,
-                                     ["Central Interna"],["CENTRAL"],"outer")
-        row = result[result["Central"] == "MBCAJUD"]
-        assert (row["CLUSTER"] == "CL-SE").any()
-
-    def test_no_data_loss_positional(self, sci, por, ref, uf_map):
-        """Sem chaves: concatenação posicional, nenhuma linha some."""
-        result, _ = build_merged_df(sci, por, ref, uf_map, [], [], "outer")
-        assert len(result) == max(len(sci), len(por))
-
-    def test_inner_join_smaller(self, sci, por, ref, uf_map):
-        result_outer, _ = build_merged_df(sci, por, ref, uf_map,
-                                           ["Central Interna"],["CENTRAL"],"outer")
-        result_inner, _ = build_merged_df(sci, por, ref, uf_map,
-                                           ["Central Interna"],["CENTRAL"],"inner")
-        assert len(result_inner) <= len(result_outer)
-
-    def test_source_tag_column_present(self, sci, por, ref, uf_map):
-        result, _ = build_merged_df(sci, por, ref, uf_map,
-                                     ["Central Interna"],["CENTRAL"],"outer")
-        assert "_source_tag" in result.columns
-
-    def test_report_contains_metrics(self, sci, por, ref, uf_map):
-        _, report = build_merged_df(sci, por, ref, uf_map,
-                                     ["Central Interna"],["CENTRAL"],"outer")
-        assert "rows_science" in report
-        assert "rows_portal"  in report
-        assert "rows_merged"  in report
-        assert report["rows_science"] == len(sci)
-        assert report["rows_portal"]  == len(por)
+    def test_raw_100_percent(self):
+        """Garante que todas as linhas brutas são persistidas."""
+        big = pd.DataFrame({"col": [str(i) for i in range(200)]})
+        with session_scope() as s:
+            r = Repository(s)
+            iid = r.save_import("SCIENCE","big.xlsx",None,"hbig",big,{})
+        with session_scope() as s:
+            r = Repository(s)
+            df = r.load_raw_df(iid,"SCIENCE")
+        assert len(df) == 200
 
 
-class TestCountJoinMatches:
-    def test_exact_matches(self, sci, por):
-        stats = count_join_matches(sci, por, "Central Interna", "CENTRAL")
-        assert stats["matches"] == 2
+class TestMergeVersioning:
+    def test_save_merge_version(self):
+        with session_scope() as s:
+            r = Repository(s)
+            sci_id = r.save_import("SCIENCE","s.xlsx",None,"h1",_sci(),{})
+            por_id = r.save_import("PORTAL","p.xlsx",None,"h2",_por(),{})
+            vid = r.save_merge_version(
+                "tag_test", sci_id, por_id, None,
+                {}, [], "outer", 90, _merged(), 2, 1
+            )
+        assert len(vid) == 36
 
-    def test_sci_only(self, sci, por):
-        stats = count_join_matches(sci, por, "Central Interna", "CENTRAL")
-        assert stats["sci_only"] == 1
+    def test_list_versions(self):
+        with session_scope() as s:
+            r = Repository(s)
+            sci_id = r.save_import("SCIENCE","s.xlsx",None,"h1",_sci(),{})
+            por_id = r.save_import("PORTAL","p.xlsx",None,"h2",_por(),{})
+            r.save_merge_version("v1",sci_id,por_id,None,{},[],
+                                  "outer",90,_merged(),2,1)
+        with session_scope() as s:
+            r = Repository(s)
+            versions = r.list_versions()
+        assert len(versions) == 1
+        assert versions[0]["rows_merged"] == 1
 
-    def test_invalid_col_returns_error(self, sci, por):
-        stats = count_join_matches(sci, por, "INEXISTENTE", "CENTRAL")
-        assert "error" in stats
+    def test_load_merged_latest(self):
+        with session_scope() as s:
+            r = Repository(s)
+            sci_id = r.save_import("SCIENCE","s.xlsx",None,"h1",_sci(),{})
+            por_id = r.save_import("PORTAL","p.xlsx",None,"h2",_por(),{})
+            r.save_merge_version("v1",sci_id,por_id,None,{},[],
+                                  "outer",90,_merged(),2,1)
+        with session_scope() as s:
+            r = Repository(s)
+            df = r.load_merged_df()
+        assert len(df) == 1
+
+    def test_multiple_versions_preserved(self):
+        """Versões antigas nunca são deletadas."""
+        with session_scope() as s:
+            r = Repository(s)
+            sci_id = r.save_import("SCIENCE","s.xlsx",None,"h1",_sci(),{})
+            por_id = r.save_import("PORTAL","p.xlsx",None,"h2",_por(),{})
+            for i in range(3):
+                r.save_merge_version(f"v{i}",sci_id,por_id,None,{},[],
+                                      "outer",90,_merged(),2,1)
+        with session_scope() as s:
+            r = Repository(s)
+            assert len(r.list_versions()) == 3
+
+
+class TestLogs:
+    def test_add_and_get_log(self):
+        with session_scope() as s:
+            r = Repository(s)
+            r.add_log("INFO","Teste de log",{"key":"val"})
+        with session_scope() as s:
+            r = Repository(s)
+            logs = r.get_logs(10)
+        assert any("Teste de log" in l["message"] for l in logs)
+
+    def test_log_levels(self):
+        with session_scope() as s:
+            r = Repository(s)
+            for lvl in ["INFO","WARNING","ERROR","DEBUG"]:
+                r.add_log(lvl, f"log {lvl}")
+        with session_scope() as s:
+            r = Repository(s)
+            logs = r.get_logs(10)
+        levels = {l["level"] for l in logs}
+        assert "INFO" in levels and "ERROR" in levels
