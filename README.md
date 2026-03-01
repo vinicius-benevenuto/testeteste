@@ -1,1037 +1,1024 @@
-DROP TABLE IF EXISTS tabela_unificada;
-DROP TABLE IF EXISTS cnl;
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASISDRA - AS-ITX - BA-CABULA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASIBLMA - AS-ITX - PA-PEDREIRA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASIBLMA - AS-ITX - PA-PEDREIRA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MBCAJUD - MBCAJUD - MBC ARACAJU tipo=ISUP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGCPPIA - PRESIDENTE PRUDENTE - IU MGCPPIA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGIBONC - CAMPINAS - BONFIM MGIBONC tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MIBAFLA - ARARAQUARA - FONTE LUMINOSA MIBAFLA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MIFCPSB - CAMPOS DOS GOYTACAZES - MIFCPSB tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGCVGAA - MGC DE VARGINHA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MWGAFPB - MWGAFPB - AFONSO PENA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MBCSFRA - MBCSFRA - MBC DE SÃO FRANCISCO tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGIVVJD - SAO PAULO - VIVO JAGUARE MGIVVJD tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MWWSWLA - MWWSWLA - WASHINGTON LUIS - SANTOS tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MWSJAIC - JUNDIAÍ - VILA ARENS MWSJAIC tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASIJGRA - AS-ITX - SP-JAGUARÉ tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGICTNC - BAURU - JARDIM CONTORNO MGICTNC tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGISAGA - SERVER CAMADA GATEWAY EM SAG tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MBCSAGI - MBCSAGI - SANTO AGOSTINHO tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGILUEA - SERVER CAMADA GATEWAY EM LUE tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGICTAA - MEDIA GATEWAY CONTROLLER - GTW PEDRO GUSSO A tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGCCSCA - MGC CASCAVEL A tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGCMGAA - MGC MARINGÁ A tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGCCPLB - PLANALTO_MGCCPLB tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGCPIEA - PIEDADE - MGCPIEA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MWLJPAB - MGW DE JOÃO PESSOA B tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGCMGAA - MGC MARINGÁ A tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGIVVJD - SAO PAULO - VIVO JAGUARE MGIVVJD tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGIBARA - GATEWAY GSM BARRA DA TIJUCA-A ( MGIBARA ) tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MBCVESC - MSC BLADE CLUSTER VILA ESPERANÇA C tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGIUNIA - GOIÂNIA - MGIUNIA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGCSRHC - SERVER MGCSRHC tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MWAPMJA - PALMAS - SET - MWAPMJA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MICTCOB - MICTCOB tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGIBNUA - MEDIA GATEWAY CONTROLLER - GTW BLUMENAU A tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGIBNUA - MEDIA GATEWAY CONTROLLER - GTW BLUMENAU A tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGIINDA - MEDIA GATEWAY CONTROLLER GTW - INDEPENDENCIA A tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGIINDA - MEDIA GATEWAY CONTROLLER GTW - INDEPENDENCIA A tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGCCAXA - MGC CAXIAS DO SUL A tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGIBFEA - GATEWAY HUAWEI - BENTO FERREIRA - MSOFTX3000 tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGIUNIA - GOIÂNIA - MGIUNIA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MIACCCA - MIACCCA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGIVVJD - SAO PAULO - VIVO JAGUARE MGIVVJD tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGIVIVD - SÃO PAULO - VIVO SEDE MGIVIVD tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGIVIVD - SÃO PAULO - VIVO SEDE MGIVIVD tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASIBLMA - AS-ITX - PA-PEDREIRA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASIPASA - AS-ITX - SP-PALMEIRAS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASIPASA - AS-ITX - SP-PALMEIRAS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASIBHEA - AS-ITX - MG-FUNCIONÁRIOS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MWGPPIA - PRESIDENTE PRUDENTE - IU MWGPPIA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGCLUEF - MGC LUXEMBURGO F tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGCCSCA - MGC CASCAVEL A tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASIPAEA - AS-ITX - RS-INDEPENDÊNCIA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASIJGRA - AS-ITX - SP-JAGUARÉ tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASIPASA - AS-ITX - SP-PALMEIRAS tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MIACCCA - MIACCCA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MIBVLAA - MIBVLAA - MGW/GTW HUAWEI VLAA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGICBRA - MEDIA GATEWAY CONTROLLER - GTW CABRAL A tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGIVVJD - SAO PAULO - VIVO JAGUARE MGIVVJD tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGISNEA - GATEWAY HUAWEI - SANTOS NEVES - MSOFTX3000 tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MIBAFPA - MIBAFPA - AFONSO PENA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGIVIVD - SÃO PAULO - VIVO SEDE MGIVIVD tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGIVIVD - SÃO PAULO - VIVO SEDE MGIVIVD tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGCSRHC - SERVER MGCSRHC tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MWENREA - RIBEIRÃO PRETO - NOROESTE MWENREA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASIPASA - AS-ITX - SP-PALMEIRAS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASIBHEA - AS-ITX - MG-FUNCIONÁRIOS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASIBHEA - AS-ITX - MG-FUNCIONÁRIOS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MIECPSA - CAMPOS DOS GOYTACAZES - MIECPSA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MIARCEA - MGW RECIFE A tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGCJURA - JUCARA-MGCJURA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASIPASA - AS-ITX - SP-PALMEIRAS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASISDRA - AS-ITX - BA-CABULA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASIBLMA - AS-ITX - PA-PEDREIRA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MBCSJCA - MBCSJCA - SÃO JOSÉ DOS CAMPOS - HUMAITÁ tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGIVIVD - SÃO PAULO - VIVO SEDE MGIVIVD tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASIRJOA - AS-ITX - RJ-BARRA DA TIJUCA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASIPASA - AS-ITX - SP-PALMEIRAS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASIPASA - AS-ITX - SP-PALMEIRAS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASIBLMA - AS-ITX - PA-PEDREIRA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASIBLMA - AS-ITX - PA-PEDREIRA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASISDRA - AS-ITX - BA-CABULA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASISDRA - AS-ITX - BA-CABULA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MWALAGA - LAGUINHO - MWALAGA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MBCSFRA - MBCSFRA - MBC DE SÃO FRANCISCO tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MINATSA - MINATSA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASIJGRA - AS-ITX - SP-JAGUARÉ tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASIBHEA - AS-ITX - MG-FUNCIONÁRIOS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MBCBVTC - MSC BLADE CLUSTER BELA VISTA C tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MBCINDC - MSC BLADE CLUSTER INDEPENDENCIA C tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASIJGRA - AS-ITX - SP-JAGUARÉ tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASIJGRA - AS-ITX - SP-JAGUARÉ tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASIBHEA - AS-ITX - MG-FUNCIONÁRIOS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGCLUEF - MGC LUXEMBURGO F tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MIBLUEA - MGW CAMADA GATEWAY EM LUE tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MIBLUEA - MGW CAMADA GATEWAY EM LUE tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MINSAGA - MGW CAMADA GATEWAY EM SAG tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MINSAGA - MGW CAMADA GATEWAY EM SAG tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MINSAGA - MGW CAMADA GATEWAY EM SAG tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGIBONC - CAMPINAS - BONFIM MGIBONC tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGIBARA - GATEWAY GSM BARRA DA TIJUCA-A ( MGIBARA ) tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MIFCPSB - CAMPOS DOS GOYTACAZES - MIFCPSB tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGIBARA - GATEWAY GSM BARRA DA TIJUCA-A ( MGIBARA ) tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MIFCPSB - CAMPOS DOS GOYTACAZES - MIFCPSB tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGILUEA - SERVER CAMADA GATEWAY EM LUE tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MWGPPIA - PRESIDENTE PRUDENTE - IU MWGPPIA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGILUEA - SERVER CAMADA GATEWAY EM LUE tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASIJGRA - AS-ITX - SP-JAGUARÉ tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASIPASA - AS-ITX - SP-PALMEIRAS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGCSCCA - MGCSCCA - SERVER SINOP tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MIDCTAB - MEDIA GATEWAY PEDRO GUSSO B - FUNÇAO GTW tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGIVIVD - SÃO PAULO - VIVO SEDE MGIVIVD tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGIVIVD - SÃO PAULO - VIVO SEDE MGIVIVD tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASIPASA - AS-ITX - SP-PALMEIRAS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGCPIEA - PIEDADE - MGCPIEA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MIECPSA - CAMPOS DOS GOYTACAZES - MIECPSA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MIBBVTA - MEDIA GATEWAY BELA VISTA A - FUNÇÃO GTW tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGCSRRA - SÃO JOSÉ DO RIO PRETO - CRISTOVÃO COLOMBO MGCSRRA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MWGPPIA - PRESIDENTE PRUDENTE - IU MWGPPIA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGCSRHA - SERRINHA - MGCSRHA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGCJURA - JUCARA-MGCJURA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MIBAFLA - ARARAQUARA - FONTE LUMINOSA MIBAFLA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGIBFEA - GATEWAY HUAWEI - BENTO FERREIRA - MSOFTX3000 tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGIBONC - CAMPINAS - BONFIM MGIBONC tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MWVPAAC - PIRACICABA - JARDIM ELITE - MWVPAAC tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MWVPAAC - PIRACICABA - JARDIM ELITE - MWVPAAC tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MWVPAAC - PIRACICABA - JARDIM ELITE - MWVPAAC tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGCPAAB - PIRACICABA - JARDIM ELITE - MGCPAAB tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASIBHEA - AS-ITX - MG-FUNCIONÁRIOS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASICTAA - AS-ITX - PR-PEDRO GUSSO tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASISDRA - AS-ITX - BA-CABULA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASIPASA - AS-ITX - SP-PALMEIRAS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGIBONC - CAMPINAS - BONFIM MGIBONC tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGCTCEA - ETCE - MGCTCEA tipo=BICC tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASICTAA - AS-ITX - PR-PEDRO GUSSO tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MBCSAGH - BLADE DE STO. AGOSTINHO tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASICTAA - AS-ITX - PR-PEDRO GUSSO tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MBCCPSE - CAMPOS - MBCCPSE tipo=BICC tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASISDRA - AS-ITX - BA-CABULA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGCCPLA - PLANALTO - MGCCPLA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MBCFLAA - MBCFLAA - MBC DE FORTALEZA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGCPPIA - PRESIDENTE PRUDENTE - IU MGCPPIA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASISDRA - AS-ITX - BA-CABULA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASICTAA - AS-ITX - PR-PEDRO GUSSO tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASIBLMA - AS-ITX - PA-PEDREIRA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASIBLMA - AS-ITX - PA-PEDREIRA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASIBLMA - AS-ITX - PA-PEDREIRA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASICTAA - AS-ITX - PR-PEDRO GUSSO tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGCSRHA - SERRINHA - MGCSRHA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MBCDPDF - MSC BLADE CUSTER DOM PEDRO F - MBCDPDF tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGCSRRA - SÃO JOSÉ DO RIO PRETO - CRISTOVÃO COLOMBO MGCSRRA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MWHARIA - ARAÇATUBA - IU MWHARIA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MWGPPIA - PRESIDENTE PRUDENTE - IU MWGPPIA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASIBHEA - AS-ITX - MG-FUNCIONÁRIOS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASIPASA - AS-ITX - SP-PALMEIRAS tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASIPASA - AS-ITX - SP-PALMEIRAS tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASICTAA - AS-ITX - PR-PEDRO GUSSO tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASICTAA - AS-ITX - PR-PEDRO GUSSO tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASIPAEA - AS-ITX - RS-INDEPENDÊNCIA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGIBFEA - GATEWAY HUAWEI - BENTO FERREIRA - MSOFTX3000 tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGISNEA - GATEWAY HUAWEI - SANTOS NEVES - MSOFTX3000 tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MBCSFRA - MBCSFRA - MBC DE SÃO FRANCISCO tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGCCAXA - MGC CAXIAS DO SUL A tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MBCSAGH - BLADE DE STO. AGOSTINHO tipo=BICC tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGIVIVD - SÃO PAULO - VIVO SEDE MGIVIVD tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASISDRA - AS-ITX - BA-CABULA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MBCFLAA - MBCFLAA - MBC DE FORTALEZA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MBCCPSE - CAMPOS - MBCCPSE tipo=BICC tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MBCBARD - BARRA DA TIJUCA - MBCBARD tipo=BICC tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MIDTCEB - MIDTCEB tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MIDTCEB - MIDTCEB tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MIDTCEB - MIDTCEB tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASIJGRA - AS-ITX - SP-JAGUARÉ tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MIACCCA - MIACCCA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MIATCSA - MIATCSA - MGW/GTW HUAWEI TCSA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MIBPIEB - PIEDADE - MIBPIEB tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGCSRRA - SÃO JOSÉ DO RIO PRETO - CRISTOVÃO COLOMBO MGCSRRA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGCCAXA - MGC CAXIAS DO SUL A tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MBCCPSE - CAMPOS - MBCCPSE tipo=BICC tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MBCCPSE - CAMPOS - MBCCPSE tipo=BICC tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASICTAA - AS-ITX - PR-PEDRO GUSSO tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASIPAEA - AS-ITX - RS-INDEPENDÊNCIA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASIPAEA - AS-ITX - RS-INDEPENDÊNCIA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGCLAGA - LAGUINHO - MGCLAGA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGIVIVD - SÃO PAULO - VIVO SEDE MGIVIVD tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MBCSAGI - MBCSAGI - SANTO AGOSTINHO tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MIASRHA - GOIÂNIA - MIASRHA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MWJITBC - MGW ITABUNA C tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MBCCPSE - CAMPOS - MBCCPSE tipo=BICC tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASIJGRA - AS-ITX - SP-JAGUARÉ tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGCRBOA - RIO BRANCO - MGCRBOA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGCGETA - GETULIO - MGCGETA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MBCFLAA - MBCFLAA - MBC DE FORTALEZA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGCJURA - JUCARA-MGCJURA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASIBHEA - AS-ITX - MG-FUNCIONÁRIOS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASIBHEA - AS-ITX - MG-FUNCIONÁRIOS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MBCBARD - BARRA DA TIJUCA - MBCBARD tipo=BICC tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASIRJOA - AS-ITX - RJ-BARRA DA TIJUCA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MBCSJCA - MBCSJCA - SÃO JOSÉ DOS CAMPOS - HUMAITÁ tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASISDRA - AS-ITX - BA-CABULA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASISDRA - AS-ITX - BA-CABULA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASISDRA - AS-ITX - BA-CABULA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASISDRA - AS-ITX - BA-CABULA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MIFCPSB - CAMPOS DOS GOYTACAZES - MIFCPSB tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGCTTCA - TAUBATÉ - CALIFÓRNIA MGCTTCA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MWBTCEA - ETCE - MGWTCEA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGCPIEA - PIEDADE - MGCPIEA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGICTNC - BAURU - JARDIM CONTORNO MGICTNC tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGIINDA - MEDIA GATEWAY CONTROLLER GTW - INDEPENDENCIA A tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MBCSJCA - MBCSJCA - SÃO JOSÉ DOS CAMPOS - HUMAITÁ tipo=ISUP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASIRJOA - AS-ITX - RJ-BARRA DA TIJUCA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASIPAEA - AS-ITX - RS-INDEPENDÊNCIA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASIRJOA - AS-ITX - RJ-BARRA DA TIJUCA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MBCSJCA - MBCSJCA - SÃO JOSÉ DOS CAMPOS - HUMAITÁ tipo=ISUP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MBCSJCA - MBCSJCA - SÃO JOSÉ DOS CAMPOS - HUMAITÁ tipo=BICC tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASIPASA - AS-ITX - SP-PALMEIRAS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASIJGRA - AS-ITX - SP-JAGUARÉ tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGIMSJA - GATEWAY GSM MONSENHOR JERONIMO-A ( MGIMSJA ) tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGIBFEA - GATEWAY HUAWEI - BENTO FERREIRA - MSOFTX3000 tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASIJGRA - AS-ITX - SP-JAGUARÉ tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MWJITBC - MGW ITABUNA C tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MBCVIVC - MSC BLADE CLUSTER MORUMBI C tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MWACBRA - MEDIA GATEWAY CABRAL A tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGCCTNB - BAURU - JARDIM CONTORNO MGCCTNB tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGCCTNB - BAURU - JARDIM CONTORNO MGCCTNB tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGCARIA - ARAÇATUBA - IU MGCARIA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGIVIVD - SÃO PAULO - VIVO SEDE MGIVIVD tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGIBVTA - MEDIA GATEWAY CONTROLLER GTW BELA VISTA A tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MBCSAGI - MBCSAGI - SANTO AGOSTINHO tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASIJGRA - AS-ITX - SP-JAGUARÉ tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=ASIBLMA - AS-ITX - PA-PEDREIRA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MIBPIEB - PIEDADE - MIBPIEB tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MBCSJCA - MBCSJCA - SÃO JOSÉ DOS CAMPOS - HUMAITÁ tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MBCSJCA - MBCSJCA - SÃO JOSÉ DOS CAMPOS - HUMAITÁ tipo=ISUP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGIVVJD - SAO PAULO - VIVO JAGUARE MGIVVJD tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MWNBONB - CAMPINAS - BONFIM MWNBONB tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MWENREA - RIBEIRÃO PRETO - NOROESTE MWENREA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:49 [DEBUG] app.core.map_rules: Row central=MGCCPLA - PLANALTO - MGCCPLA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCARIA - ARAÇATUBA - IU MGCARIA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCCTAA - MGC CURITIBA A tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCCTNB - BAURU - JARDIM CONTORNO MGCCTNB tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCMIUB - MARÍLIA - IU - MGCMIUB tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCSOCA - SOROCABA - CERRADO MGCSOCA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCSRRA - SÃO JOSÉ DO RIO PRETO - CRISTOVÃO COLOMBO MGCSRRA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MWVPAAC - PIRACICABA - JARDIM ELITE - MWVPAAC tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MWACBRA - MEDIA GATEWAY CABRAL A tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCVIVC - MSC BLADE CLUSTER MORUMBI C tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGISNEA - GATEWAY HUAWEI - SANTOS NEVES - MSOFTX3000 tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGITCEA - MGITCEA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCSJCA - MBCSJCA - SÃO JOSÉ DOS CAMPOS - HUMAITÁ tipo=ISUP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIINDA - MEDIA GATEWAY CONTROLLER GTW - INDEPENDENCIA A tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIBLMA - AS-ITX - PA-PEDREIRA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASISDRA - AS-ITX - BA-CABULA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASISDRA - AS-ITX - BA-CABULA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIRJOA - AS-ITX - RJ-BARRA DA TIJUCA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIVIVD - SÃO PAULO - VIVO SEDE MGIVIVD tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCCSCA - MGC CASCAVEL A tipo=RANAP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCMSJA - MONSENHOR JERONIMO - MGCMSJA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIMSJA - GATEWAY GSM MONSENHOR JERONIMO-A ( MGIMSJA ) tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIVVJD - SAO PAULO - VIVO JAGUARE MGIVVJD tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIMSJA - GATEWAY GSM MONSENHOR JERONIMO-A ( MGIMSJA ) tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIBARA - GATEWAY GSM BARRA DA TIJUCA-A ( MGIBARA ) tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGICBRA - MEDIA GATEWAY CONTROLLER - GTW CABRAL A tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIRCEA - MGW CONTROLLER - MGIRCEA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIVLAA - MGIVLAA - GTW HUAWEI VLAA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGITCSA - MGITCSA - GTW HUAWEI TCSA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIPIEB - PIEDADE - MGIPIEB tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCRCEA - MBCRCEA - MBC DE RECIFE tipo=ISUP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIVLAA - MGIVLAA - GTW HUAWEI VLAA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGITCSA - MGITCSA - GTW HUAWEI TCSA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCRCEA - MBCRCEA - MBC DE RECIFE tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGILUEA - SERVER CAMADA GATEWAY EM LUE tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGITCSA - MGITCSA - GTW HUAWEI TCSA tipo=BICC tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGISAGA - SERVER CAMADA GATEWAY EM SAG tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGISAGA - SERVER CAMADA GATEWAY EM SAG tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIVIVD - SÃO PAULO - VIVO SEDE MGIVIVD tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGISNEA - GATEWAY HUAWEI - SANTOS NEVES - MSOFTX3000 tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIVIVD - SÃO PAULO - VIVO SEDE MGIVIVD tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCAFLA - ARARAQUARA - FONTE LUMINOSA MGCAFLA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MWGPPIA - PRESIDENTE PRUDENTE - IU MWGPPIA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCBONA - CAMPINAS - BONFIM MGCBONA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCLUEF - MGC LUXEMBURGO F tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCVIVC - MSC BLADE CLUSTER MORUMBI C tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MWWSWLA - MWWSWLA - WASHINGTON LUIS - SANTOS tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCPPIA - PRESIDENTE PRUDENTE - IU MGCPPIA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIMSJA - GATEWAY GSM MONSENHOR JERONIMO-A ( MGIMSJA ) tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGISAGA - SERVER CAMADA GATEWAY EM SAG tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGILUEA - SERVER CAMADA GATEWAY EM LUE tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCSAGI - MBCSAGI - SANTO AGOSTINHO tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCSJCA - MBCSJCA - SÃO JOSÉ DOS CAMPOS - HUMAITÁ tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIVLAA - MGIVLAA - GTW HUAWEI VLAA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGISAGA - SERVER CAMADA GATEWAY EM SAG tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIVLAA - MGIVLAA - GTW HUAWEI VLAA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGICCCA - MGICCCA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIVIVD - SÃO PAULO - VIVO SEDE MGIVIVD tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCSFRA - MBCSFRA - MBC DE SÃO FRANCISCO tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCAJUD - MBCAJUD - MBC ARACAJU tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCAJUD - MBCAJUD - MBC ARACAJU tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGICTNC - BAURU - JARDIM CONTORNO MGICTNC tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCPIEA - PIEDADE - MGCPIEA tipo=BSSAP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCSRRA - SÃO JOSÉ DO RIO PRETO - CRISTOVÃO COLOMBO MGCSRRA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPASA - AS-ITX - SP-PALMEIRAS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPASA - AS-ITX - SP-PALMEIRAS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASISDRA - AS-ITX - BA-CABULA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIBLMA - AS-ITX - PA-PEDREIRA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCVIVC - MSC BLADE CLUSTER MORUMBI C tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASICTAA - AS-ITX - PR-PEDRO GUSSO tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIMSJA - GATEWAY GSM MONSENHOR JERONIMO-A ( MGIMSJA ) tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIRJOA - AS-ITX - RJ-BARRA DA TIJUCA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIBHEA - AS-ITX - MG-FUNCIONÁRIOS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPASA - AS-ITX - SP-PALMEIRAS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASICTAA - AS-ITX - PR-PEDRO GUSSO tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIJGRA - AS-ITX - SP-JAGUARÉ tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCCSCA - MGC CASCAVEL A tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCBARD - BARRA DA TIJUCA - MBCBARD tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MIBAFPA - MIBAFPA - AFONSO PENA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPASA - AS-ITX - SP-PALMEIRAS tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPASA - AS-ITX - SP-PALMEIRAS tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCRCEA - MBCRCEA - MBC DE RECIFE tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCSJCA - MBCSJCA - SÃO JOSÉ DOS CAMPOS - HUMAITÁ tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIMSJA - GATEWAY GSM MONSENHOR JERONIMO-A ( MGIMSJA ) tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIVIVD - SÃO PAULO - VIVO SEDE MGIVIVD tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGICTNC - BAURU - JARDIM CONTORNO MGICTNC tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIBLMA - AS-ITX - PA-PEDREIRA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASICTAA - AS-ITX - PR-PEDRO GUSSO tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASISDRA - AS-ITX - BA-CABULA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASISDRA - AS-ITX - BA-CABULA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIBHEA - AS-ITX - MG-FUNCIONÁRIOS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIRJOA - AS-ITX - RJ-BARRA DA TIJUCA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIBHEA - AS-ITX - MG-FUNCIONÁRIOS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIBHEA - AS-ITX - MG-FUNCIONÁRIOS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASICTAA - AS-ITX - PR-PEDRO GUSSO tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPAEA - AS-ITX - RS-INDEPENDÊNCIA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MIBAFPA - MIBAFPA - AFONSO PENA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCPAAB - PIRACICABA - JARDIM ELITE - MGCPAAB tipo=BICC tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASISDRA - AS-ITX - BA-CABULA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASISDRA - AS-ITX - BA-CABULA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASISDRA - AS-ITX - BA-CABULA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASISDRA - AS-ITX - BA-CABULA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MWILUEB - MGW LUXEMBURGO 3 tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCLUEF - MGC LUXEMBURGO F tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCCCCD - MBCCCCD tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MWBTCEA - ETCE - MGWTCEA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCTTCA - TAUBATÉ - CALIFÓRNIA MGCTTCA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIJGRA - AS-ITX - SP-JAGUARÉ tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPASA - AS-ITX - SP-PALMEIRAS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPASA - AS-ITX - SP-PALMEIRAS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGICBRA - MEDIA GATEWAY CONTROLLER - GTW CABRAL A tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASICTAA - AS-ITX - PR-PEDRO GUSSO tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASICTAA - AS-ITX - PR-PEDRO GUSSO tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIBLMA - AS-ITX - PA-PEDREIRA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIJGRA - AS-ITX - SP-JAGUARÉ tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASISDRA - AS-ITX - BA-CABULA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASISDRA - AS-ITX - BA-CABULA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIBARA - GATEWAY GSM BARRA DA TIJUCA-A ( MGIBARA ) tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIMSJA - GATEWAY GSM MONSENHOR JERONIMO-A ( MGIMSJA ) tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIBVTA - MEDIA GATEWAY CONTROLLER GTW BELA VISTA A tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCLUEF - MGC LUXEMBURGO F tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCSRHA - SERRINHA - MGCSRHA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCITBA - MGC ITABUNA A tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASICTAA - AS-ITX - PR-PEDRO GUSSO tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASICTAA - AS-ITX - PR-PEDRO GUSSO tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIBONC - CAMPINAS - BONFIM MGIBONC tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGITCSA - MGITCSA - GTW HUAWEI TCSA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGITCSA - MGITCSA - GTW HUAWEI TCSA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGICBRA - MEDIA GATEWAY CONTROLLER - GTW CABRAL A tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIDPDA - DOM PEDRO - MGIDPDA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIPIEA - PIEDADE - MGIPIEA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIBHEA - AS-ITX - MG-FUNCIONÁRIOS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPAEA - AS-ITX - RS-INDEPENDÊNCIA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASISDRA - AS-ITX - BA-CABULA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASISDRA - AS-ITX - BA-CABULA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCSOCA - SOROCABA - CERRADO MGCSOCA tipo=RANAP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIRCEA - MGW CONTROLLER - MGIRCEA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MIAFLAA - MGW FORTALEZA A tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCLUEH - MBC LUXEMBURGO H tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCSAGI - MBCSAGI - SANTO AGOSTINHO tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MINLUEA - MGW CAMADA GATEWAY EM LUE tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIBARA - GATEWAY GSM BARRA DA TIJUCA-A ( MGIBARA ) tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASICTAA - AS-ITX - PR-PEDRO GUSSO tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIBHEA - AS-ITX - MG-FUNCIONÁRIOS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIBLMA - AS-ITX - PA-PEDREIRA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIBHEA - AS-ITX - MG-FUNCIONÁRIOS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIBHEA - AS-ITX - MG-FUNCIONÁRIOS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIVIVD - SÃO PAULO - VIVO SEDE MGIVIVD tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGICTNC - BAURU - JARDIM CONTORNO MGICTNC tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCSJCA - MBCSJCA - SÃO JOSÉ DOS CAMPOS - HUMAITÁ tipo=RANAP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASICTAA - AS-ITX - PR-PEDRO GUSSO tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIBHEA - AS-ITX - MG-FUNCIONÁRIOS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGICTNC - BAURU - JARDIM CONTORNO MGICTNC tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIVVJD - SAO PAULO - VIVO JAGUARE MGIVVJD tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIRJOA - AS-ITX - RJ-BARRA DA TIJUCA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIRJOA - AS-ITX - RJ-BARRA DA TIJUCA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIBLMA - AS-ITX - PA-PEDREIRA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASISDRA - AS-ITX - BA-CABULA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIBLMA - AS-ITX - PA-PEDREIRA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASICTAA - AS-ITX - PR-PEDRO GUSSO tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASICTAA - AS-ITX - PR-PEDRO GUSSO tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASICTAA - AS-ITX - PR-PEDRO GUSSO tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPAEA - AS-ITX - RS-INDEPENDÊNCIA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASISDRA - AS-ITX - BA-CABULA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASISDRA - AS-ITX - BA-CABULA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGICPLA - MGICPLA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGILUEA - SERVER CAMADA GATEWAY EM LUE tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGICBRA - MEDIA GATEWAY CONTROLLER - GTW CABRAL A tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCITBC - MGC ITABUNA C tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASICTAA - AS-ITX - PR-PEDRO GUSSO tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASICTAA - AS-ITX - PR-PEDRO GUSSO tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPAEA - AS-ITX - RS-INDEPENDÊNCIA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGICBRA - MEDIA GATEWAY CONTROLLER - GTW CABRAL A tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIBNUA - MEDIA GATEWAY CONTROLLER - GTW BLUMENAU A tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGISNEA - GATEWAY HUAWEI - SANTOS NEVES - MSOFTX3000 tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPAEA - AS-ITX - RS-INDEPENDÊNCIA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPAEA - AS-ITX - RS-INDEPENDÊNCIA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASISDRA - AS-ITX - BA-CABULA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASISDRA - AS-ITX - BA-CABULA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASISDRA - AS-ITX - BA-CABULA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIJGRA - AS-ITX - SP-JAGUARÉ tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIFLAA - MGW CONTROLLER - MGIFLAA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIPIEA - PIEDADE - MGIPIEA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIVIVD - SÃO PAULO - VIVO SEDE MGIVIVD tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIVIVD - SÃO PAULO - VIVO SEDE MGIVIVD tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGICTNC - BAURU - JARDIM CONTORNO MGICTNC tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MIBLUEA - MGW CAMADA GATEWAY EM LUE tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MIBLUEA - MGW CAMADA GATEWAY EM LUE tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASICTAA - AS-ITX - PR-PEDRO GUSSO tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASICTAA - AS-ITX - PR-PEDRO GUSSO tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCSJCA - MBCSJCA - SÃO JOSÉ DOS CAMPOS - HUMAITÁ tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASICTAA - AS-ITX - PR-PEDRO GUSSO tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCSJCA - MBCSJCA - SÃO JOSÉ DOS CAMPOS - HUMAITÁ tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIBONC - CAMPINAS - BONFIM MGIBONC tipo=BICC tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASICTAA - AS-ITX - PR-PEDRO GUSSO tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MWWSWLA - MWWSWLA - WASHINGTON LUIS - SANTOS tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIBFEA - GATEWAY HUAWEI - BENTO FERREIRA - MSOFTX3000 tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MIFCPSB - CAMPOS DOS GOYTACAZES - MIFCPSB tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGISNEA - GATEWAY HUAWEI - SANTOS NEVES - MSOFTX3000 tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MIESFEA - SANTOS - SENADOR FEIJÓ - MIESFEA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIVVJD - SAO PAULO - VIVO JAGUARE MGIVVJD tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIVVJD - SAO PAULO - VIVO JAGUARE MGIVVJD tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIVVJD - SAO PAULO - VIVO JAGUARE MGIVVJD tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPASA - AS-ITX - SP-PALMEIRAS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPASA - AS-ITX - SP-PALMEIRAS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASISDRA - AS-ITX - BA-CABULA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASISDRA - AS-ITX - BA-CABULA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASISDRA - AS-ITX - BA-CABULA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASISDRA - AS-ITX - BA-CABULA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASISDRA - AS-ITX - BA-CABULA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGICBRA - MEDIA GATEWAY CONTROLLER - GTW CABRAL A tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIINDA - MEDIA GATEWAY CONTROLLER GTW - INDEPENDENCIA A tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCFLAA - MBCFLAA - MBC DE FORTALEZA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGITCOA - MGITCOA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPAEA - AS-ITX - RS-INDEPENDÊNCIA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASICTAA - AS-ITX - PR-PEDRO GUSSO tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASICTAA - AS-ITX - PR-PEDRO GUSSO tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCVIVC - MSC BLADE CLUSTER MORUMBI C tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MWSJAIC - JUNDIAÍ - VILA ARENS MWSJAIC tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCSJCA - MBCSJCA - SÃO JOSÉ DOS CAMPOS - HUMAITÁ tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MWENREA - RIBEIRÃO PRETO - NOROESTE MWENREA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCLUEF - MGC LUXEMBURGO F tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCSAGI - MBCSAGI - SANTO AGOSTINHO tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCLUEF - MGC LUXEMBURGO F tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCCCCD - MBCCCCD tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCSRHA - SERRINHA - MGCSRHA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCSRHC - SERVER MGCSRHC tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIJGRA - AS-ITX - SP-JAGUARÉ tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPAEA - AS-ITX - RS-INDEPENDÊNCIA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASICTAA - AS-ITX - PR-PEDRO GUSSO tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIBHEA - AS-ITX - MG-FUNCIONÁRIOS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIBLMA - AS-ITX - PA-PEDREIRA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIBLMA - AS-ITX - PA-PEDREIRA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASICTAA - AS-ITX - PR-PEDRO GUSSO tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCSOCA - SOROCABA - CERRADO MGCSOCA tipo=BSSAP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASISDRA - AS-ITX - BA-CABULA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPAEA - AS-ITX - RS-INDEPENDÊNCIA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPAEA - AS-ITX - RS-INDEPENDÊNCIA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASICTAA - AS-ITX - PR-PEDRO GUSSO tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASICTAA - AS-ITX - PR-PEDRO GUSSO tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCITBA - MGC ITABUNA A tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MWSJAIC - JUNDIAÍ - VILA ARENS MWSJAIC tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MWABFEA - BENTO FERREIRA - MWABFEA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCSRHC - SERVER MGCSRHC tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCITBA - MGC ITABUNA A tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MWJITBC - MGW ITABUNA C tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCVIVC - MSC BLADE CLUSTER MORUMBI C tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIBFEA - GATEWAY HUAWEI - BENTO FERREIRA - MSOFTX3000 tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIBARA - GATEWAY GSM BARRA DA TIJUCA-A ( MGIBARA ) tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIVVJD - SAO PAULO - VIVO JAGUARE MGIVVJD tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MWILUEB - MGW LUXEMBURGO 3 tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCCCCD - MBCCCCD tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MWNBONB - CAMPINAS - BONFIM MWNBONB tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIRJOA - AS-ITX - RJ-BARRA DA TIJUCA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIRJOA - AS-ITX - RJ-BARRA DA TIJUCA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIRJOA - AS-ITX - RJ-BARRA DA TIJUCA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIVVJD - SAO PAULO - VIVO JAGUARE MGIVVJD tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIBHEA - AS-ITX - MG-FUNCIONÁRIOS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASICTAA - AS-ITX - PR-PEDRO GUSSO tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIBHEA - AS-ITX - MG-FUNCIONÁRIOS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIRJOA - AS-ITX - RJ-BARRA DA TIJUCA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIJGRA - AS-ITX - SP-JAGUARÉ tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MINATSA - MINATSA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MINATSA - MINATSA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASISDRA - AS-ITX - BA-CABULA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGITCEA - MGITCEA tipo=BICC tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIBARA - GATEWAY GSM BARRA DA TIJUCA-A ( MGIBARA ) tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIVVJD - SAO PAULO - VIVO JAGUARE MGIVVJD tipo=BICC tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCSRRA - SÃO JOSÉ DO RIO PRETO - CRISTOVÃO COLOMBO MGCSRRA tipo= tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGISAGA - SERVER CAMADA GATEWAY EM SAG tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIVVJD - SAO PAULO - VIVO JAGUARE MGIVVJD tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIBHEA - AS-ITX - MG-FUNCIONÁRIOS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCDPDF - MSC BLADE CUSTER DOM PEDRO F - MBCDPDF tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MWATCSA - TELEBAHIA CELULAR SEDE - MWATCSA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCCAXA - MGC CAXIAS DO SUL A tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCSOCA - SOROCABA - CERRADO MGCSOCA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCVESC - MSC BLADE CLUSTER VILA ESPERANÇA C tipo=BICC tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCSRHA - SERRINHA - MGCSRHA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPASA - AS-ITX - SP-PALMEIRAS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIVIVD - SÃO PAULO - VIVO SEDE MGIVIVD tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIVIVD - SÃO PAULO - VIVO SEDE MGIVIVD tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCSJCA - MBCSJCA - SÃO JOSÉ DOS CAMPOS - HUMAITÁ tipo=ISUP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGICTAA - MEDIA GATEWAY CONTROLLER - GTW PEDRO GUSSO A tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIJGRA - AS-ITX - SP-JAGUARÉ tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPAEA - AS-ITX - RS-INDEPENDÊNCIA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIJGRA - AS-ITX - SP-JAGUARÉ tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPASA - AS-ITX - SP-PALMEIRAS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MIDCTAB - MEDIA GATEWAY PEDRO GUSSO B - FUNÇAO GTW tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCSJCA - MBCSJCA - SÃO JOSÉ DOS CAMPOS - HUMAITÁ tipo=ISUP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCSJCA - MBCSJCA - SÃO JOSÉ DOS CAMPOS - HUMAITÁ tipo=ISUP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIVIVD - SÃO PAULO - VIVO SEDE MGIVIVD tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGICTAA - MEDIA GATEWAY CONTROLLER - GTW PEDRO GUSSO A tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MIESFEA - SANTOS - SENADOR FEIJÓ - MIESFEA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGISNEA - GATEWAY HUAWEI - SANTOS NEVES - MSOFTX3000 tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MINSAGA - MGW CAMADA GATEWAY EM SAG tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCVESC - MSC BLADE CLUSTER VILA ESPERANÇA C tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCPAAB - PIRACICABA - JARDIM ELITE - MGCPAAB tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIBVTA - MEDIA GATEWAY CONTROLLER GTW BELA VISTA A tipo=ISUP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCINDC - MSC BLADE CLUSTER INDEPENDENCIA C tipo=ISUP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGITCEA - MGITCEA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGITCEA - MGITCEA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGITCEA - MGITCEA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGITCEA - MGITCEA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGICTNC - BAURU - JARDIM CONTORNO MGICTNC tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCSRHC - SERVER MGCSRHC tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCSRHC - SERVER MGCSRHC tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCSRHC - SERVER MGCSRHC tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIVIVD - SÃO PAULO - VIVO SEDE MGIVIVD tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIDPDA - DOM PEDRO - MGIDPDA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIRJOA - AS-ITX - RJ-BARRA DA TIJUCA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIBHEA - AS-ITX - MG-FUNCIONÁRIOS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIRJOA - AS-ITX - RJ-BARRA DA TIJUCA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPASA - AS-ITX - SP-PALMEIRAS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIRJOA - AS-ITX - RJ-BARRA DA TIJUCA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPASA - AS-ITX - SP-PALMEIRAS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIBHEA - AS-ITX - MG-FUNCIONÁRIOS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIVLAA - MGIVLAA - GTW HUAWEI VLAA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPASA - AS-ITX - SP-PALMEIRAS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPASA - AS-ITX - SP-PALMEIRAS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIJGRA - AS-ITX - SP-JAGUARÉ tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIJGRA - AS-ITX - SP-JAGUARÉ tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGISAGA - SERVER CAMADA GATEWAY EM SAG tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCSFRA - MBCSFRA - MBC DE SÃO FRANCISCO tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIBARA - GATEWAY GSM BARRA DA TIJUCA-A ( MGIBARA ) tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGICTNC - BAURU - JARDIM CONTORNO MGICTNC tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIVVJD - SAO PAULO - VIVO JAGUARE MGIVVJD tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIBHEA - AS-ITX - MG-FUNCIONÁRIOS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIBHEA - AS-ITX - MG-FUNCIONÁRIOS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIBHEA - AS-ITX - MG-FUNCIONÁRIOS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIRJOA - AS-ITX - RJ-BARRA DA TIJUCA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIRJOA - AS-ITX - RJ-BARRA DA TIJUCA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCSAGI - MBCSAGI - SANTO AGOSTINHO tipo= tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCAFPA - MBCAFPA - MSC BLADE CUSTER AFONSO PENA A tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIVVJD - SAO PAULO - VIVO JAGUARE MGIVVJD tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIVIVD - SÃO PAULO - VIVO SEDE MGIVIVD tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIUNIA - GOIÂNIA - MGIUNIA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MIBPIEB - PIEDADE - MIBPIEB tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MWAGETA - GETULIO - MWAGETA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MWALAGA - LAGUINHO - MWALAGA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIBONC - CAMPINAS - BONFIM MGIBONC tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCPIEA - PIEDADE - MGCPIEA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIRJOA - AS-ITX - RJ-BARRA DA TIJUCA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGICTNC - BAURU - JARDIM CONTORNO MGICTNC tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCBONA - CAMPINAS - BONFIM MGCBONA tipo= tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASISDRA - AS-ITX - BA-CABULA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MWACTRA - CENTRO - MWACTRA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIBHEA - AS-ITX - MG-FUNCIONÁRIOS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIRJOA - AS-ITX - RJ-BARRA DA TIJUCA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIBONC - CAMPINAS - BONFIM MGIBONC tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCRCEA - MBCRCEA - MBC DE RECIFE tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIBARA - GATEWAY GSM BARRA DA TIJUCA-A ( MGIBARA ) tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIBVTA - MEDIA GATEWAY CONTROLLER GTW BELA VISTA A tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MICTCOB - MICTCOB tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MWNMCLB - MGW MONTES CLAROS B tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCJAID - MSC BLADE CLUSTER JUNDIAI D tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIVIVD - SÃO PAULO - VIVO SEDE MGIVIVD tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIVVJD - SAO PAULO - VIVO JAGUARE MGIVVJD tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCCTAA - MGC CURITIBA A tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGICBRA - MEDIA GATEWAY CONTROLLER - GTW CABRAL A tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGICTNC - BAURU - JARDIM CONTORNO MGICTNC tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCCBRA - MEDIA GATEWAY CONTROLER CABRAL A tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCPFTA - SANTARÉM - MGCPFTA tipo= tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGICTAA - MEDIA GATEWAY CONTROLLER - GTW PEDRO GUSSO A tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIJGRA - AS-ITX - SP-JAGUARÉ tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPASA - AS-ITX - SP-PALMEIRAS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCBARD - BARRA DA TIJUCA - MBCBARD tipo=ISUP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCSAMB - MBC SANTA MARIA B tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCBARD - BARRA DA TIJUCA - MBCBARD tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCBARD - BARRA DA TIJUCA - MBCBARD tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MICPIEC - PIEDADE - MICPIEC tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MIACCCA - MIACCCA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MIBCPLA - MIBCPLA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MIBCPLA - MIBCPLA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MIBVLAA - MIBVLAA - MGW/GTW HUAWEI VLAA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MIARCEA - MGW RECIFE A tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MIARCEA - MGW RECIFE A tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIBHEA - AS-ITX - MG-FUNCIONÁRIOS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASICTAA - AS-ITX - PR-PEDRO GUSSO tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPAEA - AS-ITX - RS-INDEPENDÊNCIA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGISAGA - SERVER CAMADA GATEWAY EM SAG tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCSAGI - MBCSAGI - SANTO AGOSTINHO tipo=ISUP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCBARD - BARRA DA TIJUCA - MBCBARD tipo=BICC tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCBARD - BARRA DA TIJUCA - MBCBARD tipo=BICC tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPASA - AS-ITX - SP-PALMEIRAS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIBHEA - AS-ITX - MG-FUNCIONÁRIOS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIRJOA - AS-ITX - RJ-BARRA DA TIJUCA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MINATSA - MINATSA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCITBC - MGC ITABUNA C tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASICTAA - AS-ITX - PR-PEDRO GUSSO tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIJGRA - AS-ITX - SP-JAGUARÉ tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIVIVD - SÃO PAULO - VIVO SEDE MGIVIVD tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MIADPDA - MIADPDA - DOM PEDRO tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MIADPDA - MIADPDA - DOM PEDRO tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MIADPDA - MIADPDA - DOM PEDRO tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MINSAGA - MGW CAMADA GATEWAY EM SAG tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCCCCD - MBCCCCD tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCSRRA - SÃO JOSÉ DO RIO PRETO - CRISTOVÃO COLOMBO MGCSRRA tipo= tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCSRRA - SÃO JOSÉ DO RIO PRETO - CRISTOVÃO COLOMBO MGCSRRA tipo= tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIRJOA - AS-ITX - RJ-BARRA DA TIJUCA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIJGRA - AS-ITX - SP-JAGUARÉ tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPASA - AS-ITX - SP-PALMEIRAS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGISAGA - SERVER CAMADA GATEWAY EM SAG tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIVVJD - SAO PAULO - VIVO JAGUARE MGIVVJD tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCMB1A - MARABA - MGCMB1A tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCCBAA - MGC CORONEL BARROS A tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCSRRA - SÃO JOSÉ DO RIO PRETO - CRISTOVÃO COLOMBO MGCSRRA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MWVPAAC - PIRACICABA - JARDIM ELITE - MWVPAAC tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPAEA - AS-ITX - RS-INDEPENDÊNCIA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCCAXA - MGC CAXIAS DO SUL A tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCCTAA - MGC CURITIBA A tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPAEA - AS-ITX - RS-INDEPENDÊNCIA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MIBVVJA - SÃO PAULO - VIVO JAGUARÉ MIBVVJA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCINDC - MSC BLADE CLUSTER INDEPENDENCIA C tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCSRRA - SÃO JOSÉ DO RIO PRETO - CRISTOVÃO COLOMBO MGCSRRA tipo= tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCSRRA - SÃO JOSÉ DO RIO PRETO - CRISTOVÃO COLOMBO MGCSRRA tipo= tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCSRRA - SÃO JOSÉ DO RIO PRETO - CRISTOVÃO COLOMBO MGCSRRA tipo= tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCSRRA - SÃO JOSÉ DO RIO PRETO - CRISTOVÃO COLOMBO MGCSRRA tipo= tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCSRRA - SÃO JOSÉ DO RIO PRETO - CRISTOVÃO COLOMBO MGCSRRA tipo= tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASISDRA - AS-ITX - BA-CABULA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MIDTCEB - MIDTCEB tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MIBVVJA - SÃO PAULO - VIVO JAGUARÉ MIBVVJA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MIECPSA - CAMPOS DOS GOYTACAZES - MIECPSA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MIFCPSB - CAMPOS DOS GOYTACAZES - MIFCPSB tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCSRHC - SERVER MGCSRHC tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCSRHC - SERVER MGCSRHC tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIRJOA - AS-ITX - RJ-BARRA DA TIJUCA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPAEA - AS-ITX - RS-INDEPENDÊNCIA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCBNUA - MGC BLUMENAU A tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGISAGA - SERVER CAMADA GATEWAY EM SAG tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCBARD - BARRA DA TIJUCA - MBCBARD tipo=BICC tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCCPSE - CAMPOS - MBCCPSE tipo=BICC tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIVVJD - SAO PAULO - VIVO JAGUARE MGIVVJD tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIVVJD - SAO PAULO - VIVO JAGUARE MGIVVJD tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIVIVD - SÃO PAULO - VIVO SEDE MGIVIVD tipo= tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIVIVD - SÃO PAULO - VIVO SEDE MGIVIVD tipo= tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIVIVD - SÃO PAULO - VIVO SEDE MGIVIVD tipo= tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIVIVD - SÃO PAULO - VIVO SEDE MGIVIVD tipo= tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIUNIA - GOIÂNIA - MGIUNIA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCATMA - ALTAMIRA - MGCATMA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MWACTRA - CENTRO - MWACTRA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCCTAA - MGC CURITIBA A tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCFNSA - MEDIA GATEWAY CONTROLER FLORIANOPOLIS A tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGICTNC - BAURU - JARDIM CONTORNO MGICTNC tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIVVJD - SAO PAULO - VIVO JAGUARE MGIVVJD tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIVIVD - SÃO PAULO - VIVO SEDE MGIVIVD tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIVIVD - SÃO PAULO - VIVO SEDE MGIVIVD tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCMB1A - MARABA - MGCMB1A tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCMB1A - MARABA - MGCMB1A tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCFLAA - MBCFLAA - MBC DE FORTALEZA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCJAID - MSC BLADE CLUSTER JUNDIAI D tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCSAGH - BLADE DE STO. AGOSTINHO tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCFLAA - MBCFLAA - MBC DE FORTALEZA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCSAGI - MBCSAGI - SANTO AGOSTINHO tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIBVTA - MEDIA GATEWAY CONTROLLER GTW BELA VISTA A tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGICBRA - MEDIA GATEWAY CONTROLLER - GTW CABRAL A tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCPIEB - PIEDADE - MGCPIEB tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCPIEC - MGC PIEDADE C tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIPIEB - PIEDADE - MGIPIEB tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIVIVD - SÃO PAULO - VIVO SEDE MGIVIVD tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIBONC - CAMPINAS - BONFIM MGIBONC tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCSRHC - SERVER MGCSRHC tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCSJCA - MBCSJCA - SÃO JOSÉ DOS CAMPOS - HUMAITÁ tipo=ISDN tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCSRHC - SERVER MGCSRHC tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCLUEF - MGC LUXEMBURGO F tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCGETA - GETULIO - MGCGETA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCBARD - BARRA DA TIJUCA - MBCBARD tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCCTRA - CENTRO - MGCCTRA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MWAGETA - GETULIO - MWAGETA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCITBA - MGC ITABUNA A tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIINDA - MEDIA GATEWAY CONTROLLER GTW - INDEPENDENCIA A tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGICTNC - BAURU - JARDIM CONTORNO MGICTNC tipo= tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGICTNC - BAURU - JARDIM CONTORNO MGICTNC tipo= tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIBLMA - AS-ITX - PA-PEDREIRA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MIBBVTA - MEDIA GATEWAY BELA VISTA A - FUNÇÃO GTW tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MIDTCEB - MIDTCEB tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MIATCSA - MIATCSA - MGW/GTW HUAWEI TCSA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MICPIEC - PIEDADE - MICPIEC tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIBONC - CAMPINAS - BONFIM MGIBONC tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCLAGA - LAGUINHO - MGCLAGA tipo=BICC tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCLAGA - LAGUINHO - MGCLAGA tipo=BICC tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCLAGA - LAGUINHO - MGCLAGA tipo=BICC tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MWAPMJA - PALMAS - SET - MWAPMJA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCSOCA - SOROCABA - CERRADO MGCSOCA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCSOCA - SOROCABA - CERRADO MGCSOCA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIBARA - GATEWAY GSM BARRA DA TIJUCA-A ( MGIBARA ) tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCCBRA - MEDIA GATEWAY CONTROLER CABRAL A tipo= tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGICTNC - BAURU - JARDIM CONTORNO MGICTNC tipo= tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCJURA - JUCARA-MGCJURA tipo= tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCFNSA - MEDIA GATEWAY CONTROLER FLORIANOPOLIS A tipo= tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCCAXA - MGC CAXIAS DO SUL A tipo= tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPAEA - AS-ITX - RS-INDEPENDÊNCIA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASISDRA - AS-ITX - BA-CABULA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MWFBNUA - MEDIA GATEWAY BLUMENAU A tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCFNSA - MEDIA GATEWAY CONTROLER FLORIANOPOLIS A tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MWILGSA - MEDIA GATEWAY LAGES tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCRCEA - MBCRCEA - MBC DE RECIFE tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCRCEA - MBCRCEA - MBC DE RECIFE tipo=ISUP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIBARA - GATEWAY GSM BARRA DA TIJUCA-A ( MGIBARA ) tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIBFEA - GATEWAY HUAWEI - BENTO FERREIRA - MSOFTX3000 tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIBONC - CAMPINAS - BONFIM MGIBONC tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MIDCTAB - MEDIA GATEWAY PEDRO GUSSO B - FUNÇAO GTW tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCTCSC - MGC CABULA C tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCAJUD - MBCAJUD - MBC ARACAJU tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCAJUD - MBCAJUD - MBC ARACAJU tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGITCSA - MGITCSA - GTW HUAWEI TCSA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGITCSA - MGITCSA - GTW HUAWEI TCSA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCDPDF - MSC BLADE CUSTER DOM PEDRO F - MBCDPDF tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MWGPPIA - PRESIDENTE PRUDENTE - IU MWGPPIA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MWILUEB - MGW LUXEMBURGO 3 tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MWGAFPB - MWGAFPB - AFONSO PENA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MWAPMJA - PALMAS - SET - MWAPMJA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIDPDA - DOM PEDRO - MGIDPDA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIFNSA - MEDIA GATEWAY CONTROLER - GTW FLORIANOPOLIS A tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MIASRHA - GOIÂNIA - MIASRHA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCSRRA - SÃO JOSÉ DO RIO PRETO - CRISTOVÃO COLOMBO MGCSRRA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCBONA - CAMPINAS - BONFIM MGCBONA tipo= tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPASA - AS-ITX - SP-PALMEIRAS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPASA - AS-ITX - SP-PALMEIRAS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MINSAGA - MGW CAMADA GATEWAY EM SAG tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MICTCOB - MICTCOB tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MIBCPLA - MIBCPLA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MICPIEC - PIEDADE - MICPIEC tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MIADPDA - MIADPDA - DOM PEDRO tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MIACBRA - MEDIA GATEWAY CABRAL A - FUNÇÃO GTW tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MWCAJUA - ARACAJU - MWCAJUA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCSAGI - MBCSAGI - SANTO AGOSTINHO tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCINDC - MSC BLADE CLUSTER INDEPENDENCIA C tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MWGINDB - MEDIA GATEWAY INDEPENDENCIA B tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCSFRA - MBCSFRA - MBC DE SÃO FRANCISCO tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCSFRA - MBCSFRA - MBC DE SÃO FRANCISCO tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCCAXA - MGC CAXIAS DO SUL A tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPASA - AS-ITX - SP-PALMEIRAS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASICTAA - AS-ITX - PR-PEDRO GUSSO tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIBHEA - AS-ITX - MG-FUNCIONÁRIOS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPASA - AS-ITX - SP-PALMEIRAS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCTCEA - ETCE - MGCTCEA tipo= tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCSRHC - SERVER MGCSRHC tipo= tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCSRHC - SERVER MGCSRHC tipo= tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGILUEA - SERVER CAMADA GATEWAY EM LUE tipo= tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGILUEA - SERVER CAMADA GATEWAY EM LUE tipo= tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCPAAB - PIRACICABA - JARDIM ELITE - MGCPAAB tipo=BICC tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIBHEA - AS-ITX - MG-FUNCIONÁRIOS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MWMCPSD - CAMPOS - MWMCPSD tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCMGAA - MGC MARINGÁ A tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MWABFEA - BENTO FERREIRA - MWABFEA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCVIVC - MSC BLADE CLUSTER MORUMBI C tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MWSJAIC - JUNDIAÍ - VILA ARENS MWSJAIC tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCSRRA - SÃO JOSÉ DO RIO PRETO - CRISTOVÃO COLOMBO MGCSRRA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIJGRA - AS-ITX - SP-JAGUARÉ tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCBARD - BARRA DA TIJUCA - MBCBARD tipo=BICC tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGILUEA - SERVER CAMADA GATEWAY EM LUE tipo= tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGIVVJD - SAO PAULO - VIVO JAGUARE MGIVVJD tipo= tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIBHEA - AS-ITX - MG-FUNCIONÁRIOS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPASA - AS-ITX - SP-PALMEIRAS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPASA - AS-ITX - SP-PALMEIRAS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIJGRA - AS-ITX - SP-JAGUARÉ tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPAEA - AS-ITX - RS-INDEPENDÊNCIA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIJGRA - AS-ITX - SP-JAGUARÉ tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPASA - AS-ITX - SP-PALMEIRAS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPASA - AS-ITX - SP-PALMEIRAS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIJGRA - AS-ITX - SP-JAGUARÉ tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPASA - AS-ITX - SP-PALMEIRAS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPASA - AS-ITX - SP-PALMEIRAS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIBHEA - AS-ITX - MG-FUNCIONÁRIOS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIBHEA - AS-ITX - MG-FUNCIONÁRIOS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPASA - AS-ITX - SP-PALMEIRAS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIJGRA - AS-ITX - SP-JAGUARÉ tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCAFLA - MBCAFLA - ARARAQUARA - FONTE LUMINOSA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCAFLA - MBCAFLA - ARARAQUARA - FONTE LUMINOSA tipo=ISUP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCCCCD - MBCCCCD tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCAFLA - MBCAFLA - ARARAQUARA - FONTE LUMINOSA tipo=ISUP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIJGRA - AS-ITX - SP-JAGUARÉ tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIJGRA - AS-ITX - SP-JAGUARÉ tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCAFLA - MBCAFLA - ARARAQUARA - FONTE LUMINOSA tipo=ISUP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCAFLA - MBCAFLA - ARARAQUARA - FONTE LUMINOSA tipo=ISUP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIRJOA - AS-ITX - RJ-BARRA DA TIJUCA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPASA - AS-ITX - SP-PALMEIRAS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCAFLA - MBCAFLA - ARARAQUARA - FONTE LUMINOSA tipo=ISUP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPASA - AS-ITX - SP-PALMEIRAS tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASICTAA - AS-ITX - PR-PEDRO GUSSO tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MICTCOB - MICTCOB tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MICTCOB - MICTCOB tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MICTCOB - MICTCOB tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MICTCOB - MICTCOB tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIJGRA - AS-ITX - SP-JAGUARÉ tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPASA - AS-ITX - SP-PALMEIRAS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASICTAA - AS-ITX - PR-PEDRO GUSSO tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPASA - AS-ITX - SP-PALMEIRAS tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIBHEA - AS-ITX - MG-FUNCIONÁRIOS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPAEA - AS-ITX - RS-INDEPENDÊNCIA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCRBOA - RIO BRANCO - MGCRBOA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIJGRA - AS-ITX - SP-JAGUARÉ tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASICTAA - AS-ITX - PR-PEDRO GUSSO tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MIASRHA - GOIÂNIA - MIASRHA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MIACCCA - MIACCCA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MIBCPLA - MIBCPLA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MIBVLAA - MIBVLAA - MGW/GTW HUAWEI VLAA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MIAFLAA - MGW FORTALEZA A tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPASA - AS-ITX - SP-PALMEIRAS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIJGRA - AS-ITX - SP-JAGUARÉ tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIJGRA - AS-ITX - SP-JAGUARÉ tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCAFLA - MBCAFLA - ARARAQUARA - FONTE LUMINOSA tipo=ISUP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPASA - AS-ITX - SP-PALMEIRAS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIBHEA - AS-ITX - MG-FUNCIONÁRIOS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIBHEA - AS-ITX - MG-FUNCIONÁRIOS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIBHEA - AS-ITX - MG-FUNCIONÁRIOS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MIFCPSB - CAMPOS DOS GOYTACAZES - MIFCPSB tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MIFCPSB - CAMPOS DOS GOYTACAZES - MIFCPSB tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MWILGSA - MEDIA GATEWAY LAGES tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MIBBNUA - MEDIA GATEWAY BLUMENAU A - FUNÇÃO GTW tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCCAXA - MGC CAXIAS DO SUL A tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MIAINDA - MEDIA GATEWAY INDEPENDENCIA A - FUNÇÃO GTW tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPASA - AS-ITX - SP-PALMEIRAS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPASA - AS-ITX - SP-PALMEIRAS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIJGRA - AS-ITX - SP-JAGUARÉ tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASICTAA - AS-ITX - PR-PEDRO GUSSO tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPAEA - AS-ITX - RS-INDEPENDÊNCIA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCAFLA - MBCAFLA - ARARAQUARA - FONTE LUMINOSA tipo=ISUP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCGETA - GETULIO - MGCGETA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCJURA - JUCARA-MGCJURA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MICPIEC - PIEDADE - MICPIEC tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCSFRA - MBCSFRA - MBC DE SÃO FRANCISCO tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASICTAA - AS-ITX - PR-PEDRO GUSSO tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCAFLA - MBCAFLA - ARARAQUARA - FONTE LUMINOSA tipo=BSSAP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MIECPSA - CAMPOS DOS GOYTACAZES - MIECPSA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MIECPSA - CAMPOS DOS GOYTACAZES - MIECPSA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MIECPSA - CAMPOS DOS GOYTACAZES - MIECPSA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCAFLA - MBCAFLA - ARARAQUARA - FONTE LUMINOSA tipo=BSSAP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MIFCPSB - CAMPOS DOS GOYTACAZES - MIFCPSB tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MICTCOB - MICTCOB tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPASA - AS-ITX - SP-PALMEIRAS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIBHEA - AS-ITX - MG-FUNCIONÁRIOS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIRJOA - AS-ITX - RJ-BARRA DA TIJUCA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIBHEA - AS-ITX - MG-FUNCIONÁRIOS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIBHEA - AS-ITX - MG-FUNCIONÁRIOS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIBHEA - AS-ITX - MG-FUNCIONÁRIOS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIJGRA - AS-ITX - SP-JAGUARÉ tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIBHEA - AS-ITX - MG-FUNCIONÁRIOS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIBLMA - AS-ITX - PA-PEDREIRA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIBLMA - AS-ITX - PA-PEDREIRA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIBLMA - AS-ITX - PA-PEDREIRA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIBLMA - AS-ITX - PA-PEDREIRA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIBLMA - AS-ITX - PA-PEDREIRA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASICTAA - AS-ITX - PR-PEDRO GUSSO tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASICTAA - AS-ITX - PR-PEDRO GUSSO tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASICTAA - AS-ITX - PR-PEDRO GUSSO tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIJGRA - AS-ITX - SP-JAGUARÉ tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPAEA - AS-ITX - RS-INDEPENDÊNCIA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASICTAA - AS-ITX - PR-PEDRO GUSSO tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASICTAA - AS-ITX - PR-PEDRO GUSSO tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPAEA - AS-ITX - RS-INDEPENDÊNCIA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPAEA - AS-ITX - RS-INDEPENDÊNCIA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPAEA - AS-ITX - RS-INDEPENDÊNCIA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPAEA - AS-ITX - RS-INDEPENDÊNCIA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPASA - AS-ITX - SP-PALMEIRAS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIRJOA - AS-ITX - RJ-BARRA DA TIJUCA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIRJOA - AS-ITX - RJ-BARRA DA TIJUCA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIRJOA - AS-ITX - RJ-BARRA DA TIJUCA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIRJOA - AS-ITX - RJ-BARRA DA TIJUCA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIRJOA - AS-ITX - RJ-BARRA DA TIJUCA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIRJOA - AS-ITX - RJ-BARRA DA TIJUCA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCAFLA - MBCAFLA - ARARAQUARA - FONTE LUMINOSA tipo=ISUP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCAFLA - MBCAFLA - ARARAQUARA - FONTE LUMINOSA tipo=ISUP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASISDRA - AS-ITX - BA-CABULA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASISDRA - AS-ITX - BA-CABULA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASISDRA - AS-ITX - BA-CABULA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASISDRA - AS-ITX - BA-CABULA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIBLMA - AS-ITX - PA-PEDREIRA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASISDRA - AS-ITX - BA-CABULA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASISDRA - AS-ITX - BA-CABULA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIBLMA - AS-ITX - PA-PEDREIRA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPAEA - AS-ITX - RS-INDEPENDÊNCIA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIBHEA - AS-ITX - MG-FUNCIONÁRIOS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIJGRA - AS-ITX - SP-JAGUARÉ tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPASA - AS-ITX - SP-PALMEIRAS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIBLMA - AS-ITX - PA-PEDREIRA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPASA - AS-ITX - SP-PALMEIRAS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCAFLA - MBCAFLA - ARARAQUARA - FONTE LUMINOSA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MIECPSA - CAMPOS DOS GOYTACAZES - MIECPSA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCCCCD - MBCCCCD tipo=ISUP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPAEA - AS-ITX - RS-INDEPENDÊNCIA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIRJOA - AS-ITX - RJ-BARRA DA TIJUCA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPASA - AS-ITX - SP-PALMEIRAS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIJGRA - AS-ITX - SP-JAGUARÉ tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASICTAA - AS-ITX - PR-PEDRO GUSSO tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPASA - AS-ITX - SP-PALMEIRAS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIRJOA - AS-ITX - RJ-BARRA DA TIJUCA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIJGRA - AS-ITX - SP-JAGUARÉ tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIBHEA - AS-ITX - MG-FUNCIONÁRIOS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPASA - AS-ITX - SP-PALMEIRAS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASISDRA - AS-ITX - BA-CABULA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIJGRA - AS-ITX - SP-JAGUARÉ tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIJGRA - AS-ITX - SP-JAGUARÉ tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPASA - AS-ITX - SP-PALMEIRAS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPAEA - AS-ITX - RS-INDEPENDÊNCIA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASISDRA - AS-ITX - BA-CABULA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPASA - AS-ITX - SP-PALMEIRAS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIRJOA - AS-ITX - RJ-BARRA DA TIJUCA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIBLMA - AS-ITX - PA-PEDREIRA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIJGRA - AS-ITX - SP-JAGUARÉ tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIBLMA - AS-ITX - PA-PEDREIRA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCAFLA - MBCAFLA - ARARAQUARA - FONTE LUMINOSA tipo=ISUP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCAFLA - MBCAFLA - ARARAQUARA - FONTE LUMINOSA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIJGRA - AS-ITX - SP-JAGUARÉ tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCAFLA - MBCAFLA - ARARAQUARA - FONTE LUMINOSA tipo=BSSAP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIBHEA - AS-ITX - MG-FUNCIONÁRIOS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIBHEA - AS-ITX - MG-FUNCIONÁRIOS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIBHEA - AS-ITX - MG-FUNCIONÁRIOS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIBHEA - AS-ITX - MG-FUNCIONÁRIOS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIBHEA - AS-ITX - MG-FUNCIONÁRIOS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCAFLA - MBCAFLA - ARARAQUARA - FONTE LUMINOSA tipo=BSSAP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MWKBVTC - MEDIA GATEWAY BELA VISTA C tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MWSJAIC - JUNDIAÍ - VILA ARENS MWSJAIC tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MWSJAIC - JUNDIAÍ - VILA ARENS MWSJAIC tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MWSJAIC - JUNDIAÍ - VILA ARENS MWSJAIC tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCSJCA - MBCSJCA - SÃO JOSÉ DOS CAMPOS - HUMAITÁ tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPAEA - AS-ITX - RS-INDEPENDÊNCIA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPASA - AS-ITX - SP-PALMEIRAS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPASA - AS-ITX - SP-PALMEIRAS tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MWWSWLA - MWWSWLA - WASHINGTON LUIS - SANTOS tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCVIVC - MSC BLADE CLUSTER MORUMBI C tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCVIVC - MSC BLADE CLUSTER MORUMBI C tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MWHARIA - ARAÇATUBA - IU MWHARIA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPASA - AS-ITX - SP-PALMEIRAS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MWIBONA - CAMPINAS - BONFIM MWIBONA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MWIBONA - CAMPINAS - BONFIM MWIBONA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MWIBONA - CAMPINAS - BONFIM MWIBONA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MWIBONA - CAMPINAS - BONFIM MWIBONA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCCBRA - MEDIA GATEWAY CONTROLER CABRAL A tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCCOXA - MGC COXILHA A tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCCOXA - MGC COXILHA A tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPASA - AS-ITX - SP-PALMEIRAS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIJGRA - AS-ITX - SP-JAGUARÉ tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIJGRA - AS-ITX - SP-JAGUARÉ tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIJGRA - AS-ITX - SP-JAGUARÉ tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCCOXA - MGC COXILHA A tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCCOXA - MGC COXILHA A tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCCTNB - BAURU - JARDIM CONTORNO MGCCTNB tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASICTAA - AS-ITX - PR-PEDRO GUSSO tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPAEA - AS-ITX - RS-INDEPENDÊNCIA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASICTAA - AS-ITX - PR-PEDRO GUSSO tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIPASA - AS-ITX - SP-PALMEIRAS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MWPMIUB - MARÍLIA - IU MWPMIUB tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MWPMIUB - MARÍLIA - IU MWPMIUB tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MWVPAAC - PIRACICABA - JARDIM ELITE - MWVPAAC tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MWVPAAC - PIRACICABA - JARDIM ELITE - MWVPAAC tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MWVPAAC - PIRACICABA - JARDIM ELITE - MWVPAAC tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MWVPAAC - PIRACICABA - JARDIM ELITE - MWVPAAC tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MWVPAAC - PIRACICABA - JARDIM ELITE - MWVPAAC tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MWVPAAC - PIRACICABA - JARDIM ELITE - MWVPAAC tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MWVPAAC - PIRACICABA - JARDIM ELITE - MWVPAAC tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MWVPAAC - PIRACICABA - JARDIM ELITE - MWVPAAC tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MWVPAAC - PIRACICABA - JARDIM ELITE - MWVPAAC tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MWVPAAC - PIRACICABA - JARDIM ELITE - MWVPAAC tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MGCSRRA - SÃO JOSÉ DO RIO PRETO - CRISTOVÃO COLOMBO MGCSRRA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MWGPPIA - PRESIDENTE PRUDENTE - IU MWGPPIA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIRJOA - AS-ITX - RJ-BARRA DA TIJUCA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIBHEA - AS-ITX - MG-FUNCIONÁRIOS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASICTAA - AS-ITX - PR-PEDRO GUSSO tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIBHEA - AS-ITX - MG-FUNCIONÁRIOS tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIBLMA - AS-ITX - PA-PEDREIRA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIJGRA - AS-ITX - SP-JAGUARÉ tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCAFLA - MBCAFLA - ARARAQUARA - FONTE LUMINOSA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIBLMA - AS-ITX - PA-PEDREIRA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASISDRA - AS-ITX - BA-CABULA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIRJOA - AS-ITX - RJ-BARRA DA TIJUCA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCCCCD - MBCCCCD tipo=ISUP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCAFLA - MBCAFLA - ARARAQUARA - FONTE LUMINOSA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCAFLA - MBCAFLA - ARARAQUARA - FONTE LUMINOSA tipo=ISUP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCAFLA - MBCAFLA - ARARAQUARA - FONTE LUMINOSA tipo=ISUP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MIBVVJA - SÃO PAULO - VIVO JAGUARÉ MIBVVJA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MIESFEA - SANTOS - SENADOR FEIJÓ - MIESFEA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MIESFEA - SANTOS - SENADOR FEIJÓ - MIESFEA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MIESFEA - SANTOS - SENADOR FEIJÓ - MIESFEA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MIESFEA - SANTOS - SENADOR FEIJÓ - MIESFEA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MIBVVJA - SÃO PAULO - VIVO JAGUARÉ MIBVVJA tipo=SIP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCAFLA - MBCAFLA - ARARAQUARA - FONTE LUMINOSA tipo=ISUP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIJGRA - AS-ITX - SP-JAGUARÉ tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASIBLMA - AS-ITX - PA-PEDREIRA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=ASISDRA - AS-ITX - BA-CABULA tipo=SIP-I tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [DEBUG] app.core.map_rules: Row central=MBCAFLA - MBCAFLA - ARARAQUARA - FONTE LUMINOSA tipo=ISUP tag=SCIENCE uf= arq3_match=False
+2026-03-01 15:08:50 [INFO] app.core.merge: Merge: 123972 linhas (sci=123972 por=9550 arq3_matches=0)
+2026-03-01 15:08:51.007 Please replace `use_container_width` with `width`.
 
-CREATE TABLE tabela_unificada (
-  rowid INTEGER PRIMARY KEY AUTOINCREMENT,
-  ID TEXT,
-  Portal TEXT,
-  Tipo_de_Trafego TEXT,
-  EOT TEXT,
-  Operadora TEXT,
-  CN TEXT,
-  ID_Rota TEXT,
-  LABEL_E TEXT,
-  LABEL_S TEXT,
-  Origem_Rota TEXT,
-  Tipo_de_Rota TEXT,
-  Sinalizacao TEXT,
-  Trafego TEXT,
-  Descricao TEXT,
-  Central TEXT,
-  Bilhetador TEXT,
-  OPC TEXT,
-  DPC TEXT,
-  Data_Desativacao TEXT,
-  UNIQUE(ID, Portal, EOT, Operadora)
-);
+`use_container_width` will be removed after 2025-12-31.
 
-CREATE INDEX IF NOT EXISTS idx_unificada_trafego   ON tabela_unificada (Tipo_de_Trafego);
-CREATE INDEX IF NOT EXISTS idx_unificada_operadora ON tabela_unificada (Operadora);
-CREATE INDEX IF NOT EXISTS idx_unificada_eot       ON tabela_unificada (EOT);
-CREATE INDEX IF NOT EXISTS idx_unificada_data      ON tabela_unificada (Data_Desativacao);
-
-CREATE TABLE cnl (
-  COD_CNL TEXT PRIMARY KEY,
-  CN TEXT
-);
-
-INSERT INTO cnl (CN, COD_CNL) VALUES (43,41406);
-INSERT INTO cnl (CN, COD_CNL) VALUES (43,41497);
-INSERT INTO cnl (CN, COD_CNL) VALUES (43,41503);
-INSERT INTO cnl (CN, COD_CNL) VALUES (43,41515);
-INSERT INTO cnl (CN, COD_CNL) VALUES (43,41521);
-INSERT INTO cnl (CN, COD_CNL) VALUES (43,41535);
-INSERT INTO cnl (CN, COD_CNL) VALUES (43,41559);
-INSERT INTO cnl (CN, COD_CNL) VALUES (43,41617);
-INSERT INTO cnl (CN, COD_CNL) VALUES (43,41638);
-INSERT INTO cnl (CN, COD_CNL) VALUES (43,41639);
-INSERT INTO cnl (CN, COD_CNL) VALUES (43,41680);
-INSERT INTO cnl (CN, COD_CNL) VALUES (43,41715);
-INSERT INTO cnl (CN, COD_CNL) VALUES (42,41367);
-INSERT INTO cnl (CN, COD_CNL) VALUES (46,42306);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64130);
-INSERT INTO cnl (CN, COD_CNL) VALUES (46,41373);
-INSERT INTO cnl (CN, COD_CNL) VALUES (43,41374);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41385);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41034);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41055);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41056);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41196);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41224);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41225);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41228);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41281);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41305);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41314);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41360);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41370);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41371);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41382);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41389);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41412);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41423);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41444);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41447);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41519);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41628);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41653);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41784);
-INSERT INTO cnl (CN, COD_CNL) VALUES (46,41390);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64088);
-INSERT INTO cnl (CN, COD_CNL) VALUES (46,41393);
-INSERT INTO cnl (CN, COD_CNL) VALUES (42,41396);
-INSERT INTO cnl (CN, COD_CNL) VALUES (41,41267);
-INSERT INTO cnl (CN, COD_CNL) VALUES (41,41399);
-INSERT INTO cnl (CN, COD_CNL) VALUES (41,41501);
-INSERT INTO cnl (CN, COD_CNL) VALUES (42,41830);
-INSERT INTO cnl (CN, COD_CNL) VALUES (45,41401);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64089);
-INSERT INTO cnl (CN, COD_CNL) VALUES (45,41407);
-INSERT INTO cnl (CN, COD_CNL) VALUES (41,41411);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41440);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41415);
-INSERT INTO cnl (CN, COD_CNL) VALUES (43,41416);
-INSERT INTO cnl (CN, COD_CNL) VALUES (46,41422);
-INSERT INTO cnl (CN, COD_CNL) VALUES (42,41735);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41425);
-INSERT INTO cnl (CN, COD_CNL) VALUES (43,41648);
-INSERT INTO cnl (CN, COD_CNL) VALUES (46,41429);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64091);
-INSERT INTO cnl (CN, COD_CNL) VALUES (42,41765);
-INSERT INTO cnl (CN, COD_CNL) VALUES (42,41442);
-INSERT INTO cnl (CN, COD_CNL) VALUES (46,41449);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64000);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64007);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64019);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64024);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64047);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64055);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64063);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64065);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64066);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64079);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64090);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64106);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64113);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64137);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64149);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64151);
-INSERT INTO cnl (CN, COD_CNL) VALUES (42,41450);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11436);
-INSERT INTO cnl (CN, COD_CNL) VALUES (42,41453);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41460);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41462);
-INSERT INTO cnl (CN, COD_CNL) VALUES (41,41464);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41465);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41466);
-INSERT INTO cnl (CN, COD_CNL) VALUES (46,41469);
-INSERT INTO cnl (CN, COD_CNL) VALUES (42,41472);
-INSERT INTO cnl (CN, COD_CNL) VALUES (42,41474);
-INSERT INTO cnl (CN, COD_CNL) VALUES (46,41481);
-INSERT INTO cnl (CN, COD_CNL) VALUES (43,41488);
-INSERT INTO cnl (CN, COD_CNL) VALUES (46,41487);
-INSERT INTO cnl (CN, COD_CNL) VALUES (42,41491);
-INSERT INTO cnl (CN, COD_CNL) VALUES (79,79049);
-INSERT INTO cnl (CN, COD_CNL) VALUES (42,41493);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64163);
-INSERT INTO cnl (CN, COD_CNL) VALUES (42,41496);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41498);
-INSERT INTO cnl (CN, COD_CNL) VALUES (42,41502);
-INSERT INTO cnl (CN, COD_CNL) VALUES (42,41505);
-INSERT INTO cnl (CN, COD_CNL) VALUES (42,41511);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41510);
-INSERT INTO cnl (CN, COD_CNL) VALUES (42,41514);
-INSERT INTO cnl (CN, COD_CNL) VALUES (46,41517);
-INSERT INTO cnl (CN, COD_CNL) VALUES (42,41523);
-INSERT INTO cnl (CN, COD_CNL) VALUES (43,41526);
-INSERT INTO cnl (CN, COD_CNL) VALUES (69,69148);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64157);
-INSERT INTO cnl (CN, COD_CNL) VALUES (46,41529);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41530);
-INSERT INTO cnl (CN, COD_CNL) VALUES (45,41534);
-INSERT INTO cnl (CN, COD_CNL) VALUES (46,41536);
-INSERT INTO cnl (CN, COD_CNL) VALUES (42,41537);
-INSERT INTO cnl (CN, COD_CNL) VALUES (46,41539);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64095);
-INSERT INTO cnl (CN, COD_CNL) VALUES (42,41540);
-INSERT INTO cnl (CN, COD_CNL) VALUES (42,41541);
-INSERT INTO cnl (CN, COD_CNL) VALUES (43,41543);
-INSERT INTO cnl (CN, COD_CNL) VALUES (43,41544);
-INSERT INTO cnl (CN, COD_CNL) VALUES (42,41545);
-INSERT INTO cnl (CN, COD_CNL) VALUES (42,41547);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64094);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41562);
-INSERT INTO cnl (CN, COD_CNL) VALUES (46,41619);
-INSERT INTO cnl (CN, COD_CNL) VALUES (43,41621);
-INSERT INTO cnl (CN, COD_CNL) VALUES (46,41622);
-INSERT INTO cnl (CN, COD_CNL) VALUES (43,41647);
-INSERT INTO cnl (CN, COD_CNL) VALUES (43,41649);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64097);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41650);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41656);
-INSERT INTO cnl (CN, COD_CNL) VALUES (46,41657);
-INSERT INTO cnl (CN, COD_CNL) VALUES (42,41661);
-INSERT INTO cnl (CN, COD_CNL) VALUES (43,41663);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41664);
-INSERT INTO cnl (CN, COD_CNL) VALUES (43,41625);
-INSERT INTO cnl (CN, COD_CNL) VALUES (45,41667);
-INSERT INTO cnl (CN, COD_CNL) VALUES (43,41670);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41671);
-INSERT INTO cnl (CN, COD_CNL) VALUES (43,41674);
-INSERT INTO cnl (CN, COD_CNL) VALUES (46,41675);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41676);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41564);
-INSERT INTO cnl (CN, COD_CNL) VALUES (43,41571);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64099);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41573);
-INSERT INTO cnl (CN, COD_CNL) VALUES (42,41576);
-INSERT INTO cnl (CN, COD_CNL) VALUES (46,41579);
-INSERT INTO cnl (CN, COD_CNL) VALUES (43,41582);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64155);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41593);
-INSERT INTO cnl (CN, COD_CNL) VALUES (42,41595);
-INSERT INTO cnl (CN, COD_CNL) VALUES (45,41598);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41602);
-INSERT INTO cnl (CN, COD_CNL) VALUES (43,41609);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41613);
-INSERT INTO cnl (CN, COD_CNL) VALUES (84,84069);
-INSERT INTO cnl (CN, COD_CNL) VALUES (43,41627);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64138);
-INSERT INTO cnl (CN, COD_CNL) VALUES (46,41799);
-INSERT INTO cnl (CN, COD_CNL) VALUES (43,41633);
-INSERT INTO cnl (CN, COD_CNL) VALUES (45,43818);
-INSERT INTO cnl (CN, COD_CNL) VALUES (43,41642);
-INSERT INTO cnl (CN, COD_CNL) VALUES (46,41631);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41681);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64100);
-INSERT INTO cnl (CN, COD_CNL) VALUES (42,41684);
-INSERT INTO cnl (CN, COD_CNL) VALUES (42,41685);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41690);
-INSERT INTO cnl (CN, COD_CNL) VALUES (42,41692);
-INSERT INTO cnl (CN, COD_CNL) VALUES (43,41696);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64120);
-INSERT INTO cnl (CN, COD_CNL) VALUES (42,41797);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41021);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41024);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41099);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41106);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41152);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41182);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41194);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41234);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41279);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41294);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41313);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41381);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41387);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41428);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41479);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41480);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41682);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41683);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41703);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41711);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41747);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41770);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41814);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41874);
-INSERT INTO cnl (CN, COD_CNL) VALUES (42,41712);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41714);
-INSERT INTO cnl (CN, COD_CNL) VALUES (69,69077);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64201);
-INSERT INTO cnl (CN, COD_CNL) VALUES (42,41719);
-INSERT INTO cnl (CN, COD_CNL) VALUES (46,41724);
-INSERT INTO cnl (CN, COD_CNL) VALUES (42,41743);
-INSERT INTO cnl (CN, COD_CNL) VALUES (46,41746);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64122);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64167);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64102);
-INSERT INTO cnl (CN, COD_CNL) VALUES (47,47013);
-INSERT INTO cnl (CN, COD_CNL) VALUES (47,47019);
-INSERT INTO cnl (CN, COD_CNL) VALUES (47,47025);
-INSERT INTO cnl (CN, COD_CNL) VALUES (47,47027);
-INSERT INTO cnl (CN, COD_CNL) VALUES (47,47028);
-INSERT INTO cnl (CN, COD_CNL) VALUES (47,47031);
-INSERT INTO cnl (CN, COD_CNL) VALUES (47,47065);
-INSERT INTO cnl (CN, COD_CNL) VALUES (47,47070);
-INSERT INTO cnl (CN, COD_CNL) VALUES (47,47078);
-INSERT INTO cnl (CN, COD_CNL) VALUES (47,47082);
-INSERT INTO cnl (CN, COD_CNL) VALUES (47,47108);
-INSERT INTO cnl (CN, COD_CNL) VALUES (47,47145);
-INSERT INTO cnl (CN, COD_CNL) VALUES (47,47160);
-INSERT INTO cnl (CN, COD_CNL) VALUES (47,47163);
-INSERT INTO cnl (CN, COD_CNL) VALUES (47,47194);
-INSERT INTO cnl (CN, COD_CNL) VALUES (47,47309);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64104);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47005);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47044);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47045);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47046);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47048);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47059);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47087);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47125);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47133);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47141);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47147);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47154);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47167);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47181);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47183);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47204);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47208);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47209);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47210);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47255);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47268);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47320);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47321);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47339);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47353);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47361);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47378);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47395);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47578);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47598);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47808);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,48325);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64107);
-INSERT INTO cnl (CN, COD_CNL) VALUES (48,47016);
-INSERT INTO cnl (CN, COD_CNL) VALUES (48,47051);
-INSERT INTO cnl (CN, COD_CNL) VALUES (48,47060);
-INSERT INTO cnl (CN, COD_CNL) VALUES (48,47077);
-INSERT INTO cnl (CN, COD_CNL) VALUES (48,47095);
-INSERT INTO cnl (CN, COD_CNL) VALUES (48,47104);
-INSERT INTO cnl (CN, COD_CNL) VALUES (48,47112);
-INSERT INTO cnl (CN, COD_CNL) VALUES (48,47117);
-INSERT INTO cnl (CN, COD_CNL) VALUES (48,47122);
-INSERT INTO cnl (CN, COD_CNL) VALUES (48,47127);
-INSERT INTO cnl (CN, COD_CNL) VALUES (48,47150);
-INSERT INTO cnl (CN, COD_CNL) VALUES (48,47171);
-INSERT INTO cnl (CN, COD_CNL) VALUES (48,47184);
-INSERT INTO cnl (CN, COD_CNL) VALUES (48,47185);
-INSERT INTO cnl (CN, COD_CNL) VALUES (48,47193);
-INSERT INTO cnl (CN, COD_CNL) VALUES (48,47200);
-INSERT INTO cnl (CN, COD_CNL) VALUES (48,47203);
-INSERT INTO cnl (CN, COD_CNL) VALUES (48,47228);
-INSERT INTO cnl (CN, COD_CNL) VALUES (48,47240);
-INSERT INTO cnl (CN, COD_CNL) VALUES (48,47243);
-INSERT INTO cnl (CN, COD_CNL) VALUES (48,47258);
-INSERT INTO cnl (CN, COD_CNL) VALUES (48,47304);
-INSERT INTO cnl (CN, COD_CNL) VALUES (48,47342);
-INSERT INTO cnl (CN, COD_CNL) VALUES (48,47389);
-INSERT INTO cnl (CN, COD_CNL) VALUES (48,47418);
-INSERT INTO cnl (CN, COD_CNL) VALUES (48,48552);
-INSERT INTO cnl (CN, COD_CNL) VALUES (48,47000);
-INSERT INTO cnl (CN, COD_CNL) VALUES (48,47006);
-INSERT INTO cnl (CN, COD_CNL) VALUES (48,47007);
-INSERT INTO cnl (CN, COD_CNL) VALUES (48,47009);
-INSERT INTO cnl (CN, COD_CNL) VALUES (48,47011);
-INSERT INTO cnl (CN, COD_CNL) VALUES (48,47012);
-INSERT INTO cnl (CN, COD_CNL) VALUES (48,47026);
-INSERT INTO cnl (CN, COD_CNL) VALUES (48,47040);
-INSERT INTO cnl (CN, COD_CNL) VALUES (48,47063);
-INSERT INTO cnl (CN, COD_CNL) VALUES (48,47067);
-INSERT INTO cnl (CN, COD_CNL) VALUES (48,47110);
-INSERT INTO cnl (CN, COD_CNL) VALUES (48,47126);
-INSERT INTO cnl (CN, COD_CNL) VALUES (48,47131);
-INSERT INTO cnl (CN, COD_CNL) VALUES (48,47135);
-INSERT INTO cnl (CN, COD_CNL) VALUES (48,47155);
-INSERT INTO cnl (CN, COD_CNL) VALUES (48,47166);
-INSERT INTO cnl (CN, COD_CNL) VALUES (48,47170);
-INSERT INTO cnl (CN, COD_CNL) VALUES (48,47188);
-INSERT INTO cnl (CN, COD_CNL) VALUES (48,47192);
-INSERT INTO cnl (CN, COD_CNL) VALUES (48,47213);
-INSERT INTO cnl (CN, COD_CNL) VALUES (48,47224);
-INSERT INTO cnl (CN, COD_CNL) VALUES (48,47225);
-INSERT INTO cnl (CN, COD_CNL) VALUES (69,69055);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64131);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64108);
-INSERT INTO cnl (CN, COD_CNL) VALUES (47,47034);
-INSERT INTO cnl (CN, COD_CNL) VALUES (47,47089);
-INSERT INTO cnl (CN, COD_CNL) VALUES (47,47090);
-INSERT INTO cnl (CN, COD_CNL) VALUES (47,47124);
-INSERT INTO cnl (CN, COD_CNL) VALUES (47,47137);
-INSERT INTO cnl (CN, COD_CNL) VALUES (47,47140);
-INSERT INTO cnl (CN, COD_CNL) VALUES (47,47148);
-INSERT INTO cnl (CN, COD_CNL) VALUES (47,47211);
-INSERT INTO cnl (CN, COD_CNL) VALUES (47,47285);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47004);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47018);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47032);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47038);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47042);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47043);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47047);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47058);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47061);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47074);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47075);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47083);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47084);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47085);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47094);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47098);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47100);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47105);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47116);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47130);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47138);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47142);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47144);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47151);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47156);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47180);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47190);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47197);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47206);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47216);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47230);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47257);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47259);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47266);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47289);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47332);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47334);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47391);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47406);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47414);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,47415);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64025);
-INSERT INTO cnl (CN, COD_CNL) VALUES (16,11142);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11144);
-INSERT INTO cnl (CN, COD_CNL) VALUES (15,11145);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11152);
-INSERT INTO cnl (CN, COD_CNL) VALUES (19,11153);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11155);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11156);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11157);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11160);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11165);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11166);
-INSERT INTO cnl (CN, COD_CNL) VALUES (69,69074);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64141);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,12136);
-INSERT INTO cnl (CN, COD_CNL) VALUES (67,66153);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11168);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11170);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11159);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11175);
-INSERT INTO cnl (CN, COD_CNL) VALUES (16,11178);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11180);
-INSERT INTO cnl (CN, COD_CNL) VALUES (19,11184);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11186);
-INSERT INTO cnl (CN, COD_CNL) VALUES (19,11188);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64029);
-INSERT INTO cnl (CN, COD_CNL) VALUES (16,11189);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11190);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11191);
-INSERT INTO cnl (CN, COD_CNL) VALUES (16,11192);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11193);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11194);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11196);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64134);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11200);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11736);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,12052);
-INSERT INTO cnl (CN, COD_CNL) VALUES (19,11206);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11207);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11209);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64031);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11211);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11215);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11218);
-INSERT INTO cnl (CN, COD_CNL) VALUES (16,11217);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11219);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11221);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11222);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11223);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11224);
-INSERT INTO cnl (CN, COD_CNL) VALUES (16,11226);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11230);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11231);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11232);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11233);
-INSERT INTO cnl (CN, COD_CNL) VALUES (16,11711);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11234);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11236);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64178);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11237);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11240);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11241);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11242);
-INSERT INTO cnl (CN, COD_CNL) VALUES (15,11244);
-INSERT INTO cnl (CN, COD_CNL) VALUES (16,12139);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11245);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11246);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11247);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64034);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11248);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11250);
-INSERT INTO cnl (CN, COD_CNL) VALUES (15,11253);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11257);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64035);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11258);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11259);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11260);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11903);
-INSERT INTO cnl (CN, COD_CNL) VALUES (16,11261);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11263);
-INSERT INTO cnl (CN, COD_CNL) VALUES (16,11264);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64127);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11269);
-INSERT INTO cnl (CN, COD_CNL) VALUES (16,11270);
-INSERT INTO cnl (CN, COD_CNL) VALUES (11,11271);
-INSERT INTO cnl (CN, COD_CNL) VALUES (13,11272);
-INSERT INTO cnl (CN, COD_CNL) VALUES (13,11957);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11273);
-INSERT INTO cnl (CN, COD_CNL) VALUES (69,69113);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64037);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11276);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11277);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11278);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11279);
-INSERT INTO cnl (CN, COD_CNL) VALUES (15,11283);
-INSERT INTO cnl (CN, COD_CNL) VALUES (16,12141);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64038);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11285);
-INSERT INTO cnl (CN, COD_CNL) VALUES (15,11286);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11287);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11288);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11289);
-INSERT INTO cnl (CN, COD_CNL) VALUES (15,12274);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64040);
-INSERT INTO cnl (CN, COD_CNL) VALUES (19,11295);
-INSERT INTO cnl (CN, COD_CNL) VALUES (15,12065);
-INSERT INTO cnl (CN, COD_CNL) VALUES (16,11296);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11298);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11299);
-INSERT INTO cnl (CN, COD_CNL) VALUES (15,11301);
-INSERT INTO cnl (CN, COD_CNL) VALUES (13,11302);
-INSERT INTO cnl (CN, COD_CNL) VALUES (11,11303);
-INSERT INTO cnl (CN, COD_CNL) VALUES (11,11396);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11304);
-INSERT INTO cnl (CN, COD_CNL) VALUES (19,11305);
-INSERT INTO cnl (CN, COD_CNL) VALUES (16,11306);
-INSERT INTO cnl (CN, COD_CNL) VALUES (19,11307);
-INSERT INTO cnl (CN, COD_CNL) VALUES (11,11308);
-INSERT INTO cnl (CN, COD_CNL) VALUES (11,11357);
-INSERT INTO cnl (CN, COD_CNL) VALUES (11,11572);
-INSERT INTO cnl (CN, COD_CNL) VALUES (11,11584);
-INSERT INTO cnl (CN, COD_CNL) VALUES (11,11898);
-INSERT INTO cnl (CN, COD_CNL) VALUES (11,12214);
-INSERT INTO cnl (CN, COD_CNL) VALUES (16,12142);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64042);
-INSERT INTO cnl (CN, COD_CNL) VALUES (13,11313);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11316);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64128);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11321);
-INSERT INTO cnl (CN, COD_CNL) VALUES (16,11753);
-INSERT INTO cnl (CN, COD_CNL) VALUES (11,11322);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11323);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11325);
-INSERT INTO cnl (CN, COD_CNL) VALUES (11,11123);
-INSERT INTO cnl (CN, COD_CNL) VALUES (11,11136);
-INSERT INTO cnl (CN, COD_CNL) VALUES (11,11319);
-INSERT INTO cnl (CN, COD_CNL) VALUES (11,11326);
-INSERT INTO cnl (CN, COD_CNL) VALUES (11,11691);
-INSERT INTO cnl (CN, COD_CNL) VALUES (11,11791);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11327);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64043);
-INSERT INTO cnl (CN, COD_CNL) VALUES (13,11328);
-INSERT INTO cnl (CN, COD_CNL) VALUES (15,11335);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11336);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11339);
-INSERT INTO cnl (CN, COD_CNL) VALUES (19,11341);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64044);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11342);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11914);
-INSERT INTO cnl (CN, COD_CNL) VALUES (19,11344);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11345);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11346);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11348);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11349);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11351);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11352);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11354);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11355);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11360);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11361);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11362);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11782);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11364);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11365);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11366);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11368);
-INSERT INTO cnl (CN, COD_CNL) VALUES (16,11369);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11372);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11846);
-INSERT INTO cnl (CN, COD_CNL) VALUES (16,12145);
-INSERT INTO cnl (CN, COD_CNL) VALUES (69,69046);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11373);
-INSERT INTO cnl (CN, COD_CNL) VALUES (13,11375);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11374);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11376);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11377);
-INSERT INTO cnl (CN, COD_CNL) VALUES (19,11380);
-INSERT INTO cnl (CN, COD_CNL) VALUES (19,11630);
-INSERT INTO cnl (CN, COD_CNL) VALUES (19,11649);
-INSERT INTO cnl (CN, COD_CNL) VALUES (19,11382);
-INSERT INTO cnl (CN, COD_CNL) VALUES (19,11383);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11385);
-INSERT INTO cnl (CN, COD_CNL) VALUES (19,11387);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11390);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11391);
-INSERT INTO cnl (CN, COD_CNL) VALUES (16,11712);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11398);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,12071);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11399);
-INSERT INTO cnl (CN, COD_CNL) VALUES (11,11401);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11403);
-INSERT INTO cnl (CN, COD_CNL) VALUES (15,12275);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11908);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,12080);
-INSERT INTO cnl (CN, COD_CNL) VALUES (16,11409);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11411);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11412);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64136);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11907);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11413);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11418);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11419);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11423);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64051);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11426);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11427);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11428);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11430);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11429);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11431);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64052);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11434);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11435);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11437);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11440);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11442);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11443);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11444);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11445);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64053);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11446);
-INSERT INTO cnl (CN, COD_CNL) VALUES (13,11447);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11922);
-INSERT INTO cnl (CN, COD_CNL) VALUES (16,11449);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11450);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11452);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11455);
-INSERT INTO cnl (CN, COD_CNL) VALUES (11,11719);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64001);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64004);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64011);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64028);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64041);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64045);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64048);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64050);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64054);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64059);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64078);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64083);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64098);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64103);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64105);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64109);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64124);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64132);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11456);
-INSERT INTO cnl (CN, COD_CNL) VALUES (16,12149);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11754);
-INSERT INTO cnl (CN, COD_CNL) VALUES (13,11458);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11459);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11460);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11461);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11464);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11468);
-INSERT INTO cnl (CN, COD_CNL) VALUES (11,11469);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11471);
-INSERT INTO cnl (CN, COD_CNL) VALUES (11,11473);
-INSERT INTO cnl (CN, COD_CNL) VALUES (19,11007);
-INSERT INTO cnl (CN, COD_CNL) VALUES (19,11025);
-INSERT INTO cnl (CN, COD_CNL) VALUES (19,11042);
-INSERT INTO cnl (CN, COD_CNL) VALUES (19,11148);
-INSERT INTO cnl (CN, COD_CNL) VALUES (19,11163);
-INSERT INTO cnl (CN, COD_CNL) VALUES (19,11167);
-INSERT INTO cnl (CN, COD_CNL) VALUES (19,11169);
-INSERT INTO cnl (CN, COD_CNL) VALUES (19,11173);
-INSERT INTO cnl (CN, COD_CNL) VALUES (19,11199);
-INSERT INTO cnl (CN, COD_CNL) VALUES (19,11281);
-INSERT INTO cnl (CN, COD_CNL) VALUES (19,11338);
-INSERT INTO cnl (CN, COD_CNL) VALUES (19,11340);
-INSERT INTO cnl (CN, COD_CNL) VALUES (19,11384);
-INSERT INTO cnl (CN, COD_CNL) VALUES (19,11474);
-INSERT INTO cnl (CN, COD_CNL) VALUES (19,11483);
-INSERT INTO cnl (CN, COD_CNL) VALUES (19,11516);
-INSERT INTO cnl (CN, COD_CNL) VALUES (19,11535);
-INSERT INTO cnl (CN, COD_CNL) VALUES (19,11536);
-INSERT INTO cnl (CN, COD_CNL) VALUES (19,11570);
-INSERT INTO cnl (CN, COD_CNL) VALUES (19,11616);
-INSERT INTO cnl (CN, COD_CNL) VALUES (19,11622);
-INSERT INTO cnl (CN, COD_CNL) VALUES (19,11626);
-INSERT INTO cnl (CN, COD_CNL) VALUES (19,11805);
-INSERT INTO cnl (CN, COD_CNL) VALUES (19,11829);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11476);
-INSERT INTO cnl (CN, COD_CNL) VALUES (69,69090);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64056);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11477);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11479);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11482);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11484);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11487);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64057);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11490);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11491);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11493);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11494);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11495);
-INSERT INTO cnl (CN, COD_CNL) VALUES (15,11496);
-INSERT INTO cnl (CN, COD_CNL) VALUES (19,11498);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64147);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11500);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11503);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11504);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11506);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11507);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64058);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11508);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11509);
-INSERT INTO cnl (CN, COD_CNL) VALUES (15,12280);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11511);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11512);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11514);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11517);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11519);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11520);
-INSERT INTO cnl (CN, COD_CNL) VALUES (13,11521);
-INSERT INTO cnl (CN, COD_CNL) VALUES (16,11523);
-INSERT INTO cnl (CN, COD_CNL) VALUES (15,11531);
-INSERT INTO cnl (CN, COD_CNL) VALUES (16,11524);
-INSERT INTO cnl (CN, COD_CNL) VALUES (15,11525);
-INSERT INTO cnl (CN, COD_CNL) VALUES (16,12150);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11526);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11872);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64148);
-INSERT INTO cnl (CN, COD_CNL) VALUES (15,11527);
-INSERT INTO cnl (CN, COD_CNL) VALUES (16,11070);
-INSERT INTO cnl (CN, COD_CNL) VALUES (16,11177);
-INSERT INTO cnl (CN, COD_CNL) VALUES (16,11195);
-INSERT INTO cnl (CN, COD_CNL) VALUES (16,11254);
-INSERT INTO cnl (CN, COD_CNL) VALUES (16,11310);
-INSERT INTO cnl (CN, COD_CNL) VALUES (16,11388);
-INSERT INTO cnl (CN, COD_CNL) VALUES (16,11485);
-INSERT INTO cnl (CN, COD_CNL) VALUES (16,11492);
-INSERT INTO cnl (CN, COD_CNL) VALUES (16,11501);
-INSERT INTO cnl (CN, COD_CNL) VALUES (16,11529);
-INSERT INTO cnl (CN, COD_CNL) VALUES (16,11576);
-INSERT INTO cnl (CN, COD_CNL) VALUES (16,11596);
-INSERT INTO cnl (CN, COD_CNL) VALUES (16,11598);
-INSERT INTO cnl (CN, COD_CNL) VALUES (16,11599);
-INSERT INTO cnl (CN, COD_CNL) VALUES (16,11631);
-INSERT INTO cnl (CN, COD_CNL) VALUES (16,11648);
-INSERT INTO cnl (CN, COD_CNL) VALUES (16,11653);
-INSERT INTO cnl (CN, COD_CNL) VALUES (16,11738);
-INSERT INTO cnl (CN, COD_CNL) VALUES (16,11869);
-INSERT INTO cnl (CN, COD_CNL) VALUES (16,11889);
-INSERT INTO cnl (CN, COD_CNL) VALUES (16,12126);
-INSERT INTO cnl (CN, COD_CNL) VALUES (16,12130);
-INSERT INTO cnl (CN, COD_CNL) VALUES (16,12131);
-INSERT INTO cnl (CN, COD_CNL) VALUES (16,12133);
-INSERT INTO cnl (CN, COD_CNL) VALUES (16,12135);
-INSERT INTO cnl (CN, COD_CNL) VALUES (16,12143);
-INSERT INTO cnl (CN, COD_CNL) VALUES (16,12146);
-INSERT INTO cnl (CN, COD_CNL) VALUES (16,12147);
-INSERT INTO cnl (CN, COD_CNL) VALUES (16,12148);
-INSERT INTO cnl (CN, COD_CNL) VALUES (16,12152);
-INSERT INTO cnl (CN, COD_CNL) VALUES (16,12153);
-INSERT INTO cnl (CN, COD_CNL) VALUES (15,11530);
-INSERT INTO cnl (CN, COD_CNL) VALUES (16,12151);
-INSERT INTO cnl (CN, COD_CNL) VALUES (16,11533);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11534);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11538);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11542);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11544);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11545);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11579);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11580);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64150);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11583);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11586);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11587);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11610);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11611);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11615);
-INSERT INTO cnl (CN, COD_CNL) VALUES (19,11617);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11618);
-INSERT INTO cnl (CN, COD_CNL) VALUES (16,11619);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11621);
-INSERT INTO cnl (CN, COD_CNL) VALUES (16,11625);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64346);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11628);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11588);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11629);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11916);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11632);
-INSERT INTO cnl (CN, COD_CNL) VALUES (69,69065);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64060);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11963);
-INSERT INTO cnl (CN, COD_CNL) VALUES (19,11636);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11638);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11591);
-INSERT INTO cnl (CN, COD_CNL) VALUES (13,11079);
-INSERT INTO cnl (CN, COD_CNL) VALUES (13,11182);
-INSERT INTO cnl (CN, COD_CNL) VALUES (13,11256);
-INSERT INTO cnl (CN, COD_CNL) VALUES (13,11290);
-INSERT INTO cnl (CN, COD_CNL) VALUES (13,11386);
-INSERT INTO cnl (CN, COD_CNL) VALUES (13,11463);
-INSERT INTO cnl (CN, COD_CNL) VALUES (13,11502);
-INSERT INTO cnl (CN, COD_CNL) VALUES (13,11577);
-INSERT INTO cnl (CN, COD_CNL) VALUES (13,11592);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64188);
-INSERT INTO cnl (CN, COD_CNL) VALUES (16,11551);
-INSERT INTO cnl (CN, COD_CNL) VALUES (19,11553);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11554);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11771);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11556);
-INSERT INTO cnl (CN, COD_CNL) VALUES (16,12155);
-INSERT INTO cnl (CN, COD_CNL) VALUES (16,11558);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64061);
-INSERT INTO cnl (CN, COD_CNL) VALUES (19,11561);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11002);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11060);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11062);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11158);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11243);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11262);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11267);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11282);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11284);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11312);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11324);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11353);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11371);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11378);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11379);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11389);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11402);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11404);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11406);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11410);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11420);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11422);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11424);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11433);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11453);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11489);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11499);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11562);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11581);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11602);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11650);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11679);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11680);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11683);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11944);
-INSERT INTO cnl (CN, COD_CNL) VALUES (12,11032);
-INSERT INTO cnl (CN, COD_CNL) VALUES (12,11040);
-INSERT INTO cnl (CN, COD_CNL) VALUES (12,11044);
-INSERT INTO cnl (CN, COD_CNL) VALUES (12,11063);
-INSERT INTO cnl (CN, COD_CNL) VALUES (12,11124);
-INSERT INTO cnl (CN, COD_CNL) VALUES (12,11125);
-INSERT INTO cnl (CN, COD_CNL) VALUES (12,11137);
-INSERT INTO cnl (CN, COD_CNL) VALUES (12,11140);
-INSERT INTO cnl (CN, COD_CNL) VALUES (12,11150);
-INSERT INTO cnl (CN, COD_CNL) VALUES (12,11181);
-INSERT INTO cnl (CN, COD_CNL) VALUES (12,11183);
-INSERT INTO cnl (CN, COD_CNL) VALUES (12,11252);
-INSERT INTO cnl (CN, COD_CNL) VALUES (12,11274);
-INSERT INTO cnl (CN, COD_CNL) VALUES (12,11311);
-INSERT INTO cnl (CN, COD_CNL) VALUES (12,11317);
-INSERT INTO cnl (CN, COD_CNL) VALUES (12,11334);
-INSERT INTO cnl (CN, COD_CNL) VALUES (12,11337);
-INSERT INTO cnl (CN, COD_CNL) VALUES (12,11343);
-INSERT INTO cnl (CN, COD_CNL) VALUES (12,11394);
-INSERT INTO cnl (CN, COD_CNL) VALUES (12,11400);
-INSERT INTO cnl (CN, COD_CNL) VALUES (12,11441);
-INSERT INTO cnl (CN, COD_CNL) VALUES (12,11467);
-INSERT INTO cnl (CN, COD_CNL) VALUES (12,11472);
-INSERT INTO cnl (CN, COD_CNL) VALUES (12,11513);
-INSERT INTO cnl (CN, COD_CNL) VALUES (12,11518);
-INSERT INTO cnl (CN, COD_CNL) VALUES (12,11543);
-INSERT INTO cnl (CN, COD_CNL) VALUES (12,11547);
-INSERT INTO cnl (CN, COD_CNL) VALUES (12,11560);
-INSERT INTO cnl (CN, COD_CNL) VALUES (12,11563);
-INSERT INTO cnl (CN, COD_CNL) VALUES (12,11566);
-INSERT INTO cnl (CN, COD_CNL) VALUES (12,11573);
-INSERT INTO cnl (CN, COD_CNL) VALUES (12,11604);
-INSERT INTO cnl (CN, COD_CNL) VALUES (12,11614);
-INSERT INTO cnl (CN, COD_CNL) VALUES (12,11637);
-INSERT INTO cnl (CN, COD_CNL) VALUES (12,11661);
-INSERT INTO cnl (CN, COD_CNL) VALUES (12,11670);
-INSERT INTO cnl (CN, COD_CNL) VALUES (12,11677);
-INSERT INTO cnl (CN, COD_CNL) VALUES (12,12271);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11567);
-INSERT INTO cnl (CN, COD_CNL) VALUES (11,11000);
-INSERT INTO cnl (CN, COD_CNL) VALUES (11,11048);
-INSERT INTO cnl (CN, COD_CNL) VALUES (11,11071);
-INSERT INTO cnl (CN, COD_CNL) VALUES (11,11082);
-INSERT INTO cnl (CN, COD_CNL) VALUES (11,11130);
-INSERT INTO cnl (CN, COD_CNL) VALUES (11,11132);
-INSERT INTO cnl (CN, COD_CNL) VALUES (11,11151);
-INSERT INTO cnl (CN, COD_CNL) VALUES (11,11176);
-INSERT INTO cnl (CN, COD_CNL) VALUES (11,11185);
-INSERT INTO cnl (CN, COD_CNL) VALUES (11,11202);
-INSERT INTO cnl (CN, COD_CNL) VALUES (11,11203);
-INSERT INTO cnl (CN, COD_CNL) VALUES (11,11220);
-INSERT INTO cnl (CN, COD_CNL) VALUES (11,11227);
-INSERT INTO cnl (CN, COD_CNL) VALUES (11,11229);
-INSERT INTO cnl (CN, COD_CNL) VALUES (11,11251);
-INSERT INTO cnl (CN, COD_CNL) VALUES (11,11291);
-INSERT INTO cnl (CN, COD_CNL) VALUES (11,11294);
-INSERT INTO cnl (CN, COD_CNL) VALUES (11,11300);
-INSERT INTO cnl (CN, COD_CNL) VALUES (11,11318);
-INSERT INTO cnl (CN, COD_CNL) VALUES (11,11330);
-INSERT INTO cnl (CN, COD_CNL) VALUES (11,11358);
-INSERT INTO cnl (CN, COD_CNL) VALUES (11,11370);
-INSERT INTO cnl (CN, COD_CNL) VALUES (11,11381);
-INSERT INTO cnl (CN, COD_CNL) VALUES (11,11425);
-INSERT INTO cnl (CN, COD_CNL) VALUES (11,11480);
-INSERT INTO cnl (CN, COD_CNL) VALUES (11,11488);
-INSERT INTO cnl (CN, COD_CNL) VALUES (11,11528);
-INSERT INTO cnl (CN, COD_CNL) VALUES (11,11548);
-INSERT INTO cnl (CN, COD_CNL) VALUES (11,11550);
-INSERT INTO cnl (CN, COD_CNL) VALUES (11,11564);
-INSERT INTO cnl (CN, COD_CNL) VALUES (11,11582);
-INSERT INTO cnl (CN, COD_CNL) VALUES (11,11589);
-INSERT INTO cnl (CN, COD_CNL) VALUES (11,11623);
-INSERT INTO cnl (CN, COD_CNL) VALUES (11,11633);
-INSERT INTO cnl (CN, COD_CNL) VALUES (11,11641);
-INSERT INTO cnl (CN, COD_CNL) VALUES (11,11644);
-INSERT INTO cnl (CN, COD_CNL) VALUES (11,11892);
-INSERT INTO cnl (CN, COD_CNL) VALUES (11,11964);
-INSERT INTO cnl (CN, COD_CNL) VALUES (11,12210);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11571);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64062);
-INSERT INTO cnl (CN, COD_CNL) VALUES (19,11574);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11594);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11595);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64162);
-INSERT INTO cnl (CN, COD_CNL) VALUES (19,11597);
-INSERT INTO cnl (CN, COD_CNL) VALUES (13,11600);
-INSERT INTO cnl (CN, COD_CNL) VALUES (19,11607);
-INSERT INTO cnl (CN, COD_CNL) VALUES (15,11010);
-INSERT INTO cnl (CN, COD_CNL) VALUES (15,11038);
-INSERT INTO cnl (CN, COD_CNL) VALUES (15,11109);
-INSERT INTO cnl (CN, COD_CNL) VALUES (15,11146);
-INSERT INTO cnl (CN, COD_CNL) VALUES (15,11161);
-INSERT INTO cnl (CN, COD_CNL) VALUES (15,11162);
-INSERT INTO cnl (CN, COD_CNL) VALUES (15,11266);
-INSERT INTO cnl (CN, COD_CNL) VALUES (15,11280);
-INSERT INTO cnl (CN, COD_CNL) VALUES (15,11292);
-INSERT INTO cnl (CN, COD_CNL) VALUES (15,11465);
-INSERT INTO cnl (CN, COD_CNL) VALUES (15,11466);
-INSERT INTO cnl (CN, COD_CNL) VALUES (15,11497);
-INSERT INTO cnl (CN, COD_CNL) VALUES (15,11569);
-INSERT INTO cnl (CN, COD_CNL) VALUES (15,11585);
-INSERT INTO cnl (CN, COD_CNL) VALUES (15,11593);
-INSERT INTO cnl (CN, COD_CNL) VALUES (15,11609);
-INSERT INTO cnl (CN, COD_CNL) VALUES (15,11651);
-INSERT INTO cnl (CN, COD_CNL) VALUES (15,11660);
-INSERT INTO cnl (CN, COD_CNL) VALUES (15,11666);
-INSERT INTO cnl (CN, COD_CNL) VALUES (15,11885);
-INSERT INTO cnl (CN, COD_CNL) VALUES (15,11912);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11639);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11832);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11642);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11645);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11646);
-INSERT INTO cnl (CN, COD_CNL) VALUES (16,11647);
-INSERT INTO cnl (CN, COD_CNL) VALUES (19,11652);
-INSERT INTO cnl (CN, COD_CNL) VALUES (16,11656);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11657);
-INSERT INTO cnl (CN, COD_CNL) VALUES (15,11658);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11659);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11945);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11662);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11664);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11667);
-INSERT INTO cnl (CN, COD_CNL) VALUES (15,12276);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11669);
-INSERT INTO cnl (CN, COD_CNL) VALUES (16,11718);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11672);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64068);
-INSERT INTO cnl (CN, COD_CNL) VALUES (11,11720);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11673);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11674);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11675);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11678);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64133);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11681);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11682);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11685);
-INSERT INTO cnl (CN, COD_CNL) VALUES (18,11687);
-INSERT INTO cnl (CN, COD_CNL) VALUES (11,11689);
-INSERT INTO cnl (CN, COD_CNL) VALUES (19,11690);
-INSERT INTO cnl (CN, COD_CNL) VALUES (69,69063);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64069);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11698);
-INSERT INTO cnl (CN, COD_CNL) VALUES (16,11699);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11798);
-INSERT INTO cnl (CN, COD_CNL) VALUES (17,11701);
-INSERT INTO cnl (CN, COD_CNL) VALUES (14,11164);
-INSERT INTO cnl (CN, COD_CNL) VALUES (19,11940);
-INSERT INTO cnl (CN, COD_CNL) VALUES (43,41002);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41020);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41027);
-INSERT INTO cnl (CN, COD_CNL) VALUES (46,41030);
-INSERT INTO cnl (CN, COD_CNL) VALUES (43,41032);
-INSERT INTO cnl (CN, COD_CNL) VALUES (41,41037);
-INSERT INTO cnl (CN, COD_CNL) VALUES (42,41036);
-INSERT INTO cnl (CN, COD_CNL) VALUES (43,41041);
-INSERT INTO cnl (CN, COD_CNL) VALUES (43,41045);
-INSERT INTO cnl (CN, COD_CNL) VALUES (43,41052);
-INSERT INTO cnl (CN, COD_CNL) VALUES (43,41095);
-INSERT INTO cnl (CN, COD_CNL) VALUES (43,41108);
-INSERT INTO cnl (CN, COD_CNL) VALUES (43,41177);
-INSERT INTO cnl (CN, COD_CNL) VALUES (43,41213);
-INSERT INTO cnl (CN, COD_CNL) VALUES (43,41243);
-INSERT INTO cnl (CN, COD_CNL) VALUES (43,41248);
-INSERT INTO cnl (CN, COD_CNL) VALUES (43,41300);
-INSERT INTO cnl (CN, COD_CNL) VALUES (43,41311);
-INSERT INTO cnl (CN, COD_CNL) VALUES (43,41337);
-INSERT INTO cnl (CN, COD_CNL) VALUES (43,41344);
-INSERT INTO cnl (CN, COD_CNL) VALUES (43,41356);
-INSERT INTO cnl (CN, COD_CNL) VALUES (43,41364);
-INSERT INTO cnl (CN, COD_CNL) VALUES (43,41384);
-INSERT INTO cnl (CN, COD_CNL) VALUES (43,41397);
-INSERT INTO cnl (CN, COD_CNL) VALUES (43,41400);
-INSERT INTO cnl (CN, COD_CNL) VALUES (43,41546);
-INSERT INTO cnl (CN, COD_CNL) VALUES (43,41574);
-INSERT INTO cnl (CN, COD_CNL) VALUES (43,41601);
-INSERT INTO cnl (CN, COD_CNL) VALUES (43,41767);
-INSERT INTO cnl (CN, COD_CNL) VALUES (43,41846);
-INSERT INTO cnl (CN, COD_CNL) VALUES (43,41044);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64074);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41054);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41251);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41455);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41691);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41704);
-INSERT INTO cnl (CN, COD_CNL) VALUES (44,41732);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64075);
-INSERT INTO cnl (CN, COD_CNL) VALUES (49,41959);
-INSERT INTO cnl (CN, COD_CNL) VALUES (54,51032);
-INSERT INTO cnl (CN, COD_CNL) VALUES (43,41069);
-INSERT INTO cnl (CN, COD_CNL) VALUES (46,41076);
-INSERT INTO cnl (CN, COD_CNL) VALUES (42,41083);
-INSERT INTO cnl (CN, COD_CNL) VALUES (46,41087);
-INSERT INTO cnl (CN, COD_CNL) VALUES (42,41088);
-INSERT INTO cnl (CN, COD_CNL) VALUES (63,64076);
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+2026-03-01 15:08:51 [INFO] app.io.writers: CSV: 123972 linhas, 8 cols
