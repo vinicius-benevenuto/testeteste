@@ -1,242 +1,342 @@
-"""
-ui/mapping_wizard.py
-Assistente de Mapeamento: configura todas as colunas necessárias para o merge.
-"""
+"""db/repository.py — Toda operação no banco passa por aqui."""
 from __future__ import annotations
-from typing import Dict, List
+import json
+from pathlib import Path
+from typing import Dict, List, Optional
 
-import streamlit as st
+import pandas as pd
+from sqlalchemy import text
+from sqlalchemy.orm import Session
+
+from app.db.models import (
+    ColumnRename, CnlTable, CnToUf, Import, LogEntry,
+    MappingVersion, MergedRow, RawPortal, RawScience, RefRotas,
+)
+from app.utils.ids import new_uuid
+from app.utils.cnl_utils import clean_cnl
+from app.utils.logging_utils import get_logger
+
+log = get_logger(__name__)
+_CHUNK = 500
 
 
-def run_mapping_wizard(
-    science_cols: List[str],
-    portal_cols: List[str],
-    arq3_cols: List[str],
-) -> Dict:
-    st.subheader("🗺️ Assistente de Mapeamento")
-    st.markdown("Configure como cada coluna de saída será preenchida. "
-                "As sugestões foram geradas automaticamente.")
+class Repository:
+    def __init__(self, session: Session) -> None:
+        self.session = session
 
-    cfg: Dict = {}
-    sci  = science_cols or []
-    por  = portal_cols  or []
-    arq3 = arq3_cols    or []
+    # ── Logs ──────────────────────────────────────────────────────────────
 
-    def _sel(label, options, default, key, help=""):
-        opts = list(options)
-        idx  = opts.index(default) if default in opts else 0
-        return st.selectbox(label, opts, index=idx, key=key, help=help)
+    def add_log(self, level: str, message: str, ctx: Optional[Dict] = None) -> None:
+        self.session.add(LogEntry(
+            level=level.upper(), message=message,
+            context_json=json.dumps(ctx or {}, default=str)))
+        try:
+            self.session.flush()
+        except Exception:
+            pass
 
-    def _guess(cols, *candidates):
-        up = {c.strip().upper(): c for c in cols}
-        for cand in candidates:
-            hit = up.get(cand.strip().upper())
-            if hit:
-                return hit
-        return cols[0] if cols else ""
+    def get_logs(self, limit: int = 500) -> List[Dict]:
+        rows = (self.session.query(LogEntry)
+                .order_by(LogEntry.timestamp.desc()).limit(limit).all())
+        return [{"id": r.id,
+                 "timestamp": r.timestamp.isoformat() if r.timestamp else "",
+                 "level": r.level, "message": r.message} for r in rows]
 
-    NONE = "(nenhuma)"
+    # ── Seeds CNL ─────────────────────────────────────────────────────────
 
-    # ── 1. Coluna CN/DDD no Science ────────────────────────────────────
-    with st.expander("1️⃣ Colunas para derivar UF", expanded=True):
-        st.caption(
-            "O app deriva UF em cascata: **Arquivo 3** → CN/DDD direto → CNL/PPI. "
-            "Configure as colunas abaixo."
-        )
-        st.markdown("**A — Arquivo 3** (fonte principal — já funciona via Central)")
-        st.info("✅ UF e CLUSTER são lidos automaticamente do Arquivo 3 pela coluna Central. "
-                "Configure as colunas do Arquivo 3 na seção 8️⃣ abaixo.")
+    def load_cnl_seeds(self, sql_path: str) -> int:
+        """
+        Carrega seeds/cnl.sql.
+        Aceita tanto:
+          INSERT OR IGNORE INTO cnl (COD_CNL, CN) VALUES ('41406','43');
+          INSERT INTO cnl (CN, COD_CNL) VALUES (43,41406);   ← formato legado
+        """
+        content = Path(sql_path).read_text(encoding="utf-8")
+        count = 0
+        for stmt in content.split(";"):
+            stmt = stmt.strip()
+            if not stmt or stmt.startswith("--"):
+                continue
+            # Ignora statements que não são INSERT (ex: UPDATE, CREATE)
+            if not stmt.upper().startswith("INSERT"):
+                continue
+            try:
+                self.session.execute(text(stmt))
+                count += 1
+            except Exception as e:
+                log.debug("CNL seed skip: %s", e)
+        self.session.flush()
+        log.info("CNL seeds: %d statements executados", count)
+        return count
 
-        st.markdown("**B — CN/DDD direto no Science** (fallback)")
-        cfg["cn_sci_col"] = _sel(
-            "Coluna CN/DDD no Science",
-            [NONE] + sci,
-            _guess(sci, "Área Ponta B", "Area Ponta B", "CN", "DDD", "AREA_PONTA_B"),
-            "wiz_cn_sci",
-            "Coluna com DDD numérico (ex: 43, 11). Mapeia direto para UF.",
-        )
+    def load_cn_to_uf_csv(self, csv_path: str) -> int:
+        """Carrega seeds/cn_to_uf.csv → tabela cn_to_uf."""
+        content = Path(csv_path).read_text(encoding="utf-8").strip()
+        if not content:
+            log.warning("cn_to_uf.csv vazio, ignorando.")
+            return 0
+        import io as _io
+        df = pd.read_csv(_io.StringIO(content), dtype=str).fillna("")
+        df.columns = [c.strip().upper() for c in df.columns]
+        if "CN" not in df.columns or "UF" not in df.columns:
+            raise ValueError("cn_to_uf.csv deve ter colunas CN e UF")
+        count = 0
+        for _, row in df.iterrows():
+            cn = str(row["CN"]).strip()
+            uf = str(row["UF"]).strip().upper()
+            if not cn or not uf:
+                continue
+            existing = self.session.query(CnToUf).filter(CnToUf.CN == cn).first()
+            if existing:
+                existing.UF = uf
+            else:
+                self.session.add(CnToUf(CN=cn, UF=uf))
+            count += 1
+        self.session.flush()
+        log.info("cn_to_uf: %d registros carregados", count)
+        return count
 
-        st.markdown("**C — CNL/PPI** (fallback)")
-        cfg["cnl_sci_col"] = _sel(
-            "Coluna CNL no Science", [NONE] + sci,
-            _guess(sci, "CNL", "CNL_PPI", "Num SSI"),
-            "wiz_cnl_sci",
-        )
-        cfg["cnl_por_col"] = _sel(
-            "Coluna CNL no Portal", [NONE] + por,
-            _guess(por, "CNL_PPI", "PPI", "CNL"),
-            "wiz_cnl_por",
-        )
+    def get_uf_for_cnl(self, cod_cnl: str) -> Optional[str]:
+        """Resolve COD_CNL → CN → UF."""
+        if not cod_cnl:
+            return None
+        cod = clean_cnl(cod_cnl)
+        if not cod:
+            return None
 
-    # ── 2. Tipo de Rota ────────────────────────────────────────────────
-    with st.expander("2️⃣ Tipo de Rota", expanded=True):
-        cfg["tipo_rota_portal_col"] = _sel(
-            "Tipo de Rota — Portal (prioritário)", [NONE] + por,
-            _guess(por, "TIPO_ROTA", "TIPO"),
-            "wiz_tr_por",
-        )
-        cfg["tipo_rota_sci_col"] = _sel(
-            "Tipo de Rota — Science (fallback)", [NONE] + sci,
-            _guess(sci, "Sinalização da Rota", "Tipo da Rota", "Tipo"),
-            "wiz_tr_sci",
-        )
+        row = (self.session.query(CnToUf.UF)
+               .join(CnlTable, CnlTable.CN == CnToUf.CN)
+               .filter(CnlTable.COD_CNL == cod)
+               .first())
+        if row:
+            return row.UF
 
-    # ── 3. Central ─────────────────────────────────────────────────────
-    with st.expander("3️⃣ Central", expanded=True):
-        cfg["central_portal_col"] = _sel(
-            "Central — Portal (prioritário)", [NONE] + por,
-            _guess(por, "CENTRAL"),
-            "wiz_ce_por",
-        )
-        cfg["central_sci_col"] = _sel(
-            "Central — Science (fallback)", [NONE] + sci,
-            _guess(sci, "Central Origem", "Central Interna"),
-            "wiz_ce_sci",
-        )
+        # Sem zeros à esquerda
+        stripped = cod.lstrip("0")
+        if stripped != cod:
+            row2 = (self.session.query(CnToUf.UF)
+                    .join(CnlTable, CnlTable.CN == CnToUf.CN)
+                    .filter(CnlTable.COD_CNL == stripped)
+                    .first())
+            if row2:
+                return row2.UF
+        return None
 
-    # ── 4. Rótulos de Linha ────────────────────────────────────────────
-    with st.expander("4️⃣ Rótulos de Linha (Portal)", expanded=False):
-        cfg["label_e_col"] = _sel(
-            "LABEL_E (entrada)", [NONE] + por,
-            _guess(por, "LABEL_E"),
-            "wiz_le",
-        )
-        cfg["label_s_col"] = _sel(
-            "LABEL_S (saída)", [NONE] + por,
-            _guess(por, "LABEL_S"),
-            "wiz_ls",
-        )
-        cfg["concat_labels"] = st.checkbox(
-            "Concatenar LABEL_E | LABEL_S",
-            value=True, key="wiz_concat_labels",
-        )
-        cfg["label_sep"] = st.text_input(
-            "Separador", value=" | ", key="wiz_label_sep",
-        ) if cfg["concat_labels"] else " | "
+    def resolve_ufs_batch(self, cod_cnls: List[str]) -> Dict[str, str]:
+        """Resolve lista de COD_CNL para UF em batch. Normaliza .0 automaticamente."""
+        unique = list(set(clean_cnl(c) for c in cod_cnls if clean_cnl(c)))
+        result: Dict[str, str] = {}
+        for cod in unique:
+            uf = self.get_uf_for_cnl(cod)
+            if uf:
+                result[cod] = uf
+                result[cod.lstrip("0")] = uf
+        return result
 
-    # ── 5. OPERADORA ──────────────────────────────────────────────────
-    with st.expander("5️⃣ OPERADORA — fallback Science", expanded=False):
-        cfg["operadora_sci_col"] = _sel(
-            "Operadora Science", [NONE] + sci,
-            _guess(sci, "Operadora Origem", "OP Origem"),
-            "wiz_op_sci",
-        )
+    def get_cn_to_uf_map(self) -> Dict[str, str]:
+        """Retorna dict CN→UF para lookup direto de DDD."""
+        rows = self.session.query(CnToUf.CN, CnToUf.UF).all()
+        result = {}
+        for cn, uf in rows:
+            cn_s = str(cn).strip()
+            result[cn_s] = uf
+            try:
+                result[str(int(cn_s))] = uf
+            except (ValueError, TypeError):
+                pass
+        return result
 
-    # ── 6. Denominação ────────────────────────────────────────────────
-    with st.expander("6️⃣ Denominação — fallback Science", expanded=False):
-        cfg["denominacao_sci_col"] = _sel(
-            "Denominação Science", [NONE] + sci,
-            _guess(sci, "Descrição", "Descricao"),
-            "wiz_dn_sci",
-        )
+    def cnl_count(self) -> int:
+        return self.session.query(CnlTable).count()
 
-    # ── 7. Chaves de junção ───────────────────────────────────────────
-    st.markdown("---")
-    st.markdown("### 7️⃣ Chaves de Junção Science ↔ Portal")
-    st.caption("Colunas que identificam a mesma rota nas duas tabelas. "
-               "O app normaliza para UPPER antes de comparar.")
+    def cn_to_uf_count(self) -> int:
+        return self.session.query(CnToUf).count()
 
-    join_sci = st.multiselect(
-        "Colunas do Science para junção:",
-        options=sci,
-        default=[c for c in [
-            _guess(sci, "Central Interna", "Central Origem"),
-            _guess(sci, "Tipo da Rota", "Sinalização da Rota"),
-        ] if c],
-        key="wiz_join_sci",
-    )
-    join_por = st.multiselect(
-        "Colunas correspondentes no Portal (mesma ordem):",
-        options=por,
-        default=[c for c in [
-            _guess(por, "CENTRAL"),
-            _guess(por, "TIPO_ROTA"),
-        ] if c],
-        key="wiz_join_por",
-    )
+    # ── Importações ───────────────────────────────────────────────────────
 
-    if len(join_sci) != len(join_por):
-        st.warning("⚠️ Selecione o mesmo número de colunas em Science e Portal.")
+    def save_import(self, source: str, filename: str, sheet: Optional[str],
+                    file_hash: str, df: pd.DataFrame,
+                    column_map: Dict[str, str]) -> str:
+        import_id = new_uuid()
+        self.session.add(Import(
+            id=import_id, source=source, filename=filename,
+            sheet=sheet, file_hash=file_hash,
+            rows=len(df), cols=len(df.columns),
+        ))
+        for orig, norm in column_map.items():
+            self.session.add(ColumnRename(
+                import_id=import_id, original_name=orig, normalized_name=norm))
 
-    cfg["join_keys_sci"] = join_sci
-    cfg["join_keys_por"] = join_por
+        RawModel = {"SCIENCE": RawScience, "PORTAL": RawPortal}.get(source)
+        if RawModel:
+            records = df.to_dict(orient="records")
+            for i in range(0, len(records), _CHUNK):
+                for j, row in enumerate(records[i:i + _CHUNK]):
+                    self.session.add(RawModel(
+                        import_id=import_id, row_num=i + j,
+                        data_json=json.dumps(row, ensure_ascii=False, default=str)))
+                self.session.flush()
 
-    join_type = st.radio(
-        "Tipo de junção:",
-        options=["outer", "inner", "left", "right"],
-        format_func=lambda v: {
-            "outer": "OUTER — mantém todas as linhas (recomendado)",
-            "left":  "LEFT — mantém todas do Science",
-            "right": "RIGHT — mantém todas do Portal",
-            "inner": "INNER — apenas matches",
-        }.get(v, v),
-        key="wiz_join_type",
-    )
-    cfg["join_type"] = join_type
+        log.info("Import salvo: %s %s rows=%d", source, import_id[:8], len(df))
+        return import_id
 
-    # ── 8. Arquivo 3 — colunas explícitas ─────────────────────────────
-    if arq3:
-        st.markdown("---")
-        st.markdown("### 8️⃣ Arquivo 3 — Mapeamento de Colunas")
-        st.caption(
-            "⚠️ **Configure aqui as colunas do Arquivo 3.** "
-            "O CLUSTER e a UF só serão preenchidos corretamente se estas colunas estiverem certas."
-        )
-        with st.expander("🗂️ Colunas do Arquivo 3", expanded=True):
-            col1, col2 = st.columns(2)
-            with col1:
-                cfg["arq3_central_col"] = _sel(
-                    "Central",
-                    [NONE] + arq3,
-                    _guess(arq3, "Central", "CENTRAL", "Central Origem"),
-                    "wiz_arq3_central",
-                    "Coluna que contém o nome da Central no Arquivo 3",
-                )
-                cfg["arq3_uf_col"] = _sel(
-                    "UF",
-                    [NONE] + arq3,
-                    _guess(arq3, "UF", "uf", "Estado", "ESTADO"),
-                    "wiz_arq3_uf",
-                    "Coluna que contém a sigla do estado (ex: PR, SP)",
-                )
-                cfg["arq3_cluster_col"] = _sel(
-                    "CLUSTER ⭐",
-                    [NONE] + arq3,
-                    _guess(arq3, "CLUSTER", "Cluster", "cluster",
-                           "AGRUPAMENTO", "Agrupamento", "CLUSTER_NOME"),
-                    "wiz_arq3_cluster",
-                    "Coluna que contém o identificador de Cluster — obrigatória para preencher CLUSTER",
-                )
-            with col2:
-                cfg["arq3_tipo_rota_col"] = _sel(
-                    "Tipo de Rota",
-                    [NONE] + arq3,
-                    _guess(arq3, "Tipo de Rota", "TIPO DE ROTA", "TIPO_ROTA"),
-                    "wiz_arq3_tr",
-                )
-                cfg["arq3_rotulos_col"] = _sel(
-                    "Rótulos de Linha",
-                    [NONE] + arq3,
-                    _guess(arq3, "Rótulos de Linha", "ROTULOS DE LINHA",
-                           "ROTULOS_DE_LINHA", "LABEL_E", "Rótulo"),
-                    "wiz_arq3_rotulos",
-                )
-                cfg["arq3_operadora_col"] = _sel(
-                    "OPERADORA",
-                    [NONE] + arq3,
-                    _guess(arq3, "OPERADORA", "Operadora"),
-                    "wiz_arq3_op",
-                )
-                cfg["arq3_denominacao_col"] = _sel(
-                    "Denominação",
-                    [NONE] + arq3,
-                    _guess(arq3, "Denominação", "DENOMINAÇÃO", "Denominacao"),
-                    "wiz_arq3_den",
-                )
+    def save_arq3(self, import_id: str, df: pd.DataFrame,
+                  col_map: Dict[str, str]) -> int:
+        """Persiste Arquivo 3 em ref_rotas. Detecção flexível de nomes de coluna."""
+        def _find(*candidates) -> str:
+            for cand in candidates:
+                for col in df.columns:
+                    if col.strip().upper() == cand.upper():
+                        return col
+            return ""
 
-        # Mostra colunas do Arquivo 3 para referência
-        with st.expander("📋 Todas as colunas do Arquivo 3 (para consulta)", expanded=False):
-            for i, c in enumerate(arq3):
-                st.text(f"{i+1:3d}. {c}")
+        rede_col = _find("REDE")
+        uf_col   = _find("UF")
+        cl_col   = _find("CLUSTER")
+        tr_col   = _find("TIPO DE ROTA", "TIPO_DE_ROTA", "TIPO_ROTA", "TIPO ROTA")
+        ce_col   = _find("CENTRAL")
+        rl_col   = _find("RÓTULOS DE LINHA", "ROTULOS DE LINHA",
+                         "ROTULOS_DE_LINHA", "LABEL_E", "ROTULO")
+        op_col   = _find("OPERADORA")
+        dn_col   = _find("DENOMINAÇÃO", "DENOMINACAO", "DENOMINACÃO")
 
-    return cfg
+        output_cols = {rede_col, uf_col, cl_col, tr_col,
+                       ce_col, rl_col, op_col, dn_col} - {""}
+        extra_cols  = [c for c in df.columns if c not in output_cols]
+
+        count = 0
+        for i in range(0, len(df), _CHUNK):
+            batch = df.iloc[i:i + _CHUNK]
+            for j, (_, row) in enumerate(batch.iterrows()):
+                extra = {c: str(row.get(c, "")) for c in extra_cols}
+                self.session.add(RefRotas(
+                    import_id=import_id, row_num=i + j,
+                    REDE             = str(row.get(rede_col, "") or ""),
+                    UF               = str(row.get(uf_col, "") or ""),
+                    CLUSTER          = str(row.get(cl_col, "") or ""),
+                    Tipo_de_Rota     = str(row.get(tr_col, "") or ""),
+                    Central          = str(row.get(ce_col, "") or "").strip().upper(),
+                    Rotulos_de_Linha = str(row.get(rl_col, "") or ""),
+                    OPERADORA        = str(row.get(op_col, "") or ""),
+                    Denominacao      = str(row.get(dn_col, "") or ""),
+                    extra_json       = json.dumps(extra, ensure_ascii=False),
+                ))
+                count += 1
+            self.session.flush()
+        log.info("RefRotas salvo: %d linhas (uf_col=%r, cl_col=%r, ce_col=%r)",
+                 count, uf_col, cl_col, ce_col)
+        return count
+
+    def list_imports(self, source: Optional[str] = None) -> List[Dict]:
+        q = self.session.query(Import)
+        if source:
+            q = q.filter(Import.source == source)
+        return [{"id": r.id, "source": r.source, "filename": r.filename,
+                 "sheet": r.sheet, "rows": r.rows, "cols": r.cols,
+                 "created_at": r.created_at.isoformat() if r.created_at else ""}
+                for r in q.order_by(Import.created_at.desc()).all()]
+
+    def load_raw_df(self, import_id: str, source: str) -> pd.DataFrame:
+        RawModel = {"SCIENCE": RawScience, "PORTAL": RawPortal}.get(source.upper())
+        if not RawModel:
+            return pd.DataFrame()
+        rows = (self.session.query(RawModel)
+                .filter(RawModel.import_id == import_id)
+                .order_by(RawModel.row_num).all())
+        if not rows:
+            return pd.DataFrame()
+        return pd.DataFrame([json.loads(r.data_json) for r in rows])
+
+    def load_ref_rotas_df(self, import_id: Optional[str] = None) -> pd.DataFrame:
+        """Carrega ref_rotas. Se import_id=None, carrega o mais recente."""
+        q = self.session.query(RefRotas)
+        if import_id:
+            q = q.filter(RefRotas.import_id == import_id)
+        else:
+            latest = (self.session.query(Import)
+                      .filter(Import.source == "ARQ3")
+                      .order_by(Import.created_at.desc()).first())
+            if latest:
+                q = q.filter(RefRotas.import_id == latest.id)
+        rows = q.order_by(RefRotas.row_num).all()
+        if not rows:
+            return pd.DataFrame()
+        return pd.DataFrame([{
+            "REDE":             r.REDE,
+            "UF":               r.UF,
+            "CLUSTER":          r.CLUSTER,
+            "Tipo de Rota":     r.Tipo_de_Rota,
+            "Central":          r.Central,
+            "Rótulos de Linha": r.Rotulos_de_Linha,
+            "OPERADORA":        r.OPERADORA,
+            "Denominação":      r.Denominacao,
+        } for r in rows])
+
+    # ── Merge ─────────────────────────────────────────────────────────────
+
+    def save_merge_version(self, tag: str, sci_id: Optional[str],
+                           por_id: Optional[str], arq3_id: Optional[str],
+                           mapping: Dict, join_keys: List[str], join_type: str,
+                           fuzzy_threshold: int, merged_df: pd.DataFrame,
+                           rows_sci: int, rows_por: int) -> str:
+        version_id = new_uuid()
+        self.session.add(MappingVersion(
+            id=version_id, tag=tag,
+            science_import_id=sci_id, portal_import_id=por_id,
+            arq3_import_id=arq3_id,
+            mapping_json=json.dumps(mapping, ensure_ascii=False, default=str),
+            join_keys_json=json.dumps(join_keys),
+            join_type=join_type, fuzzy_threshold=fuzzy_threshold,
+            rows_science=rows_sci, rows_portal=rows_por,
+            rows_merged=len(merged_df),
+        ))
+        _COL = {
+            "REDE": "REDE", "UF": "UF", "CLUSTER": "CLUSTER",
+            "Tipo de Rota": "Tipo_de_Rota", "Central": "Central",
+            "Rótulos de Linha": "Rotulos_de_Linha",
+            "OPERADORA": "OPERADORA", "Denominação": "Denominacao",
+        }
+        for i, row in enumerate(merged_df.to_dict(orient="records")):
+            mr = MergedRow(
+                version_id=version_id, row_id=i,
+                source_tag=str(row.get("_source_tag", "")),
+                source_keys_json=json.dumps(row, ensure_ascii=False, default=str),
+            )
+            for out, db in _COL.items():
+                setattr(mr, db, str(row.get(out, "") or ""))
+            self.session.add(mr)
+            if i % _CHUNK == 0:
+                self.session.flush()
+        self.session.flush()
+        log.info("Merge salvo: version_id=%s rows=%d", version_id[:8], len(merged_df))
+        return version_id
+
+    def list_versions(self) -> List[Dict]:
+        rows = (self.session.query(MappingVersion)
+                .order_by(MappingVersion.created_at.desc()).all())
+        return [{"id": r.id, "tag": r.tag, "rows_merged": r.rows_merged,
+                 "rows_science": r.rows_science, "rows_portal": r.rows_portal,
+                 "join_type": r.join_type,
+                 "created_at": r.created_at.isoformat() if r.created_at else ""}
+                for r in rows]
+
+    def load_merged_df(self, version_id: Optional[str] = None) -> pd.DataFrame:
+        if version_id is None:
+            v = (self.session.query(MappingVersion)
+                 .filter(MappingVersion.is_active == True)
+                 .order_by(MappingVersion.created_at.desc()).first())
+            if v is None:
+                return pd.DataFrame()
+            version_id = v.id
+        rows = (self.session.query(MergedRow)
+                .filter(MergedRow.version_id == version_id)
+                .order_by(MergedRow.row_id).all())
+        if not rows:
+            return pd.DataFrame()
+        return pd.DataFrame([{
+            "REDE": r.REDE, "UF": r.UF, "CLUSTER": r.CLUSTER,
+            "Tipo de Rota": r.Tipo_de_Rota, "Central": r.Central,
+            "Rótulos de Linha": r.Rotulos_de_Linha,
+            "OPERADORA": r.OPERADORA, "Denominação": r.Denominacao,
+            "_source_tag": r.source_tag,
+        } for r in rows])
