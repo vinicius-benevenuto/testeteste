@@ -1,647 +1,242 @@
 """
-ui/pages.py — Páginas principais do app Streamlit.
+ui/mapping_wizard.py
+Assistente de Mapeamento: configura todas as colunas necessárias para o merge.
 """
 from __future__ import annotations
-import json
-from typing import Optional
+from typing import Dict, List
 
-import pandas as pd
 import streamlit as st
 
-from app.core.merge import build_merged_df, count_join_matches
-from app.core.normalize import (apply_column_normalization,
-                                 infer_and_coerce_types, strip_whitespace)
-from app.core.validate import generate_report, quality_summary
-from app.db.repository import Repository
-from app.db.session import session_scope
-from app.io.readers import list_sheets, read_file
-from app.io.writers import logs_to_text, to_csv_bytes, to_mapping_json, to_xlsx_bytes
-from app.ui.grid import show_grid
-from app.ui.mapping_wizard import run_mapping_wizard
-from app.utils.ids import file_hash, version_tag
-from app.utils.logging_utils import get_logger
 
-log = get_logger(__name__)
+def run_mapping_wizard(
+    science_cols: List[str],
+    portal_cols: List[str],
+    arq3_cols: List[str],
+) -> Dict:
+    st.subheader("🗺️ Assistente de Mapeamento")
+    st.markdown("Configure como cada coluna de saída será preenchida. "
+                "As sugestões foram geradas automaticamente.")
 
+    cfg: Dict = {}
+    sci  = science_cols or []
+    por  = portal_cols  or []
+    arq3 = arq3_cols    or []
 
-# ── helpers de estado ──────────────────────────────────────────────────────
+    def _sel(label, options, default, key, help=""):
+        opts = list(options)
+        idx  = opts.index(default) if default in opts else 0
+        return st.selectbox(label, opts, index=idx, key=key, help=help)
 
-def _ss(k, default=None):
-    return st.session_state.get(k, default)
+    def _guess(cols, *candidates):
+        up = {c.strip().upper(): c for c in cols}
+        for cand in candidates:
+            hit = up.get(cand.strip().upper())
+            if hit:
+                return hit
+        return cols[0] if cols else ""
 
+    NONE = "(nenhuma)"
 
-def _init_state() -> None:
-    defaults = {
-        "sci_df": None, "sci_filename": "", "sci_import_id": None,
-        "sci_col_map": {}, "sci_hash": "", "sci_sheet": None,
-        "por_df": None, "por_filename": "", "por_import_id": None,
-        "por_col_map": {}, "por_hash": "", "por_sheet": None,
-        "arq3_df": None, "arq3_filename": "", "arq3_import_id": None,
-        "arq3_col_map": {}, "arq3_hash": "", "arq3_sheet": None,
-        "merged_df": None, "merge_report": None, "version_id": None,
-        "wizard_cfg": {}, "uf_map": {},
-        "seeds_loaded": False,
-    }
-    for k, v in defaults.items():
-        if k not in st.session_state:
-            st.session_state[k] = v
+    # ── 1. Coluna CN/DDD no Science ────────────────────────────────────
+    with st.expander("1️⃣ Colunas para derivar UF", expanded=True):
+        st.caption(
+            "O app deriva UF em cascata: **Arquivo 3** → CN/DDD direto → CNL/PPI. "
+            "Configure as colunas abaixo."
+        )
+        st.markdown("**A — Arquivo 3** (fonte principal — já funciona via Central)")
+        st.info("✅ UF e CLUSTER são lidos automaticamente do Arquivo 3 pela coluna Central. "
+                "Configure as colunas do Arquivo 3 na seção 8️⃣ abaixo.")
 
+        st.markdown("**B — CN/DDD direto no Science** (fallback)")
+        cfg["cn_sci_col"] = _sel(
+            "Coluna CN/DDD no Science",
+            [NONE] + sci,
+            _guess(sci, "Área Ponta B", "Area Ponta B", "CN", "DDD", "AREA_PONTA_B"),
+            "wiz_cn_sci",
+            "Coluna com DDD numérico (ex: 43, 11). Mapeia direto para UF.",
+        )
 
-# ── Upload helper ──────────────────────────────────────────────────────────
+        st.markdown("**C — CNL/PPI** (fallback)")
+        cfg["cnl_sci_col"] = _sel(
+            "Coluna CNL no Science", [NONE] + sci,
+            _guess(sci, "CNL", "CNL_PPI", "Num SSI"),
+            "wiz_cnl_sci",
+        )
+        cfg["cnl_por_col"] = _sel(
+            "Coluna CNL no Portal", [NONE] + por,
+            _guess(por, "CNL_PPI", "PPI", "CNL"),
+            "wiz_cnl_por",
+        )
 
-def _handle_upload(uploaded_file, prefix: str, source_label: str) -> None:
-    ext = uploaded_file.name.split(".")[-1].lower()
-    raw = uploaded_file.read()
-    import io
-    sheet: Optional[str] = None
-    if ext in ("xlsx", "xls"):
-        sheets = list_sheets(io.BytesIO(raw))
-        if len(sheets) > 1:
-            sheet = st.selectbox(f"Planilha — {source_label}",
-                                  sheets, key=f"sheet_{prefix}")
-        elif sheets:
-            sheet = sheets[0]
-    try:
-        df = read_file(io.BytesIO(raw), filename=uploaded_file.name, sheet=sheet)
-        df, col_map = apply_column_normalization(df)
-        df = strip_whitespace(df)
-        df = infer_and_coerce_types(df)
-        st.session_state[f"{prefix}_df"]        = df
-        st.session_state[f"{prefix}_filename"]  = uploaded_file.name
-        st.session_state[f"{prefix}_raw"]       = raw
-        st.session_state[f"{prefix}_col_map"]   = col_map
-        st.session_state[f"{prefix}_hash"]      = file_hash(raw)
-        st.session_state[f"{prefix}_sheet"]     = sheet
-        st.success(f"✅ {uploaded_file.name}: {len(df):,} linhas · {len(df.columns)} colunas")
-    except Exception as e:
-        st.error(f"❌ Erro ao ler {uploaded_file.name}: {e}")
-        log.error("Upload error: %s", e, exc_info=True)
+    # ── 2. Tipo de Rota ────────────────────────────────────────────────
+    with st.expander("2️⃣ Tipo de Rota", expanded=True):
+        cfg["tipo_rota_portal_col"] = _sel(
+            "Tipo de Rota — Portal (prioritário)", [NONE] + por,
+            _guess(por, "TIPO_ROTA", "TIPO"),
+            "wiz_tr_por",
+        )
+        cfg["tipo_rota_sci_col"] = _sel(
+            "Tipo de Rota — Science (fallback)", [NONE] + sci,
+            _guess(sci, "Sinalização da Rota", "Tipo da Rota", "Tipo"),
+            "wiz_tr_sci",
+        )
 
+    # ── 3. Central ─────────────────────────────────────────────────────
+    with st.expander("3️⃣ Central", expanded=True):
+        cfg["central_portal_col"] = _sel(
+            "Central — Portal (prioritário)", [NONE] + por,
+            _guess(por, "CENTRAL"),
+            "wiz_ce_por",
+        )
+        cfg["central_sci_col"] = _sel(
+            "Central — Science (fallback)", [NONE] + sci,
+            _guess(sci, "Central Origem", "Central Interna"),
+            "wiz_ce_sci",
+        )
 
-# ── Página 1: Upload ────────────────────────────────────────────────────────
+    # ── 4. Rótulos de Linha ────────────────────────────────────────────
+    with st.expander("4️⃣ Rótulos de Linha (Portal)", expanded=False):
+        cfg["label_e_col"] = _sel(
+            "LABEL_E (entrada)", [NONE] + por,
+            _guess(por, "LABEL_E"),
+            "wiz_le",
+        )
+        cfg["label_s_col"] = _sel(
+            "LABEL_S (saída)", [NONE] + por,
+            _guess(por, "LABEL_S"),
+            "wiz_ls",
+        )
+        cfg["concat_labels"] = st.checkbox(
+            "Concatenar LABEL_E | LABEL_S",
+            value=True, key="wiz_concat_labels",
+        )
+        cfg["label_sep"] = st.text_input(
+            "Separador", value=" | ", key="wiz_label_sep",
+        ) if cfg["concat_labels"] else " | "
 
-def render_upload_page() -> None:
-    st.header("📂 1. Carregar Arquivos")
-    st.markdown("""
-    Faça upload dos três arquivos. Dados processados **100% localmente**.
-    """)
+    # ── 5. OPERADORA ──────────────────────────────────────────────────
+    with st.expander("5️⃣ OPERADORA — fallback Science", expanded=False):
+        cfg["operadora_sci_col"] = _sel(
+            "Operadora Science", [NONE] + sci,
+            _guess(sci, "Operadora Origem", "OP Origem"),
+            "wiz_op_sci",
+        )
 
-    c1, c2, c3 = st.columns(3)
+    # ── 6. Denominação ────────────────────────────────────────────────
+    with st.expander("6️⃣ Denominação — fallback Science", expanded=False):
+        cfg["denominacao_sci_col"] = _sel(
+            "Denominação Science", [NONE] + sci,
+            _guess(sci, "Descrição", "Descricao"),
+            "wiz_dn_sci",
+        )
 
-    with c1:
-        st.subheader("Planilha Science")
-        f = st.file_uploader("Science (xlsx/csv/parquet)",
-                             type=["xlsx","xls","csv","parquet"],
-                             key="up_sci")
-        if f: _handle_upload(f, "sci", "Science")
+    # ── 7. Chaves de junção ───────────────────────────────────────────
+    st.markdown("---")
+    st.markdown("### 7️⃣ Chaves de Junção Science ↔ Portal")
+    st.caption("Colunas que identificam a mesma rota nas duas tabelas. "
+               "O app normaliza para UPPER antes de comparar.")
 
-    with c2:
-        st.subheader("Portal de Cadastros")
-        f = st.file_uploader("Portal (xlsx/csv/parquet)",
-                             type=["xlsx","xls","csv","parquet"],
-                             key="up_por")
-        if f: _handle_upload(f, "por", "Portal")
-
-    with c3:
-        st.subheader("Arquivo 3 (Referência)")
-        f = st.file_uploader("Arquivo 3 (xlsx/csv/parquet)",
-                             type=["xlsx","xls","csv","parquet"],
-                             key="up_arq3")
-        if f: _handle_upload(f, "arq3", "Arquivo 3")
-
-    # Previews
-    for prefix, label in [("sci","Science"), ("por","Portal"), ("arq3","Arquivo 3")]:
-        df = _ss(f"{prefix}_df")
-        if df is not None:
-            with st.expander(f"👁️ Preview {label} ({len(df):,} linhas)", expanded=False):
-                st.dataframe(df.head(20), width="stretch", hide_index=True)
-                st.caption(f"Colunas: {', '.join(df.columns.tolist())}")
-
-    sci_ok  = _ss("sci_df")  is not None
-    por_ok  = _ss("por_df")  is not None
-    arq3_ok = _ss("arq3_df") is not None
-
-    if sci_ok and por_ok:
-        msg = "✅ Science e Portal carregados."
-        msg += " ✅ Arquivo 3 carregado." if arq3_ok else " ℹ️ Arquivo 3 não carregado (opcional)."
-        st.success(msg)
-
-    # Seeds status
-    with session_scope() as s:
-        repo = Repository(s)
-        cnl_n  = repo.cnl_count()
-        uf_n   = repo.cn_to_uf_count()
-    st.info(f"🗄️ Seeds: {cnl_n:,} registros CNL · {uf_n} mapeamentos CN→UF")
-    if cnl_n == 0:
-        st.warning("⚠️ Tabela CNL vazia. Execute: **Ferramentas → Carregar Seeds** para habilitar derivação de UF.")
-
-
-# ── Página 2: Mapeamento ───────────────────────────────────────────────────
-
-def render_mapping_page() -> None:
-    sci_df  = _ss("sci_df")
-    por_df  = _ss("por_df")
-    arq3_df = _ss("arq3_df")
-
-    if sci_df is None or por_df is None:
-        st.warning("⚠️ Carregue Science e Portal primeiro (Passo 1).")
-        return
-
-    cfg = run_mapping_wizard(
-        science_cols=list(sci_df.columns),
-        portal_cols=list(por_df.columns),
-        arq3_cols=list(arq3_df.columns) if arq3_df is not None else [],
+    join_sci = st.multiselect(
+        "Colunas do Science para junção:",
+        options=sci,
+        default=[c for c in [
+            _guess(sci, "Central Interna", "Central Origem"),
+            _guess(sci, "Tipo da Rota", "Sinalização da Rota"),
+        ] if c],
+        key="wiz_join_sci",
+    )
+    join_por = st.multiselect(
+        "Colunas correspondentes no Portal (mesma ordem):",
+        options=por,
+        default=[c for c in [
+            _guess(por, "CENTRAL"),
+            _guess(por, "TIPO_ROTA"),
+        ] if c],
+        key="wiz_join_por",
     )
 
-    # Preview de matches
-    join_sci = cfg.get("join_keys_sci", [])
-    join_por = cfg.get("join_keys_por", [])
-    if join_sci and join_por and len(join_sci) == len(join_por):
+    if len(join_sci) != len(join_por):
+        st.warning("⚠️ Selecione o mesmo número de colunas em Science e Portal.")
+
+    cfg["join_keys_sci"] = join_sci
+    cfg["join_keys_por"] = join_por
+
+    join_type = st.radio(
+        "Tipo de junção:",
+        options=["outer", "inner", "left", "right"],
+        format_func=lambda v: {
+            "outer": "OUTER — mantém todas as linhas (recomendado)",
+            "left":  "LEFT — mantém todas do Science",
+            "right": "RIGHT — mantém todas do Portal",
+            "inner": "INNER — apenas matches",
+        }.get(v, v),
+        key="wiz_join_type",
+    )
+    cfg["join_type"] = join_type
+
+    # ── 8. Arquivo 3 — colunas explícitas ─────────────────────────────
+    if arq3:
         st.markdown("---")
-        st.markdown("### 📊 Preview de matches por chave de junção")
-        for ks, kp in zip(join_sci, join_por):
-            if ks in sci_df.columns and kp in por_df.columns:
-                stats = count_join_matches(sci_df, por_df, ks, kp)
-                st.markdown(f"**`{ks}`** (Science) ↔ **`{kp}`** (Portal):")
-                mc1, mc2, mc3 = st.columns(3)
-                mc1.metric("Matches", stats.get("matches", 0))
-                mc2.metric("Só Science", stats.get("sci_only", 0))
-                mc3.metric("Só Portal", stats.get("por_only", 0))
-
-    st.markdown("---")
-    if st.button("💾 Salvar Configuração", type="primary", key="btn_save_cfg"):
-        st.session_state["wizard_cfg"] = cfg
-        st.success("✅ Configuração salva! Prossiga para Gerar Tabela Final.")
-
-
-# ── Página 3: Merge ────────────────────────────────────────────────────────
-
-def render_merge_page() -> None:
-    sci_df  = _ss("sci_df")
-    por_df  = _ss("por_df")
-    arq3_df = _ss("arq3_df")
-    cfg     = _ss("wizard_cfg") or {}
-
-    if sci_df is None or por_df is None:
-        st.warning("⚠️ Carregue os arquivos primeiro (Passo 1).")
-        return
-
-    st.header("⚙️ 3. Gerar Tabela Final")
-
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Linhas Science", f"{len(sci_df):,}")
-    c2.metric("Linhas Portal",  f"{len(por_df):,}")
-    c3.metric("Arquivo 3",      f"{len(arq3_df):,}" if arq3_df is not None else "—")
-
-    if st.button("🚀 Gerar Tabela Combinada", type="primary", key="btn_merge"):
-        with st.spinner("Processando..."):
-            try:
-                # Carrega uf_map e cn_to_uf_map do banco
-                with session_scope() as s:
-                    repo = Repository(s)
-                    all_cnls = (
-                        list(sci_df.get(cfg.get("cnl_sci_col","CNL"), pd.Series()).dropna())
-                        + list(por_df.get(cfg.get("cnl_por_col","CNL_PPI"), pd.Series()).dropna())
-                    )
-                    uf_map       = repo.resolve_ufs_batch([str(c) for c in all_cnls])
-                    cn_to_uf_map = repo.get_cn_to_uf_map()
-                st.session_state["uf_map"] = uf_map
-
-                merged, report = build_merged_df(
-                    science_df=sci_df.copy(),
-                    portal_df=por_df.copy(),
-                    ref_df=arq3_df.copy() if arq3_df is not None else None,
-                    uf_map=uf_map,
-                    join_keys_sci=cfg.get("join_keys_sci", []),
-                    join_keys_por=cfg.get("join_keys_por", []),
-                    join_type=cfg.get("join_type", "outer"),
-                    config=cfg,
-                    cn_to_uf_map=cn_to_uf_map,
+        st.markdown("### 8️⃣ Arquivo 3 — Mapeamento de Colunas")
+        st.caption(
+            "⚠️ **Configure aqui as colunas do Arquivo 3.** "
+            "O CLUSTER e a UF só serão preenchidos corretamente se estas colunas estiverem certas."
+        )
+        with st.expander("🗂️ Colunas do Arquivo 3", expanded=True):
+            col1, col2 = st.columns(2)
+            with col1:
+                cfg["arq3_central_col"] = _sel(
+                    "Central",
+                    [NONE] + arq3,
+                    _guess(arq3, "Central", "CENTRAL", "Central Origem"),
+                    "wiz_arq3_central",
+                    "Coluna que contém o nome da Central no Arquivo 3",
                 )
-                st.session_state["merged_df"]    = merged
-                st.session_state["merge_report"] = report
-                st.success(f"✅ {len(merged):,} linhas geradas.")
-            except Exception as e:
-                st.error(f"❌ Erro: {e}")
-                log.error("Merge error: %s", e, exc_info=True)
-                return
-
-    merged_df = _ss("merged_df")
-    if merged_df is None:
-        # Tenta carregar a última versão persistida
-        with session_scope() as s:
-            repo = Repository(s)
-            merged_df = repo.load_merged_df()
-        if merged_df is not None and not merged_df.empty:
-            st.info("ℹ️ Exibindo última versão salva no banco.")
-            st.session_state["merged_df"] = merged_df
-
-    if merged_df is None or merged_df.empty:
-        return
-
-    # Qualidade
-    report = _ss("merge_report") or {}
-    with st.expander("📋 Relatório do Merge"):
-        q = quality_summary(merged_df)
-        rc1, rc2, rc3, rc4 = st.columns(4)
-        rc1.metric("Total linhas",   q.get("total", 0))
-        rc2.metric("UF em branco",   q.get("UF_missing", 0))
-        rc3.metric("Cluster em branco", q.get("CLUSTER_missing", 0))
-        rc4.metric("Sem match Arq3", q.get("arq3_no_match", 0))
-
-        sb = q.get("source_breakdown", {})
-        if sb:
-            st.markdown("**Origem das linhas:**")
-            for tag, cnt in sb.items():
-                st.write(f"  - `{tag}`: {cnt:,}")
-
-    # Grid com floating filters
-    display_cols = [c for c in merged_df.columns if not c.startswith("_")]
-    filtered_df = show_grid(
-        merged_df[display_cols],
-        key="merge_grid",
-        title="📊 Tabela Final Combinada",
-        height=540,
-    )
-
-    # Exportações
-    st.markdown("---")
-    st.markdown("### 💾 Salvar e Exportar")
-    ex1, ex2, ex3, ex4 = st.columns(4)
-
-    with ex1:
-        if st.button("🗄️ Salvar no SQLite", key="btn_save"):
-            _save_to_db(merged_df)
-
-    with ex2:
-        st.download_button("⬇️ CSV (filtrado)",
-                           to_csv_bytes(filtered_df),
-                           f"resultado_{version_tag()}.csv",
-                           "text/csv", key="btn_csv")
-    with ex3:
-        try:
-            st.download_button("⬇️ XLSX (filtrado)",
-                               to_xlsx_bytes(filtered_df),
-                               f"resultado_{version_tag()}.xlsx",
-                               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                               key="btn_xlsx")
-        except Exception as e:
-            st.error(f"XLSX: {e}")
-
-    with ex4:
-        st.download_button("⬇️ Mapeamento JSON",
-                           to_mapping_json({"config": cfg}),
-                           f"mapping_{version_tag()}.json",
-                           "application/json", key="btn_map_json")
-
-
-def _save_to_db(merged_df: pd.DataFrame) -> None:
-    try:
-        with session_scope() as s:
-            repo = Repository(s)
-            cfg  = _ss("wizard_cfg") or {}
-
-            # Science
-            sci_id = _ss("sci_import_id")
-            if not sci_id and _ss("sci_df") is not None:
-                sci_id = repo.save_import(
-                    "SCIENCE", _ss("sci_filename") or "science.xlsx",
-                    _ss("sci_sheet"), _ss("sci_hash") or "",
-                    st.session_state["sci_df"], _ss("sci_col_map") or {})
-                st.session_state["sci_import_id"] = sci_id
-
-            # Portal
-            por_id = _ss("por_import_id")
-            if not por_id and _ss("por_df") is not None:
-                por_id = repo.save_import(
-                    "PORTAL", _ss("por_filename") or "portal.xlsx",
-                    _ss("por_sheet"), _ss("por_hash") or "",
-                    st.session_state["por_df"], _ss("por_col_map") or {})
-                st.session_state["por_import_id"] = por_id
-
-            # Arquivo 3
-            arq3_id = _ss("arq3_import_id")
-            if not arq3_id and _ss("arq3_df") is not None:
-                arq3_id = repo.save_import(
-                    "ARQ3", _ss("arq3_filename") or "arquivo3.xlsx",
-                    _ss("arq3_sheet"), _ss("arq3_hash") or "",
-                    st.session_state["arq3_df"], _ss("arq3_col_map") or {})
-                repo.save_arq3(arq3_id, st.session_state["arq3_df"],
-                               _ss("arq3_col_map") or {})
-                st.session_state["arq3_import_id"] = arq3_id
-
-            vid = repo.save_merge_version(
-                version_tag(), sci_id, por_id, arq3_id,
-                mapping=cfg, join_keys=cfg.get("join_keys_sci", []),
-                join_type=cfg.get("join_type", "outer"),
-                fuzzy_threshold=90,
-                merged_df=merged_df,
-                rows_sci=len(st.session_state.get("sci_df") or []),
-                rows_por=len(st.session_state.get("por_df") or []),
-            )
-            st.session_state["version_id"] = vid
-            repo.add_log("INFO", f"Merge salvo version_id={vid}")
-
-        st.success(f"✅ Salvo! version_id: `{vid[:8]}...`")
-    except Exception as e:
-        st.error(f"❌ Erro ao salvar: {e}")
-        log.error("DB save: %s", e, exc_info=True)
-
-
-# ── Página 4: Seeds ─────────────────────────────────────────────────────────
-
-def render_seeds_page() -> None:
-    st.header("🌱 Ferramentas — Seeds e Referências")
-
-    with session_scope() as s:
-        repo = Repository(s)
-        cnl_n = repo.cnl_count()
-        uf_n  = repo.cn_to_uf_count()
-
-    st.info(f"Estado atual: **{cnl_n:,}** registros CNL · **{uf_n}** mapeamentos CN→UF")
-
-    import os
-    from pathlib import Path
-
-    st.markdown("### 📋 Carregar Seeds automáticos")
-    seed_dir = Path("seeds")
-    cnl_sql  = seed_dir / "cnl.sql"
-    uf_csv   = seed_dir / "cn_to_uf.csv"
-
-    c1, c2 = st.columns(2)
-    with c1:
-        if cnl_sql.exists():
-            if st.button("▶️ Carregar seeds/cnl.sql", key="btn_cnl_seed"):
-                with session_scope() as s:
-                    repo = Repository(s)
-                    n = repo.load_cnl_seeds(str(cnl_sql))
-                st.success(f"✅ {n} statements CNL executados.")
-        else:
-            st.warning("seeds/cnl.sql não encontrado.")
-
-    with c2:
-        if uf_csv.exists():
-            if st.button("▶️ Carregar seeds/cn_to_uf.csv", key="btn_uf_seed"):
-                with session_scope() as s:
-                    repo = Repository(s)
-                    n = repo.load_cn_to_uf_csv(str(uf_csv))
-                st.success(f"✅ {n} mapeamentos CN→UF carregados.")
-        else:
-            st.warning("seeds/cn_to_uf.csv não encontrado.")
-
-    st.markdown("### 📤 Upload manual de seeds")
-    uf_file = st.file_uploader("Upload cn_to_uf.csv personalizado",
-                                type=["csv"], key="up_uf_csv")
-    if uf_file:
-        import io, tempfile
-        tmp = tempfile.NamedTemporaryFile(suffix=".csv", delete=False)
-        tmp.write(uf_file.read())
-        tmp.flush()
-        try:
-            with session_scope() as s:
-                repo = Repository(s)
-                n = repo.load_cn_to_uf_csv(tmp.name)
-            st.success(f"✅ {n} mapeamentos carregados.")
-        finally:
-            os.unlink(tmp.name)
-
-    st.markdown("### 🔍 Testar lookup de UF")
-    test_cnl = st.text_input("Digite um COD_CNL para testar:", key="test_cnl")
-    if test_cnl:
-        with session_scope() as s:
-            repo = Repository(s)
-            uf = repo.get_uf_for_cnl(test_cnl)
-        if uf:
-            st.success(f"CNL `{test_cnl}` → UF: **{uf}**")
-        else:
-            st.warning(f"CNL `{test_cnl}` não encontrado nas tabelas de referência.")
-
-
-# ── Página 5: Histórico ─────────────────────────────────────────────────────
-
-def render_history_page() -> None:
-    st.header("🕐 Histórico de Versões")
-    with session_scope() as s:
-        repo = Repository(s)
-        versions = repo.list_versions()
-        imports  = repo.list_imports()
-
-    if not versions:
-        st.info("Nenhum merge salvo ainda.")
-    else:
-        df_v = pd.DataFrame(versions)
-        st.dataframe(df_v, width="stretch", hide_index=True)
-
-        sel = st.selectbox("Carregar versão:",
-                            [v["id"] for v in versions],
-                            format_func=lambda x: next(
-                                (f"{v['tag']} — {v['rows_merged']} linhas"
-                                 for v in versions if v["id"] == x), x),
-                            key="hist_sel")
-        if st.button("📂 Carregar", key="btn_hist_load"):
-            with session_scope() as s2:
-                repo2 = Repository(s2)
-                loaded = repo2.load_merged_df(sel)
-            st.session_state["merged_df"] = loaded
-            st.success(f"✅ {len(loaded):,} linhas carregadas.")
-            show_grid(loaded[[c for c in loaded.columns if not c.startswith("_")]],
-                      key="hist_grid", title="Versão carregada")
-
-    if imports:
-        with st.expander("📁 Importações"):
-            st.dataframe(pd.DataFrame(imports), width="stretch", hide_index=True)
-
-
-# ── Página 6: Validação ────────────────────────────────────────────────────
-
-def render_validation_page() -> None:
-    st.header("✅ Relatório de Qualidade")
-    merged = _ss("merged_df")
-    if merged is None:
-        with session_scope() as s:
-            repo = Repository(s)
-            merged = repo.load_merged_df()
-    if merged is None or merged.empty:
-        st.info("Nenhum resultado gerado ainda.")
-        return
-
-    q = quality_summary(merged)
-    cols = st.columns(4)
-    cols[0].metric("Total linhas",   q.get("total", 0))
-    cols[1].metric("UF em branco",   q.get("UF_missing", 0))
-    cols[2].metric("Cluster em branco", q.get("CLUSTER_missing", 0))
-    cols[3].metric("Sem match Arq3", q.get("arq3_no_match", 0))
-
-    # Amostras de pendentes
-    uf_pending = merged[merged["UF"].eq("") | merged["UF"].isna()]
-    if not uf_pending.empty:
-        with st.expander(f"⚠️ Linhas sem UF ({len(uf_pending)})"):
-            display = [c for c in uf_pending.columns if not c.startswith("_")]
-            st.dataframe(uf_pending[display].head(50),
-                         width="stretch", hide_index=True)
-
-    for df, name in [(_ss("sci_df"), "Science"), (_ss("por_df"), "Portal"),
-                     (merged, "Resultado")]:
-        if df is not None:
-            with st.expander(f"📊 {name}"):
-                rep = generate_report(df, name)
-                st.dataframe(pd.DataFrame(rep["colunas"]),
-                             width="stretch", hide_index=True)
-
-
-
-# ── Página de Diagnóstico ────────────────────────────────────────────────
-
-def render_diagnostico_page() -> None:
-    st.header("🔬 Diagnóstico de Mapeamento")
-
-    sci_df  = _ss("sci_df")
-    por_df  = _ss("por_df")
-    arq3_df = _ss("arq3_df")
-    cfg     = _ss("wizard_cfg") or {}
-    merged  = _ss("merged_df")
-
-    if sci_df is None and por_df is None:
-        st.warning("⚠️ Carregue os arquivos primeiro.")
-        return
-
-    from app.core.map_rules import build_ref_index, _find_col, _normalize_key
-
-    # ── 1. Colunas detectadas no Arquivo 3 ───────────────────────────────
-    st.markdown("### 1️⃣ Detecção de colunas no Arquivo 3")
-    if arq3_df is not None:
-        idx = build_ref_index(arq3_df, cfg)
-        cols = list(arq3_df.columns)
-        NONE = "(nenhuma)"
-
-        def _pick_diag(cfg_key, *subs):
-            manual = cfg.get(cfg_key, "")
-            if manual and manual != NONE and manual in cols:
-                return manual, "⚙️ manual"
-            found = _find_col(cols, *subs)
-            return found, "🤖 auto"
-
-        det_central, src_cen = _pick_diag("arq3_central_col",
-            "Central","CENTRAL","Central Origem","CENTRAL_ORIGEM")
-        det_uf,      src_uf  = _pick_diag("arq3_uf_col",
-            "UF","ESTADO","Estado","SIGLA")
-        det_cluster, src_cl  = _pick_diag("arq3_cluster_col",
-            "CLUSTER","Cluster","CLÚSTER","AGRUPAMENTO","CLUSTER_NOME","CLUS")
-        det_tipo,    src_tr  = _pick_diag("arq3_tipo_rota_col",
-            "Tipo de Rota","TIPO DE ROTA","TIPO_ROTA","TIPO")
-
-        det_rows = [
-            {"Coluna de saída": "Central",   "Detectada como": det_central or "❌ NÃO ENCONTRADA", "Origem": src_cen},
-            {"Coluna de saída": "UF",        "Detectada como": det_uf      or "❌ NÃO ENCONTRADA", "Origem": src_uf},
-            {"Coluna de saída": "CLUSTER",   "Detectada como": det_cluster or "❌ NÃO ENCONTRADA", "Origem": src_cl},
-            {"Coluna de saída": "Tipo Rota", "Detectada como": det_tipo    or "(opcional)", "Origem": src_tr},
-        ]
-        st.dataframe(pd.DataFrame(det_rows), width="stretch", hide_index=True)
-
-        if not det_cluster:
-            st.error(
-                "❌ **Coluna CLUSTER não encontrada automaticamente!** "
-                "Vá em **Mapeamento → Seção 8️⃣** e selecione manualmente qual coluna "
-                "do Arquivo 3 contém o CLUSTER."
-            )
-        else:
-            sample_clusters = arq3_df[det_cluster].dropna().unique()[:8]
-            st.success(f"✅ CLUSTER detectado: coluna **`{det_cluster}`**  |  Amostra: {list(sample_clusters)}")
-
-        if not det_uf:
-            st.warning("⚠️ Coluna UF não encontrada no Arquivo 3. UF virá de CN/CNL.")
-        else:
-            sample_ufs = arq3_df[det_uf].dropna().unique()[:10]
-            st.success(f"✅ UF detectada: coluna **`{det_uf}`**  |  Amostra: {sorted(set(str(v) for v in sample_ufs))}")
-
-        # Todas as 32 colunas do arquivo 3
-        with st.expander(f"📋 Todas as {len(cols)} colunas do Arquivo 3"):
-            for i, c in enumerate(cols):
-                sample_val = arq3_df[c].dropna().iloc[0] if not arq3_df[c].dropna().empty else ""
-                st.text(f"{i+1:3d}. {c!r:45} ex: {str(sample_val)[:40]!r}")
-
-        st.markdown("---")
-        # Primeiras 3 linhas do Arquivo 3
-        st.markdown("**Primeiras 3 linhas do Arquivo 3:**")
-        st.dataframe(arq3_df.head(3), width="stretch", hide_index=True)
-
-    else:
-        st.warning("⚠️ Arquivo 3 não carregado.")
-
-    # ── 2. Resultado do merge: análise UF e CLUSTER ───────────────────────
-    st.markdown("### 2️⃣ Resultado do Merge (UF e CLUSTER)")
-    if merged is not None and len(merged) > 0:
-        total = len(merged)
-        uf_ok = (merged["UF"] != "").sum()
-        cl_ok = (merged["CLUSTER"] != "").sum()
-        arq3_match = (merged.get("_arq3_match", pd.Series("False")) == "True").sum()
-
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Total de linhas", f"{total:,}")
-        c2.metric("UF preenchida", f"{uf_ok:,}", f"{uf_ok/total:.0%}")
-        c3.metric("CLUSTER preenchido", f"{cl_ok:,}", f"{cl_ok/total:.0%}")
-        c4.metric("Match Arquivo 3", f"{arq3_match:,}", f"{arq3_match/total:.0%}")
-
-        # Amostra de linhas com CLUSTER vazio
-        empty_cl = merged[merged["CLUSTER"] == ""]
-        if len(empty_cl) > 0:
-            st.warning(f"⚠️ {len(empty_cl):,} linhas sem CLUSTER")
-            with st.expander(f"🔍 Centrais sem CLUSTER ({min(20,len(empty_cl))} primeiras)"):
-                show = empty_cl[["Central","UF","CLUSTER","_arq3_match"]].head(20)
-                st.dataframe(show, hide_index=True)
-                # Mostra Centrais únicas que não bateram
-                centrais_sem = empty_cl["Central"].dropna().unique()[:20]
-                st.caption(f"Centrais sem match: {list(centrais_sem)}")
-
-        # Amostra de linhas COM CLUSTER preenchido
-        ok_cl = merged[merged["CLUSTER"] != ""]
-        if len(ok_cl) > 0:
-            with st.expander(f"✅ Amostra COM CLUSTER ({min(10,len(ok_cl))} linhas)"):
-                show2 = ok_cl[["Central","UF","CLUSTER","_arq3_match"]].head(10)
-                st.dataframe(show2, hide_index=True)
-    else:
-        st.info("ℹ️ Gere a tabela combinada primeiro (Passo 3).")
-
-    # ── 3. Centrais sem match no Arquivo 3 ───────────────────────────────
-    if arq3_df is not None and (por_df is not None or sci_df is not None):
-        st.markdown("### 3️⃣ Centrais (Portal/Science) vs Arquivo 3")
-        idx = build_ref_index(arq3_df, cfg)
-        centrais_arq3 = {k[:-4] for k in idx if k.endswith("|ANY")}
-
-        ce_por = cfg.get("central_portal_col", "CENTRAL")
-        ce_sci = cfg.get("central_sci_col", "Central Origem")
-
-        sample_rows = []
-        df_src = por_df if por_df is not None else sci_df
-        for i in range(min(20, len(df_src))):
-            por_r = por_df.iloc[i].to_dict() if por_df is not None else {}
-            sci_r = sci_df.iloc[min(i, len(sci_df)-1)].to_dict() if sci_df is not None else {}
-            from app.core.map_rules import coalesce
-            central = coalesce(
-                str(por_r.get(ce_por, "") or ""),
-                str(sci_r.get(ce_sci, "") or "")
-            ).strip().upper()
-            match = "✅" if central in centrais_arq3 else "❌ sem match"
-            sample_rows.append({"Central": central or "(vazio)", "Match Arquivo 3": match})
-        st.dataframe(pd.DataFrame(sample_rows), width="stretch", hide_index=True)
-        n_match = sum(1 for r in sample_rows if r["Match Arquivo 3"] == "✅")
-        st.caption(f"Matches: {n_match}/{len(sample_rows)} | Arquivo 3: {len(centrais_arq3)} centrais únicas")
-
-# ── Página 7: Logs ─────────────────────────────────────────────────────────
-
-def render_logs_page() -> None:
-    st.header("📋 Logs e Auditoria")
-    with session_scope() as s:
-        repo = Repository(s)
-        logs = repo.get_logs(200)
-    if not logs:
-        st.info("Nenhum log ainda.")
-        return
-    df_l = pd.DataFrame(logs)[["timestamp", "level", "message"]]
-    lvl_filter = st.multiselect("Nível:", ["INFO","WARNING","ERROR","DEBUG"],
-                                 default=["INFO","WARNING","ERROR"],
-                                 key="log_lvl")
-    st.dataframe(df_l[df_l["level"].isin(lvl_filter)],
-                 width="stretch", hide_index=True)
-    st.download_button("⬇️ Baixar log", logs_to_text(logs),
-                       f"logs_{version_tag()}.txt", key="btn_log_dl")
+                cfg["arq3_uf_col"] = _sel(
+                    "UF",
+                    [NONE] + arq3,
+                    _guess(arq3, "UF", "uf", "Estado", "ESTADO"),
+                    "wiz_arq3_uf",
+                    "Coluna que contém a sigla do estado (ex: PR, SP)",
+                )
+                cfg["arq3_cluster_col"] = _sel(
+                    "CLUSTER ⭐",
+                    [NONE] + arq3,
+                    _guess(arq3, "CLUSTER", "Cluster", "cluster",
+                           "AGRUPAMENTO", "Agrupamento", "CLUSTER_NOME"),
+                    "wiz_arq3_cluster",
+                    "Coluna que contém o identificador de Cluster — obrigatória para preencher CLUSTER",
+                )
+            with col2:
+                cfg["arq3_tipo_rota_col"] = _sel(
+                    "Tipo de Rota",
+                    [NONE] + arq3,
+                    _guess(arq3, "Tipo de Rota", "TIPO DE ROTA", "TIPO_ROTA"),
+                    "wiz_arq3_tr",
+                )
+                cfg["arq3_rotulos_col"] = _sel(
+                    "Rótulos de Linha",
+                    [NONE] + arq3,
+                    _guess(arq3, "Rótulos de Linha", "ROTULOS DE LINHA",
+                           "ROTULOS_DE_LINHA", "LABEL_E", "Rótulo"),
+                    "wiz_arq3_rotulos",
+                )
+                cfg["arq3_operadora_col"] = _sel(
+                    "OPERADORA",
+                    [NONE] + arq3,
+                    _guess(arq3, "OPERADORA", "Operadora"),
+                    "wiz_arq3_op",
+                )
+                cfg["arq3_denominacao_col"] = _sel(
+                    "Denominação",
+                    [NONE] + arq3,
+                    _guess(arq3, "Denominação", "DENOMINAÇÃO", "Denominacao"),
+                    "wiz_arq3_den",
+                )
+
+        # Mostra colunas do Arquivo 3 para referência
+        with st.expander("📋 Todas as colunas do Arquivo 3 (para consulta)", expanded=False):
+            for i, c in enumerate(arq3):
+                st.text(f"{i+1:3d}. {c}")
+
+    return cfg
