@@ -1,434 +1,647 @@
 """
-core/map_rules.py - Regras de mapeamento.
-CLUSTER e UF vêm do Arquivo 3, lookup por Central.
-
-Busca de colunas:
-  1. Config manual do wizard (arq3_*_col)
-  2. Match exato case+accent-insensitive
-  3. Match por substring case+accent-insensitive
-  4. Scan inteligente: analisa valores das colunas para identificar UF e CLUSTER
+ui/pages.py — Páginas principais do app Streamlit.
 """
 from __future__ import annotations
-import unicodedata
-from typing import Any, Dict, List, Optional, Tuple
+import json
+from typing import Optional
 
+import pandas as pd
+import streamlit as st
+
+from app.core.merge import build_merged_df, count_join_matches
+from app.core.normalize import (apply_column_normalization,
+                                 infer_and_coerce_types, strip_whitespace)
+from app.core.validate import generate_report, quality_summary
+from app.db.repository import Repository
+from app.db.session import session_scope
+from app.io.readers import list_sheets, read_file
+from app.io.writers import logs_to_text, to_csv_bytes, to_mapping_json, to_xlsx_bytes
+from app.ui.grid import show_grid
+from app.ui.mapping_wizard import run_mapping_wizard
+from app.utils.ids import file_hash, version_tag
 from app.utils.logging_utils import get_logger
-from app.utils.cnl_utils import clean_cnl, clean_cn
 
 log = get_logger(__name__)
 
-OUTPUT_COLUMNS = [
-    "REDE", "UF", "CLUSTER", "Tipo de Rota",
-    "Central", "Rótulos de Linha", "OPERADORA", "Denominação",
-]
 
-_INVALID = {"nan", "none", "null", "n/a", "na", "#n/a", ""}
-
-# Siglas de estados brasileiros para detecção de coluna UF
-_BR_UF = {
-    "AC","AL","AP","AM","BA","CE","DF","ES","GO",
-    "MA","MT","MS","MG","PA","PB","PR","PE","PI",
-    "RJ","RN","RS","RO","RR","SC","SP","SE","TO",
-}
-
-
-def _normalize_key(s: str) -> str:
-    """Remove acentos, uppercase — para comparação insensível."""
-    s = unicodedata.normalize("NFKD", str(s or ""))
-    s = "".join(c for c in s if not unicodedata.combining(c))
-    return s.upper().strip()
-
-
-def _s(v: Any) -> str:
-    """String limpa."""
-    s = str(v or "").strip()
-    return "" if s.lower() in _INVALID else s
-
-
-def _find_col(cols: List[str], *candidates: str) -> str:
-    """
-    Busca coluna com 3 estratégias (todas accent+case-insensitive):
-      1. Match exato
-      2. Coluna contém o candidato (substring)
-      3. Candidato contém a coluna (coluna é substring do candidato)
-    """
-    norm_map = {_normalize_key(c): c for c in cols}
-
-    for cand in candidates:
-        cand_n = _normalize_key(cand)
-        # 1. Exato
-        if cand_n in norm_map:
-            return norm_map[cand_n]
-        # 2. Coluna contém candidato
-        for col_n, col_orig in norm_map.items():
-            if cand_n in col_n:
-                return col_orig
-        # 3. Candidato contém coluna (ex: candidato="CLUSTER" contém col="CLUS")
-        for col_n, col_orig in norm_map.items():
-            if col_n and col_n in cand_n:
-                return col_orig
-    return ""
-
-
-def _scan_uf_col(df, cols: List[str], exclude: set) -> str:
-    """
-    Varre colunas restantes e detecta qual contém siglas de UF como valores.
-    Retorna o nome da coluna se >= 80% dos valores não-nulos forem siglas válidas.
-    """
-    import pandas as pd
-    for col in cols:
-        if col in exclude:
-            continue
-        try:
-            sample = df[col].dropna().astype(str).str.strip().str.upper()
-            sample = sample[sample.str.len() == 2]
-            if len(sample) < 5:
-                continue
-            pct = sample.isin(_BR_UF).mean()
-            if pct >= 0.80:
-                log.info("Coluna UF detectada por scan de valores: %r (%.0f%% UFs válidas)", col, pct * 100)
-                return col
-        except Exception:
-            continue
-    return ""
-
-
-def _scan_cluster_col(df, cols: List[str], exclude: set) -> str:
-    """
-    Varre colunas e detecta qual tem valores que parecem códigos de cluster:
-    - Curtos (2-30 chars), consistentes, não todos iguais
-    - Não são datas, números, UFs
-    Heurística: coluna com variabilidade moderada e valores não-numéricos curtos.
-    """
-    import pandas as pd
-    candidates = []
-    for col in cols:
-        if col in exclude:
-            continue
-        try:
-            sample = df[col].dropna().astype(str).str.strip()
-            sample = sample[sample.str.len().between(2, 40)]
-            if len(sample) < 5:
-                continue
-            # Descarta colunas com muitos valores únicos (texto livre) ou poucos (constantes)
-            n_unique = sample.nunique()
-            if n_unique < 2 or n_unique > len(sample) * 0.8:
-                continue
-            # Descarta colunas que parecem ser UF (2 chars, todas maiúsculas e válidas)
-            if sample.str.len().max() == 2 and sample.str.upper().isin(_BR_UF).mean() > 0.5:
-                continue
-            # Pontuação: prefere colunas com nome contendo "cluster", "grupo", "agrup"
-            name_n = _normalize_key(col)
-            score = 0
-            if "CLUSTER" in name_n or "CLUS" in name_n:
-                score += 10
-            if "GRUPO" in name_n or "AGRUP" in name_n:
-                score += 5
-            if "NOME" in name_n or "NAME" in name_n:
-                score += 2
-            # Pontuação por padrão de valores (ex: "CL-SP-01", "CLUSTER_SP_01")
-            looks_like_code = sample.str.contains(r"[A-Z]{2}[_\-]", regex=True, na=False).mean()
-            score += looks_like_code * 5
-            candidates.append((score, col))
-        except Exception:
-            continue
-
-    if not candidates:
-        return ""
-    candidates.sort(key=lambda x: -x[0])
-    best_score, best_col = candidates[0]
-    if best_score > 0:
-        log.info("Coluna CLUSTER detectada por scan: %r (score=%.1f)", best_col, best_score)
-        return best_col
-    return ""
-
-
-def derive_rede(tag: str) -> str:
-    return "VIVO-SMP" if (tag or "").upper() in ("SCIENCE", "BOTH") else "VIVO-STFC"
-
-
-def coalesce(*values: Any) -> str:
-    for v in values:
-        s = _s(v)
-        if s:
-            return s
-    return ""
-
-
-def derive_tipo_rota(por: Dict, sci: Dict, pcol="TIPO_ROTA",
-                     scol="Sinalização da Rota") -> Tuple[str, str]:
-    v = coalesce(por.get(pcol, ""), sci.get(scol, ""))
-    return v.upper(), ("PORTAL" if _s(por.get(pcol, "")) else "SCIENCE")
-
-
-def derive_central(por: Dict, sci: Dict, pcol="CENTRAL",
-                   scol="Central Origem") -> Tuple[str, str]:
-    v = coalesce(por.get(pcol, ""), sci.get(scol, ""))
-    return v.upper(), ("PORTAL" if _s(por.get(pcol, "")) else "SCIENCE")
-
-
-def derive_rotulos(por: Dict, le="LABEL_E", ls="LABEL_S",
-                   concat=True, sep=" | ") -> str:
-    e = _s(por.get(le, ""))
-    s = _s(por.get(ls, ""))
-    return f"{e}{sep}{s}" if (concat and e and s) else (e or s)
-
-
-def derive_operadora(arq3_val: str, por: Dict, sci: Dict,
-                     op_col="Operadora Origem") -> str:
-    return coalesce(arq3_val, por.get("EMPRESA", ""),
-                    sci.get(op_col, ""), sci.get("Operadora destino", "")).upper()
-
-
-def _score_rec(rec: Dict) -> int:
-    """Pontua um registro: mais campos preenchidos = melhor."""
-    return sum(1 for k in ("UF", "CLUSTER", "Rótulos de Linha",
-                            "OPERADORA", "Denominação", "Tipo de Rota")
-               if rec.get(k, ""))
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# ÍNDICE DO ARQUIVO 3
-# ─────────────────────────────────────────────────────────────────────────────
-
-def build_ref_index(ref_df, config: Optional[Dict] = None) -> Dict[str, Any]:
-    """
-    Indexa Arquivo 3 para lookup por Central.
-
-    Detecção de colunas em 4 camadas:
-      1. Config manual do wizard
-      2. Match exato accent+case-insensitive
-      3. Match por substring accent+case-insensitive
-      4. Scan inteligente de valores (para UF e CLUSTER)
-
-    ANY: mantém o registro com MAIOR score (mais campos preenchidos) por central,
-    garantindo que uma primeira linha vazia não apague dados de linhas seguintes.
-    """
-    if ref_df is None or (hasattr(ref_df, "empty") and ref_df.empty):
-        return {}
-
-    cols = list(ref_df.columns)
-    cfg  = config or {}
-    NONE = "(nenhuma)"
-
-    def _pick(cfg_key: str, *subs: str) -> str:
-        manual = cfg.get(cfg_key, "")
-        if manual and manual != NONE and manual in cols:
-            return manual
-        return _find_col(cols, *subs)
-
-    col_central = _pick("arq3_central_col",
-        "Central", "CENTRAL", "Central Origem", "CENTRAL_ORIGEM",
-        "CENTRAL ORIGEM", "CENTRAL_DE_ORIGEM")
-    col_uf      = _pick("arq3_uf_col",
-        "UF", "ESTADO", "Estado", "SIGLA", "SIGLA_UF", "SIGLA UF",
-        "ESTADO_UF", "ESTADO UF")
-    col_cluster = _pick("arq3_cluster_col",
-        "CLUSTER", "Cluster", "CLÚSTER", "Clúster",
-        "CLUSTER DE ROTEAMENTO", "CLUSTER_DE_ROTEAMENTO",
-        "CLUSTER NOME", "CLUSTER_NOME", "CLUSTER ID", "CLUSTER_ID",
-        "AGRUPAMENTO", "AGRUPAMENTO DE ROTAS", "GRUPO DE ROTEAMENTO",
-        "GRUPO", "CLUS")
-    col_tipo    = _pick("arq3_tipo_rota_col",
-        "Tipo de Rota", "TIPO DE ROTA", "TIPO_DE_ROTA", "TIPO_ROTA",
-        "Tipo Rota", "TIPO ROTA", "TIPO")
-    col_rotulos = _pick("arq3_rotulos_col",
-        "Rótulos de Linha", "RÓTULOS DE LINHA", "Rotulos de Linha",
-        "ROTULOS DE LINHA", "ROTULOS_DE_LINHA", "RÓTULO", "ROTULO",
-        "LABEL_E", "LABEL E", "LABELS")
-    col_rede    = _pick("arq3_rede_col",    "REDE", "Rede", "NETWORK")
-    col_op      = _pick("arq3_operadora_col","OPERADORA", "Operadora",
-                         "EMPRESA", "EMPRESA OPERADORA")
-    col_den     = _pick("arq3_denominacao_col",
-        "Denominação", "DENOMINAÇÃO", "Denominacao", "DENOMINACAO",
-        "Denominacão", "DENOMINACÃO", "DESCRIÇÃO", "Descrição",
-        "DESCRICAO", "DESCRICÃO", "DENOMINACAO_ROTA")
-
-    # ── Scan inteligente para colunas não encontradas ────────────────────
-    mapped = {c for c in [col_central, col_uf, col_cluster, col_tipo,
-                           col_rotulos, col_rede, col_op, col_den] if c}
-    if not col_uf:
-        col_uf = _scan_uf_col(ref_df, cols, mapped)
-        if col_uf:
-            mapped.add(col_uf)
-    if not col_cluster:
-        col_cluster = _scan_cluster_col(ref_df, cols, mapped)
-        if col_cluster:
-            mapped.add(col_cluster)
-
-    # ── Log de diagnóstico ───────────────────────────────────────────────
-    log.info("─── Arquivo 3: detecção de colunas (de %d disponíveis) ───", len(cols))
-    log.info("  Central  → %r", col_central)
-    log.info("  UF       → %r%s", col_uf,      "" if col_uf      else " ⚠️ NÃO ENCONTRADA")
-    log.info("  CLUSTER  → %r%s", col_cluster, "" if col_cluster else " ⚠️ NÃO ENCONTRADA")
-    log.info("  Tipo     → %r", col_tipo)
-    log.info("  Rótulos  → %r", col_rotulos)
-    log.info("  Colunas disponíveis: %s", cols)
-
-    if not col_central:
-        log.error("Arquivo 3: coluna Central NÃO encontrada!")
-        return {}
-
-    # ── Iteração ─────────────────────────────────────────────────────────
-    idx: Dict[str, Any]        = {}
-    best_any: Dict[str, Dict]  = {}
-    best_score: Dict[str, int] = {}
-
-    for _, row in ref_df.iterrows():
-        cen  = _s(row.get(col_central, "")).upper()
-        if not cen:
-            continue
-
-        tipo = _s(row.get(col_tipo,    "")).upper() if col_tipo    else ""
-        rot  = _s(row.get(col_rotulos, "")).upper() if col_rotulos else ""
-        uf_v = _s(row.get(col_uf,      ""))         if col_uf      else ""
-        cl_v = _s(row.get(col_cluster, ""))         if col_cluster else ""
-        re_v = _s(row.get(col_rede,    ""))         if col_rede    else ""
-        op_v = _s(row.get(col_op,      ""))         if col_op      else ""
-        dn_v = _s(row.get(col_den,     ""))         if col_den     else ""
-
-        rec = {
-            "Central":          cen,
-            "Tipo de Rota":     tipo,
-            "Rótulos de Linha": rot,
-            "UF":               uf_v,
-            "CLUSTER":          cl_v,
-            "REDE":             re_v,
-            "OPERADORA":        op_v,
-            "Denominação":      dn_v,
-        }
-
-        # TR e RL: primeiro match exato vence
-        if tipo:
-            idx.setdefault(f"{cen}|TR|{tipo}", rec)
-        if rot:
-            idx.setdefault(f"{cen}|RL|{rot}", rec)
-
-        # ANY: guarda o MELHOR registro por central (maior número de campos preenchidos)
-        sc = _score_rec(rec)
-        if sc > best_score.get(cen, -1):
-            best_score[cen] = sc
-            best_any[cen]   = rec
-
-    for cen, rec in best_any.items():
-        idx[f"{cen}|ANY"] = rec
-
-    n_centrais = len(best_any)
-    log.info("Arquivo 3 indexado: %d chaves, %d centrais", len(idx), n_centrais)
-
-    # Amostra de verificação
-    for cen, rec in list(best_any.items())[:5]:
-        uf_ok = "✅" if rec.get("UF")      else "❌"
-        cl_ok = "✅" if rec.get("CLUSTER") else "❌"
-        log.info("  Central=%-18s %sUF=%-4s %sCLUSTER=%s",
-                 cen, uf_ok, rec.get("UF",""), cl_ok, rec.get("CLUSTER",""))
-
-    return idx
-
-
-def lookup_ref(central: str, tipo_rota: str, rotulos: str,
-               ref_index: Dict[str, Any]) -> Optional[Dict]:
-    c = _s(central).upper()
-    t = _s(tipo_rota).upper()
-    r = _s(rotulos).upper()
-    if not c:
-        return None
-    return (
-        (ref_index.get(f"{c}|TR|{t}") if t else None)
-        or (ref_index.get(f"{c}|RL|{r}") if r else None)
-        or ref_index.get(f"{c}|ANY")
-    )
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# LINHA DE SAÍDA
-# ─────────────────────────────────────────────────────────────────────────────
-
-def build_output_row(sci_row: Dict, por_row: Dict, source_tag: str,
-                     ref_index: Dict[str, Any],
-                     uf_map: Dict[str, str],
-                     config: Dict) -> Dict:
-
-    central, cen_src = derive_central(
-        por_row, sci_row,
-        pcol=config.get("central_portal_col", "CENTRAL"),
-        scol=config.get("central_sci_col", "Central Origem"),
-    )
-    tipo_rota, tr_src = derive_tipo_rota(
-        por_row, sci_row,
-        pcol=config.get("tipo_rota_portal_col", "TIPO_ROTA"),
-        scol=config.get("tipo_rota_sci_col", "Sinalização da Rota"),
-    )
-    rotulos_portal = derive_rotulos(
-        por_row,
-        le=config.get("label_e_col", "LABEL_E"),
-        ls=config.get("label_s_col", "LABEL_S"),
-        concat=config.get("concat_labels", True),
-        sep=config.get("label_sep", " | "),
-    )
-
-    # Arquivo 3 — fonte primária para UF e CLUSTER
-    ref = lookup_ref(central, tipo_rota, rotulos_portal, ref_index)
-
-    def _ref(key: str) -> str:
-        return _s(ref.get(key, "")) if ref else ""
-
-    # UF: Arquivo 3 → CN/DDD direto → CNL
-    uf = _ref("UF")
-
-    if not uf:
-        cn_to_uf = config.get("_cn_to_uf_map", {})
-        if cn_to_uf:
-            cn_col = config.get("cn_sci_col", "")
-            if cn_col and cn_col != "(nenhuma)":
-                cn_val = clean_cn(sci_row.get(cn_col, ""))
-                if cn_val:
-                    uf = cn_to_uf.get(cn_val, "")
-            if not uf:
-                cn_val = clean_cn(sci_row.get("CN", ""))
-                if cn_val:
-                    uf = cn_to_uf.get(cn_val, "")
-
-    if not uf and uf_map:
-        cnl_sci = clean_cnl(sci_row.get(config.get("cnl_sci_col", "CNL"), ""))
-        cnl_por = clean_cnl(coalesce(
-            por_row.get(config.get("cnl_por_col", "CNL_PPI"), ""),
-            por_row.get("CNL", ""),
-            por_row.get("PPI", ""),
-        ))
-        cnl_val = cnl_sci or cnl_por
-        if cnl_val:
-            uf = uf_map.get(cnl_val, "") or uf_map.get(cnl_val.lstrip("0"), "")
-
-    cluster     = _ref("CLUSTER")
-    rotulos     = _ref("Rótulos de Linha") or rotulos_portal
-    denominacao = _ref("Denominação") or coalesce(
-        sci_row.get(config.get("denominacao_sci_col", "Descrição"), ""),
-        por_row.get("DESIGNACAO", ""),
-    )
-    operadora = derive_operadora(
-        _ref("OPERADORA"), por_row, sci_row,
-        op_col=config.get("operadora_sci_col", "Operadora Origem"),
-    )
-
-    cnl_log = (clean_cnl(sci_row.get(config.get("cnl_sci_col", "CNL"), ""))
-               or clean_cnl(por_row.get(config.get("cnl_por_col", "CNL_PPI"), "")))
-
-    log.debug("Row central=%-15s uf=%-4s cluster=%-12s arq3=%s",
-              central, uf or "(vazio)", cluster or "(vazio)", ref is not None)
-
-    return {
-        "REDE":             derive_rede(source_tag),
-        "UF":               uf,
-        "CLUSTER":          cluster,
-        "Tipo de Rota":     tipo_rota,
-        "Central":          central,
-        "Rótulos de Linha": rotulos,
-        "OPERADORA":        operadora,
-        "Denominação":      denominacao,
-        "_source_tag":      source_tag,
-        "_central_src":     cen_src,
-        "_tipo_rota_src":   tr_src,
-        "_arq3_match":      str(ref is not None),
-        "_cnl_val":         cnl_log,
+# ── helpers de estado ──────────────────────────────────────────────────────
+
+def _ss(k, default=None):
+    return st.session_state.get(k, default)
+
+
+def _init_state() -> None:
+    defaults = {
+        "sci_df": None, "sci_filename": "", "sci_import_id": None,
+        "sci_col_map": {}, "sci_hash": "", "sci_sheet": None,
+        "por_df": None, "por_filename": "", "por_import_id": None,
+        "por_col_map": {}, "por_hash": "", "por_sheet": None,
+        "arq3_df": None, "arq3_filename": "", "arq3_import_id": None,
+        "arq3_col_map": {}, "arq3_hash": "", "arq3_sheet": None,
+        "merged_df": None, "merge_report": None, "version_id": None,
+        "wizard_cfg": {}, "uf_map": {},
+        "seeds_loaded": False,
     }
+    for k, v in defaults.items():
+        if k not in st.session_state:
+            st.session_state[k] = v
+
+
+# ── Upload helper ──────────────────────────────────────────────────────────
+
+def _handle_upload(uploaded_file, prefix: str, source_label: str) -> None:
+    ext = uploaded_file.name.split(".")[-1].lower()
+    raw = uploaded_file.read()
+    import io
+    sheet: Optional[str] = None
+    if ext in ("xlsx", "xls"):
+        sheets = list_sheets(io.BytesIO(raw))
+        if len(sheets) > 1:
+            sheet = st.selectbox(f"Planilha — {source_label}",
+                                  sheets, key=f"sheet_{prefix}")
+        elif sheets:
+            sheet = sheets[0]
+    try:
+        df = read_file(io.BytesIO(raw), filename=uploaded_file.name, sheet=sheet)
+        df, col_map = apply_column_normalization(df)
+        df = strip_whitespace(df)
+        df = infer_and_coerce_types(df)
+        st.session_state[f"{prefix}_df"]        = df
+        st.session_state[f"{prefix}_filename"]  = uploaded_file.name
+        st.session_state[f"{prefix}_raw"]       = raw
+        st.session_state[f"{prefix}_col_map"]   = col_map
+        st.session_state[f"{prefix}_hash"]      = file_hash(raw)
+        st.session_state[f"{prefix}_sheet"]     = sheet
+        st.success(f"✅ {uploaded_file.name}: {len(df):,} linhas · {len(df.columns)} colunas")
+    except Exception as e:
+        st.error(f"❌ Erro ao ler {uploaded_file.name}: {e}")
+        log.error("Upload error: %s", e, exc_info=True)
+
+
+# ── Página 1: Upload ────────────────────────────────────────────────────────
+
+def render_upload_page() -> None:
+    st.header("📂 1. Carregar Arquivos")
+    st.markdown("""
+    Faça upload dos três arquivos. Dados processados **100% localmente**.
+    """)
+
+    c1, c2, c3 = st.columns(3)
+
+    with c1:
+        st.subheader("Planilha Science")
+        f = st.file_uploader("Science (xlsx/csv/parquet)",
+                             type=["xlsx","xls","csv","parquet"],
+                             key="up_sci")
+        if f: _handle_upload(f, "sci", "Science")
+
+    with c2:
+        st.subheader("Portal de Cadastros")
+        f = st.file_uploader("Portal (xlsx/csv/parquet)",
+                             type=["xlsx","xls","csv","parquet"],
+                             key="up_por")
+        if f: _handle_upload(f, "por", "Portal")
+
+    with c3:
+        st.subheader("Arquivo 3 (Referência)")
+        f = st.file_uploader("Arquivo 3 (xlsx/csv/parquet)",
+                             type=["xlsx","xls","csv","parquet"],
+                             key="up_arq3")
+        if f: _handle_upload(f, "arq3", "Arquivo 3")
+
+    # Previews
+    for prefix, label in [("sci","Science"), ("por","Portal"), ("arq3","Arquivo 3")]:
+        df = _ss(f"{prefix}_df")
+        if df is not None:
+            with st.expander(f"👁️ Preview {label} ({len(df):,} linhas)", expanded=False):
+                st.dataframe(df.head(20), width="stretch", hide_index=True)
+                st.caption(f"Colunas: {', '.join(df.columns.tolist())}")
+
+    sci_ok  = _ss("sci_df")  is not None
+    por_ok  = _ss("por_df")  is not None
+    arq3_ok = _ss("arq3_df") is not None
+
+    if sci_ok and por_ok:
+        msg = "✅ Science e Portal carregados."
+        msg += " ✅ Arquivo 3 carregado." if arq3_ok else " ℹ️ Arquivo 3 não carregado (opcional)."
+        st.success(msg)
+
+    # Seeds status
+    with session_scope() as s:
+        repo = Repository(s)
+        cnl_n  = repo.cnl_count()
+        uf_n   = repo.cn_to_uf_count()
+    st.info(f"🗄️ Seeds: {cnl_n:,} registros CNL · {uf_n} mapeamentos CN→UF")
+    if cnl_n == 0:
+        st.warning("⚠️ Tabela CNL vazia. Execute: **Ferramentas → Carregar Seeds** para habilitar derivação de UF.")
+
+
+# ── Página 2: Mapeamento ───────────────────────────────────────────────────
+
+def render_mapping_page() -> None:
+    sci_df  = _ss("sci_df")
+    por_df  = _ss("por_df")
+    arq3_df = _ss("arq3_df")
+
+    if sci_df is None or por_df is None:
+        st.warning("⚠️ Carregue Science e Portal primeiro (Passo 1).")
+        return
+
+    cfg = run_mapping_wizard(
+        science_cols=list(sci_df.columns),
+        portal_cols=list(por_df.columns),
+        arq3_cols=list(arq3_df.columns) if arq3_df is not None else [],
+    )
+
+    # Preview de matches
+    join_sci = cfg.get("join_keys_sci", [])
+    join_por = cfg.get("join_keys_por", [])
+    if join_sci and join_por and len(join_sci) == len(join_por):
+        st.markdown("---")
+        st.markdown("### 📊 Preview de matches por chave de junção")
+        for ks, kp in zip(join_sci, join_por):
+            if ks in sci_df.columns and kp in por_df.columns:
+                stats = count_join_matches(sci_df, por_df, ks, kp)
+                st.markdown(f"**`{ks}`** (Science) ↔ **`{kp}`** (Portal):")
+                mc1, mc2, mc3 = st.columns(3)
+                mc1.metric("Matches", stats.get("matches", 0))
+                mc2.metric("Só Science", stats.get("sci_only", 0))
+                mc3.metric("Só Portal", stats.get("por_only", 0))
+
+    st.markdown("---")
+    if st.button("💾 Salvar Configuração", type="primary", key="btn_save_cfg"):
+        st.session_state["wizard_cfg"] = cfg
+        st.success("✅ Configuração salva! Prossiga para Gerar Tabela Final.")
+
+
+# ── Página 3: Merge ────────────────────────────────────────────────────────
+
+def render_merge_page() -> None:
+    sci_df  = _ss("sci_df")
+    por_df  = _ss("por_df")
+    arq3_df = _ss("arq3_df")
+    cfg     = _ss("wizard_cfg") or {}
+
+    if sci_df is None or por_df is None:
+        st.warning("⚠️ Carregue os arquivos primeiro (Passo 1).")
+        return
+
+    st.header("⚙️ 3. Gerar Tabela Final")
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Linhas Science", f"{len(sci_df):,}")
+    c2.metric("Linhas Portal",  f"{len(por_df):,}")
+    c3.metric("Arquivo 3",      f"{len(arq3_df):,}" if arq3_df is not None else "—")
+
+    if st.button("🚀 Gerar Tabela Combinada", type="primary", key="btn_merge"):
+        with st.spinner("Processando..."):
+            try:
+                # Carrega uf_map e cn_to_uf_map do banco
+                with session_scope() as s:
+                    repo = Repository(s)
+                    all_cnls = (
+                        list(sci_df.get(cfg.get("cnl_sci_col","CNL"), pd.Series()).dropna())
+                        + list(por_df.get(cfg.get("cnl_por_col","CNL_PPI"), pd.Series()).dropna())
+                    )
+                    uf_map       = repo.resolve_ufs_batch([str(c) for c in all_cnls])
+                    cn_to_uf_map = repo.get_cn_to_uf_map()
+                st.session_state["uf_map"] = uf_map
+
+                merged, report = build_merged_df(
+                    science_df=sci_df.copy(),
+                    portal_df=por_df.copy(),
+                    ref_df=arq3_df.copy() if arq3_df is not None else None,
+                    uf_map=uf_map,
+                    join_keys_sci=cfg.get("join_keys_sci", []),
+                    join_keys_por=cfg.get("join_keys_por", []),
+                    join_type=cfg.get("join_type", "outer"),
+                    config=cfg,
+                    cn_to_uf_map=cn_to_uf_map,
+                )
+                st.session_state["merged_df"]    = merged
+                st.session_state["merge_report"] = report
+                st.success(f"✅ {len(merged):,} linhas geradas.")
+            except Exception as e:
+                st.error(f"❌ Erro: {e}")
+                log.error("Merge error: %s", e, exc_info=True)
+                return
+
+    merged_df = _ss("merged_df")
+    if merged_df is None:
+        # Tenta carregar a última versão persistida
+        with session_scope() as s:
+            repo = Repository(s)
+            merged_df = repo.load_merged_df()
+        if merged_df is not None and not merged_df.empty:
+            st.info("ℹ️ Exibindo última versão salva no banco.")
+            st.session_state["merged_df"] = merged_df
+
+    if merged_df is None or merged_df.empty:
+        return
+
+    # Qualidade
+    report = _ss("merge_report") or {}
+    with st.expander("📋 Relatório do Merge"):
+        q = quality_summary(merged_df)
+        rc1, rc2, rc3, rc4 = st.columns(4)
+        rc1.metric("Total linhas",   q.get("total", 0))
+        rc2.metric("UF em branco",   q.get("UF_missing", 0))
+        rc3.metric("Cluster em branco", q.get("CLUSTER_missing", 0))
+        rc4.metric("Sem match Arq3", q.get("arq3_no_match", 0))
+
+        sb = q.get("source_breakdown", {})
+        if sb:
+            st.markdown("**Origem das linhas:**")
+            for tag, cnt in sb.items():
+                st.write(f"  - `{tag}`: {cnt:,}")
+
+    # Grid com floating filters
+    display_cols = [c for c in merged_df.columns if not c.startswith("_")]
+    filtered_df = show_grid(
+        merged_df[display_cols],
+        key="merge_grid",
+        title="📊 Tabela Final Combinada",
+        height=540,
+    )
+
+    # Exportações
+    st.markdown("---")
+    st.markdown("### 💾 Salvar e Exportar")
+    ex1, ex2, ex3, ex4 = st.columns(4)
+
+    with ex1:
+        if st.button("🗄️ Salvar no SQLite", key="btn_save"):
+            _save_to_db(merged_df)
+
+    with ex2:
+        st.download_button("⬇️ CSV (filtrado)",
+                           to_csv_bytes(filtered_df),
+                           f"resultado_{version_tag()}.csv",
+                           "text/csv", key="btn_csv")
+    with ex3:
+        try:
+            st.download_button("⬇️ XLSX (filtrado)",
+                               to_xlsx_bytes(filtered_df),
+                               f"resultado_{version_tag()}.xlsx",
+                               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                               key="btn_xlsx")
+        except Exception as e:
+            st.error(f"XLSX: {e}")
+
+    with ex4:
+        st.download_button("⬇️ Mapeamento JSON",
+                           to_mapping_json({"config": cfg}),
+                           f"mapping_{version_tag()}.json",
+                           "application/json", key="btn_map_json")
+
+
+def _save_to_db(merged_df: pd.DataFrame) -> None:
+    try:
+        with session_scope() as s:
+            repo = Repository(s)
+            cfg  = _ss("wizard_cfg") or {}
+
+            # Science
+            sci_id = _ss("sci_import_id")
+            if not sci_id and _ss("sci_df") is not None:
+                sci_id = repo.save_import(
+                    "SCIENCE", _ss("sci_filename") or "science.xlsx",
+                    _ss("sci_sheet"), _ss("sci_hash") or "",
+                    st.session_state["sci_df"], _ss("sci_col_map") or {})
+                st.session_state["sci_import_id"] = sci_id
+
+            # Portal
+            por_id = _ss("por_import_id")
+            if not por_id and _ss("por_df") is not None:
+                por_id = repo.save_import(
+                    "PORTAL", _ss("por_filename") or "portal.xlsx",
+                    _ss("por_sheet"), _ss("por_hash") or "",
+                    st.session_state["por_df"], _ss("por_col_map") or {})
+                st.session_state["por_import_id"] = por_id
+
+            # Arquivo 3
+            arq3_id = _ss("arq3_import_id")
+            if not arq3_id and _ss("arq3_df") is not None:
+                arq3_id = repo.save_import(
+                    "ARQ3", _ss("arq3_filename") or "arquivo3.xlsx",
+                    _ss("arq3_sheet"), _ss("arq3_hash") or "",
+                    st.session_state["arq3_df"], _ss("arq3_col_map") or {})
+                repo.save_arq3(arq3_id, st.session_state["arq3_df"],
+                               _ss("arq3_col_map") or {})
+                st.session_state["arq3_import_id"] = arq3_id
+
+            vid = repo.save_merge_version(
+                version_tag(), sci_id, por_id, arq3_id,
+                mapping=cfg, join_keys=cfg.get("join_keys_sci", []),
+                join_type=cfg.get("join_type", "outer"),
+                fuzzy_threshold=90,
+                merged_df=merged_df,
+                rows_sci=len(st.session_state.get("sci_df") or []),
+                rows_por=len(st.session_state.get("por_df") or []),
+            )
+            st.session_state["version_id"] = vid
+            repo.add_log("INFO", f"Merge salvo version_id={vid}")
+
+        st.success(f"✅ Salvo! version_id: `{vid[:8]}...`")
+    except Exception as e:
+        st.error(f"❌ Erro ao salvar: {e}")
+        log.error("DB save: %s", e, exc_info=True)
+
+
+# ── Página 4: Seeds ─────────────────────────────────────────────────────────
+
+def render_seeds_page() -> None:
+    st.header("🌱 Ferramentas — Seeds e Referências")
+
+    with session_scope() as s:
+        repo = Repository(s)
+        cnl_n = repo.cnl_count()
+        uf_n  = repo.cn_to_uf_count()
+
+    st.info(f"Estado atual: **{cnl_n:,}** registros CNL · **{uf_n}** mapeamentos CN→UF")
+
+    import os
+    from pathlib import Path
+
+    st.markdown("### 📋 Carregar Seeds automáticos")
+    seed_dir = Path("seeds")
+    cnl_sql  = seed_dir / "cnl.sql"
+    uf_csv   = seed_dir / "cn_to_uf.csv"
+
+    c1, c2 = st.columns(2)
+    with c1:
+        if cnl_sql.exists():
+            if st.button("▶️ Carregar seeds/cnl.sql", key="btn_cnl_seed"):
+                with session_scope() as s:
+                    repo = Repository(s)
+                    n = repo.load_cnl_seeds(str(cnl_sql))
+                st.success(f"✅ {n} statements CNL executados.")
+        else:
+            st.warning("seeds/cnl.sql não encontrado.")
+
+    with c2:
+        if uf_csv.exists():
+            if st.button("▶️ Carregar seeds/cn_to_uf.csv", key="btn_uf_seed"):
+                with session_scope() as s:
+                    repo = Repository(s)
+                    n = repo.load_cn_to_uf_csv(str(uf_csv))
+                st.success(f"✅ {n} mapeamentos CN→UF carregados.")
+        else:
+            st.warning("seeds/cn_to_uf.csv não encontrado.")
+
+    st.markdown("### 📤 Upload manual de seeds")
+    uf_file = st.file_uploader("Upload cn_to_uf.csv personalizado",
+                                type=["csv"], key="up_uf_csv")
+    if uf_file:
+        import io, tempfile
+        tmp = tempfile.NamedTemporaryFile(suffix=".csv", delete=False)
+        tmp.write(uf_file.read())
+        tmp.flush()
+        try:
+            with session_scope() as s:
+                repo = Repository(s)
+                n = repo.load_cn_to_uf_csv(tmp.name)
+            st.success(f"✅ {n} mapeamentos carregados.")
+        finally:
+            os.unlink(tmp.name)
+
+    st.markdown("### 🔍 Testar lookup de UF")
+    test_cnl = st.text_input("Digite um COD_CNL para testar:", key="test_cnl")
+    if test_cnl:
+        with session_scope() as s:
+            repo = Repository(s)
+            uf = repo.get_uf_for_cnl(test_cnl)
+        if uf:
+            st.success(f"CNL `{test_cnl}` → UF: **{uf}**")
+        else:
+            st.warning(f"CNL `{test_cnl}` não encontrado nas tabelas de referência.")
+
+
+# ── Página 5: Histórico ─────────────────────────────────────────────────────
+
+def render_history_page() -> None:
+    st.header("🕐 Histórico de Versões")
+    with session_scope() as s:
+        repo = Repository(s)
+        versions = repo.list_versions()
+        imports  = repo.list_imports()
+
+    if not versions:
+        st.info("Nenhum merge salvo ainda.")
+    else:
+        df_v = pd.DataFrame(versions)
+        st.dataframe(df_v, width="stretch", hide_index=True)
+
+        sel = st.selectbox("Carregar versão:",
+                            [v["id"] for v in versions],
+                            format_func=lambda x: next(
+                                (f"{v['tag']} — {v['rows_merged']} linhas"
+                                 for v in versions if v["id"] == x), x),
+                            key="hist_sel")
+        if st.button("📂 Carregar", key="btn_hist_load"):
+            with session_scope() as s2:
+                repo2 = Repository(s2)
+                loaded = repo2.load_merged_df(sel)
+            st.session_state["merged_df"] = loaded
+            st.success(f"✅ {len(loaded):,} linhas carregadas.")
+            show_grid(loaded[[c for c in loaded.columns if not c.startswith("_")]],
+                      key="hist_grid", title="Versão carregada")
+
+    if imports:
+        with st.expander("📁 Importações"):
+            st.dataframe(pd.DataFrame(imports), width="stretch", hide_index=True)
+
+
+# ── Página 6: Validação ────────────────────────────────────────────────────
+
+def render_validation_page() -> None:
+    st.header("✅ Relatório de Qualidade")
+    merged = _ss("merged_df")
+    if merged is None:
+        with session_scope() as s:
+            repo = Repository(s)
+            merged = repo.load_merged_df()
+    if merged is None or merged.empty:
+        st.info("Nenhum resultado gerado ainda.")
+        return
+
+    q = quality_summary(merged)
+    cols = st.columns(4)
+    cols[0].metric("Total linhas",   q.get("total", 0))
+    cols[1].metric("UF em branco",   q.get("UF_missing", 0))
+    cols[2].metric("Cluster em branco", q.get("CLUSTER_missing", 0))
+    cols[3].metric("Sem match Arq3", q.get("arq3_no_match", 0))
+
+    # Amostras de pendentes
+    uf_pending = merged[merged["UF"].eq("") | merged["UF"].isna()]
+    if not uf_pending.empty:
+        with st.expander(f"⚠️ Linhas sem UF ({len(uf_pending)})"):
+            display = [c for c in uf_pending.columns if not c.startswith("_")]
+            st.dataframe(uf_pending[display].head(50),
+                         width="stretch", hide_index=True)
+
+    for df, name in [(_ss("sci_df"), "Science"), (_ss("por_df"), "Portal"),
+                     (merged, "Resultado")]:
+        if df is not None:
+            with st.expander(f"📊 {name}"):
+                rep = generate_report(df, name)
+                st.dataframe(pd.DataFrame(rep["colunas"]),
+                             width="stretch", hide_index=True)
+
+
+
+# ── Página de Diagnóstico ────────────────────────────────────────────────
+
+def render_diagnostico_page() -> None:
+    st.header("🔬 Diagnóstico de Mapeamento")
+
+    sci_df  = _ss("sci_df")
+    por_df  = _ss("por_df")
+    arq3_df = _ss("arq3_df")
+    cfg     = _ss("wizard_cfg") or {}
+    merged  = _ss("merged_df")
+
+    if sci_df is None and por_df is None:
+        st.warning("⚠️ Carregue os arquivos primeiro.")
+        return
+
+    from app.core.map_rules import build_ref_index, _find_col, _normalize_key
+
+    # ── 1. Colunas detectadas no Arquivo 3 ───────────────────────────────
+    st.markdown("### 1️⃣ Detecção de colunas no Arquivo 3")
+    if arq3_df is not None:
+        idx = build_ref_index(arq3_df, cfg)
+        cols = list(arq3_df.columns)
+        NONE = "(nenhuma)"
+
+        def _pick_diag(cfg_key, *subs):
+            manual = cfg.get(cfg_key, "")
+            if manual and manual != NONE and manual in cols:
+                return manual, "⚙️ manual"
+            found = _find_col(cols, *subs)
+            return found, "🤖 auto"
+
+        det_central, src_cen = _pick_diag("arq3_central_col",
+            "Central","CENTRAL","Central Origem","CENTRAL_ORIGEM")
+        det_uf,      src_uf  = _pick_diag("arq3_uf_col",
+            "UF","ESTADO","Estado","SIGLA")
+        det_cluster, src_cl  = _pick_diag("arq3_cluster_col",
+            "CLUSTER","Cluster","CLÚSTER","AGRUPAMENTO","CLUSTER_NOME","CLUS")
+        det_tipo,    src_tr  = _pick_diag("arq3_tipo_rota_col",
+            "Tipo de Rota","TIPO DE ROTA","TIPO_ROTA","TIPO")
+
+        det_rows = [
+            {"Coluna de saída": "Central",   "Detectada como": det_central or "❌ NÃO ENCONTRADA", "Origem": src_cen},
+            {"Coluna de saída": "UF",        "Detectada como": det_uf      or "❌ NÃO ENCONTRADA", "Origem": src_uf},
+            {"Coluna de saída": "CLUSTER",   "Detectada como": det_cluster or "❌ NÃO ENCONTRADA", "Origem": src_cl},
+            {"Coluna de saída": "Tipo Rota", "Detectada como": det_tipo    or "(opcional)", "Origem": src_tr},
+        ]
+        st.dataframe(pd.DataFrame(det_rows), width="stretch", hide_index=True)
+
+        if not det_cluster:
+            st.error(
+                "❌ **Coluna CLUSTER não encontrada automaticamente!** "
+                "Vá em **Mapeamento → Seção 8️⃣** e selecione manualmente qual coluna "
+                "do Arquivo 3 contém o CLUSTER."
+            )
+        else:
+            sample_clusters = arq3_df[det_cluster].dropna().unique()[:8]
+            st.success(f"✅ CLUSTER detectado: coluna **`{det_cluster}`**  |  Amostra: {list(sample_clusters)}")
+
+        if not det_uf:
+            st.warning("⚠️ Coluna UF não encontrada no Arquivo 3. UF virá de CN/CNL.")
+        else:
+            sample_ufs = arq3_df[det_uf].dropna().unique()[:10]
+            st.success(f"✅ UF detectada: coluna **`{det_uf}`**  |  Amostra: {sorted(set(str(v) for v in sample_ufs))}")
+
+        # Todas as 32 colunas do arquivo 3
+        with st.expander(f"📋 Todas as {len(cols)} colunas do Arquivo 3"):
+            for i, c in enumerate(cols):
+                sample_val = arq3_df[c].dropna().iloc[0] if not arq3_df[c].dropna().empty else ""
+                st.text(f"{i+1:3d}. {c!r:45} ex: {str(sample_val)[:40]!r}")
+
+        st.markdown("---")
+        # Primeiras 3 linhas do Arquivo 3
+        st.markdown("**Primeiras 3 linhas do Arquivo 3:**")
+        st.dataframe(arq3_df.head(3), width="stretch", hide_index=True)
+
+    else:
+        st.warning("⚠️ Arquivo 3 não carregado.")
+
+    # ── 2. Resultado do merge: análise UF e CLUSTER ───────────────────────
+    st.markdown("### 2️⃣ Resultado do Merge (UF e CLUSTER)")
+    if merged is not None and len(merged) > 0:
+        total = len(merged)
+        uf_ok = (merged["UF"] != "").sum()
+        cl_ok = (merged["CLUSTER"] != "").sum()
+        arq3_match = (merged.get("_arq3_match", pd.Series("False")) == "True").sum()
+
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Total de linhas", f"{total:,}")
+        c2.metric("UF preenchida", f"{uf_ok:,}", f"{uf_ok/total:.0%}")
+        c3.metric("CLUSTER preenchido", f"{cl_ok:,}", f"{cl_ok/total:.0%}")
+        c4.metric("Match Arquivo 3", f"{arq3_match:,}", f"{arq3_match/total:.0%}")
+
+        # Amostra de linhas com CLUSTER vazio
+        empty_cl = merged[merged["CLUSTER"] == ""]
+        if len(empty_cl) > 0:
+            st.warning(f"⚠️ {len(empty_cl):,} linhas sem CLUSTER")
+            with st.expander(f"🔍 Centrais sem CLUSTER ({min(20,len(empty_cl))} primeiras)"):
+                show = empty_cl[["Central","UF","CLUSTER","_arq3_match"]].head(20)
+                st.dataframe(show, hide_index=True)
+                # Mostra Centrais únicas que não bateram
+                centrais_sem = empty_cl["Central"].dropna().unique()[:20]
+                st.caption(f"Centrais sem match: {list(centrais_sem)}")
+
+        # Amostra de linhas COM CLUSTER preenchido
+        ok_cl = merged[merged["CLUSTER"] != ""]
+        if len(ok_cl) > 0:
+            with st.expander(f"✅ Amostra COM CLUSTER ({min(10,len(ok_cl))} linhas)"):
+                show2 = ok_cl[["Central","UF","CLUSTER","_arq3_match"]].head(10)
+                st.dataframe(show2, hide_index=True)
+    else:
+        st.info("ℹ️ Gere a tabela combinada primeiro (Passo 3).")
+
+    # ── 3. Centrais sem match no Arquivo 3 ───────────────────────────────
+    if arq3_df is not None and (por_df is not None or sci_df is not None):
+        st.markdown("### 3️⃣ Centrais (Portal/Science) vs Arquivo 3")
+        idx = build_ref_index(arq3_df, cfg)
+        centrais_arq3 = {k[:-4] for k in idx if k.endswith("|ANY")}
+
+        ce_por = cfg.get("central_portal_col", "CENTRAL")
+        ce_sci = cfg.get("central_sci_col", "Central Origem")
+
+        sample_rows = []
+        df_src = por_df if por_df is not None else sci_df
+        for i in range(min(20, len(df_src))):
+            por_r = por_df.iloc[i].to_dict() if por_df is not None else {}
+            sci_r = sci_df.iloc[min(i, len(sci_df)-1)].to_dict() if sci_df is not None else {}
+            from app.core.map_rules import coalesce
+            central = coalesce(
+                str(por_r.get(ce_por, "") or ""),
+                str(sci_r.get(ce_sci, "") or "")
+            ).strip().upper()
+            match = "✅" if central in centrais_arq3 else "❌ sem match"
+            sample_rows.append({"Central": central or "(vazio)", "Match Arquivo 3": match})
+        st.dataframe(pd.DataFrame(sample_rows), width="stretch", hide_index=True)
+        n_match = sum(1 for r in sample_rows if r["Match Arquivo 3"] == "✅")
+        st.caption(f"Matches: {n_match}/{len(sample_rows)} | Arquivo 3: {len(centrais_arq3)} centrais únicas")
+
+# ── Página 7: Logs ─────────────────────────────────────────────────────────
+
+def render_logs_page() -> None:
+    st.header("📋 Logs e Auditoria")
+    with session_scope() as s:
+        repo = Repository(s)
+        logs = repo.get_logs(200)
+    if not logs:
+        st.info("Nenhum log ainda.")
+        return
+    df_l = pd.DataFrame(logs)[["timestamp", "level", "message"]]
+    lvl_filter = st.multiselect("Nível:", ["INFO","WARNING","ERROR","DEBUG"],
+                                 default=["INFO","WARNING","ERROR"],
+                                 key="log_lvl")
+    st.dataframe(df_l[df_l["level"].isin(lvl_filter)],
+                 width="stretch", hide_index=True)
+    st.download_button("⬇️ Baixar log", logs_to_text(logs),
+                       f"logs_{version_tag()}.txt", key="btn_log_dl")
