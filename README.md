@@ -1,70 +1,11 @@
-CN,UF
-11,SP
-12,SP
-13,SP
-14,SP
-15,SP
-16,SP
-17,SP
-18,SP
-19,SP
-21,RJ
-22,RJ
-24,RJ
-27,ES
-28,ES
-31,MG
-32,MG
-33,MG
-34,MG
-35,MG
-36,MG
-37,MG
-38,MG
-41,PR
-42,PR
-43,PR
-44,PR
-45,PR
-46,PR
-47,SC
-48,SC
-49,SC
-51,RS
-53,RS
-54,RS
-55,RS
-61,DF
-62,GO
-63,TO
-64,GO
-65,MT
-66,MT
-67,MS
-68,AC
-69,RO
-71,BA
-72,BA
-73,BA
-74,BA
-75,BA
-77,BA
-79,SE
-81,PE
-82,AL
-83,PB
-84,RN
-85,CE
-86,PI
-87,PE
-88,CE
-89,PI
-91,PA
-92,PA
-93,PA
-94,PA
-95,RR
-96,AP
-97,AM
-98,MA
-99,MA
+❌ Erro: build_merged_df() got an unexpected keyword argument 'cn_to_uf_map'
+
+2026-03-02 11:46:53 [INFO] app.io.readers: PORTAL_ROTAS_FIXA 01.xlsx lido: 9550 × 34 (sheet=0)
+2026-03-02 11:47:04 [INFO] app.io.readers: Arquivo 03.xlsx lido: 25835 × 32 (sheet=0)
+2026-03-02 11:47:04 [INFO] app.core.normalize: Colunas normalizadas: 1 renomeadas
+2026-03-02 11:47:13 [ERROR] app.ui.pages: Merge error: build_merged_df() got an unexpected keyword argument 'cn_to_uf_map'
+Traceback (most recent call last):
+  File "C:\Users\40418843\Desktop\novo-modelo-controle-de-rotas-cadastradas\app\ui\pages.py", line 213, in render_merge_page
+    merged, report = build_merged_df(
+                     ^^^^^^^^^^^^^^^^
+TypeError: build_merged_df() got an unexpected keyword argument 'cn_to_uf_map'
