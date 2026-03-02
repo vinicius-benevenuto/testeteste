@@ -1,232 +1,342 @@
-"""
-core/map_rules.py
-Regras de mapeamento de negócio.
-Prioridade UF/CLUSTER:
-  1. Arquivo 3 via Central + Tipo de Rota  (match exato)
-  2. Arquivo 3 via Central + Rótulos       (match por rótulos)
-  3. Arquivo 3 via Central sozinha         (fallback - NOVA REGRA)
-  4. CN direto (DDD) → cn_to_uf
-  5. CNL → CN → UF via uf_map pré-calculado
-"""
+"""db/repository.py — Toda operação no banco passa por aqui."""
 from __future__ import annotations
-from typing import Any, Dict, Optional, Tuple
+import json
+from pathlib import Path
+from typing import Dict, List, Optional
 
+import pandas as pd
+from sqlalchemy import text
+from sqlalchemy.orm import Session
+
+from app.db.models import (
+    ColumnRename, CnlTable, CnToUf, Import, LogEntry,
+    MappingVersion, MergedRow, RawPortal, RawScience, RefRotas,
+)
+from app.utils.ids import new_uuid
+from app.utils.cnl_utils import clean_cnl
 from app.utils.logging_utils import get_logger
-from app.utils.cnl_utils import clean_cnl, clean_cn
 
 log = get_logger(__name__)
-
-OUTPUT_COLUMNS = [
-    "REDE", "UF", "CLUSTER", "Tipo de Rota",
-    "Central", "Rótulos de Linha", "OPERADORA", "Denominação",
-]
-
-_INVALID = {"nan", "none", "null", "n/a", "na", "#n/a", ""}
+_CHUNK = 500
 
 
-def derive_rede(source_tag: str) -> str:
-    if (source_tag or "").upper() in ("SCIENCE", "BOTH"):
-        return "VIVO-SMP"
-    return "VIVO-STFC"
+class Repository:
+    def __init__(self, session: Session) -> None:
+        self.session = session
 
+    # ── Logs ──────────────────────────────────────────────────────────────
 
-def coalesce(*values: Any) -> str:
-    for v in values:
-        s = str(v or "").strip()
-        if s and s.lower() not in _INVALID:
-            return s
-    return ""
+    def add_log(self, level: str, message: str, ctx: Optional[Dict] = None) -> None:
+        self.session.add(LogEntry(
+            level=level.upper(), message=message,
+            context_json=json.dumps(ctx or {}, default=str)))
+        try:
+            self.session.flush()
+        except Exception:
+            pass
 
+    def get_logs(self, limit: int = 500) -> List[Dict]:
+        rows = (self.session.query(LogEntry)
+                .order_by(LogEntry.timestamp.desc()).limit(limit).all())
+        return [{"id": r.id,
+                 "timestamp": r.timestamp.isoformat() if r.timestamp else "",
+                 "level": r.level, "message": r.message} for r in rows]
 
-def derive_tipo_rota(por: Dict, sci: Dict,
-                     pcol: str = "TIPO_ROTA",
-                     scol: str = "Sinalização da Rota") -> Tuple[str, str]:
-    v = coalesce(por.get(pcol, ""), sci.get(scol, ""))
-    src = "PORTAL" if str(por.get(pcol, "")).strip() else "SCIENCE"
-    return v.strip().upper(), src
+    # ── Seeds CNL ─────────────────────────────────────────────────────────
 
+    def load_cnl_seeds(self, sql_path: str) -> int:
+        """
+        Carrega seeds/cnl.sql.
+        Aceita tanto:
+          INSERT OR IGNORE INTO cnl (COD_CNL, CN) VALUES ('41406','43');
+          INSERT INTO cnl (CN, COD_CNL) VALUES (43,41406);   ← formato legado
+        """
+        content = Path(sql_path).read_text(encoding="utf-8")
+        count = 0
+        for stmt in content.split(";"):
+            stmt = stmt.strip()
+            if not stmt or stmt.startswith("--"):
+                continue
+            # Ignora statements que não são INSERT (ex: UPDATE, CREATE)
+            if not stmt.upper().startswith("INSERT"):
+                continue
+            try:
+                self.session.execute(text(stmt))
+                count += 1
+            except Exception as e:
+                log.debug("CNL seed skip: %s", e)
+        self.session.flush()
+        log.info("CNL seeds: %d statements executados", count)
+        return count
 
-def derive_central(por: Dict, sci: Dict,
-                   pcol: str = "CENTRAL",
-                   scol: str = "Central Origem") -> Tuple[str, str]:
-    v = coalesce(por.get(pcol, ""), sci.get(scol, ""))
-    src = "PORTAL" if str(por.get(pcol, "")).strip() else "SCIENCE"
-    return v.strip().upper(), src
+    def load_cn_to_uf_csv(self, csv_path: str) -> int:
+        """Carrega seeds/cn_to_uf.csv → tabela cn_to_uf."""
+        content = Path(csv_path).read_text(encoding="utf-8").strip()
+        if not content:
+            log.warning("cn_to_uf.csv vazio, ignorando.")
+            return 0
+        import io as _io
+        df = pd.read_csv(_io.StringIO(content), dtype=str).fillna("")
+        df.columns = [c.strip().upper() for c in df.columns]
+        if "CN" not in df.columns or "UF" not in df.columns:
+            raise ValueError("cn_to_uf.csv deve ter colunas CN e UF")
+        count = 0
+        for _, row in df.iterrows():
+            cn = str(row["CN"]).strip()
+            uf = str(row["UF"]).strip().upper()
+            if not cn or not uf:
+                continue
+            existing = self.session.query(CnToUf).filter(CnToUf.CN == cn).first()
+            if existing:
+                existing.UF = uf
+            else:
+                self.session.add(CnToUf(CN=cn, UF=uf))
+            count += 1
+        self.session.flush()
+        log.info("cn_to_uf: %d registros carregados", count)
+        return count
 
+    def get_uf_for_cnl(self, cod_cnl: str) -> Optional[str]:
+        """Resolve COD_CNL → CN → UF."""
+        if not cod_cnl:
+            return None
+        cod = clean_cnl(cod_cnl)
+        if not cod:
+            return None
 
-def derive_rotulos(por: Dict, le: str = "LABEL_E",
-                   ls: str = "LABEL_S",
-                   concat: bool = True, sep: str = " | ") -> str:
-    e = coalesce(por.get(le, ""))
-    s = coalesce(por.get(ls, ""))
-    if concat and e and s:
-        return f"{e}{sep}{s}"
-    return e or s
+        row = (self.session.query(CnToUf.UF)
+               .join(CnlTable, CnlTable.CN == CnToUf.CN)
+               .filter(CnlTable.COD_CNL == cod)
+               .first())
+        if row:
+            return row.UF
 
-
-def derive_operadora(arq3_val: str, por: Dict, sci: Dict,
-                     op_col: str = "Operadora Origem") -> str:
-    return coalesce(
-        arq3_val,
-        por.get("EMPRESA", ""),
-        sci.get(op_col, ""),
-        sci.get("Operadora destino", ""),
-    ).strip().upper()
-
-
-def build_ref_index(ref_df) -> Dict[str, Any]:
-    """
-    Indexa Arquivo 3 com 3 tipos de chave:
-      {central}|TR|{tipo_rota}   — match exato
-      {central}|RL|{rotulos}     — match por rótulos
-      {central}|ANY              — fallback: qualquer linha com essa central
-    """
-    idx: Dict[str, Any] = {}
-    if ref_df is None or (hasattr(ref_df, "empty") and ref_df.empty):
-        return idx
-
-    for _, row in ref_df.iterrows():
-        rec  = row.to_dict()
-        cen  = str(row.get("Central", "") or "").strip().upper()
-        tipo = str(row.get("Tipo de Rota", "") or "").strip().upper()
-        rot  = str(row.get("Rótulos de Linha", "") or "").strip().upper()
-
-        if not cen:
-            continue
-
-        if tipo and tipo not in _INVALID:
-            idx.setdefault(f"{cen}|TR|{tipo}", rec)
-
-        if rot and rot not in _INVALID:
-            idx.setdefault(f"{cen}|RL|{rot}", rec)
-
-        # Chave ANY — garante que qualquer central conhecida retorna UF+CLUSTER
-        idx.setdefault(f"{cen}|ANY", rec)
-
-    n_centrais = sum(1 for k in idx if k.endswith("|ANY"))
-    log.debug("Arquivo 3 indexado: %d chaves, %d centrais únicas", len(idx), n_centrais)
-    return idx
-
-
-def lookup_ref(central: str, tipo_rota: str, rotulos: str,
-               ref_index: Dict[str, Any]) -> Optional[Dict]:
-    """
-    1. Central + Tipo de Rota
-    2. Central + Rótulos
-    3. Central sozinha  ← garante UF/CLUSTER mesmo sem Tipo de Rota
-    """
-    c = central.strip().upper()
-    t = tipo_rota.strip().upper() if tipo_rota else ""
-    r = rotulos.strip().upper()   if rotulos   else ""
-    if not c:
+        # Sem zeros à esquerda
+        stripped = cod.lstrip("0")
+        if stripped != cod:
+            row2 = (self.session.query(CnToUf.UF)
+                    .join(CnlTable, CnlTable.CN == CnToUf.CN)
+                    .filter(CnlTable.COD_CNL == stripped)
+                    .first())
+            if row2:
+                return row2.UF
         return None
-    return (
-        (ref_index.get(f"{c}|TR|{t}") if t and t not in _INVALID else None)
-        or (ref_index.get(f"{c}|RL|{r}") if r and r not in _INVALID else None)
-        or ref_index.get(f"{c}|ANY")
-    )
 
+    def resolve_ufs_batch(self, cod_cnls: List[str]) -> Dict[str, str]:
+        """Resolve lista de COD_CNL para UF em batch. Normaliza .0 automaticamente."""
+        unique = list(set(clean_cnl(c) for c in cod_cnls if clean_cnl(c)))
+        result: Dict[str, str] = {}
+        for cod in unique:
+            uf = self.get_uf_for_cnl(cod)
+            if uf:
+                result[cod] = uf
+                result[cod.lstrip("0")] = uf
+        return result
 
-def build_output_row(sci_row: Dict, por_row: Dict, source_tag: str,
-                     ref_index: Dict[str, Any],
-                     uf_map: Dict[str, str],
-                     config: Dict) -> Dict:
+    def get_cn_to_uf_map(self) -> Dict[str, str]:
+        """Retorna dict CN→UF para lookup direto de DDD."""
+        rows = self.session.query(CnToUf.CN, CnToUf.UF).all()
+        result = {}
+        for cn, uf in rows:
+            cn_s = str(cn).strip()
+            result[cn_s] = uf
+            try:
+                result[str(int(cn_s))] = uf
+            except (ValueError, TypeError):
+                pass
+        return result
 
-    # ── Derivações base ────────────────────────────────────────────────
-    central, cen_src = derive_central(
-        por_row, sci_row,
-        pcol=config.get("central_portal_col", "CENTRAL"),
-        scol=config.get("central_sci_col", "Central Origem"),
-    )
-    tipo_rota, tr_src = derive_tipo_rota(
-        por_row, sci_row,
-        pcol=config.get("tipo_rota_portal_col", "TIPO_ROTA"),
-        scol=config.get("tipo_rota_sci_col", "Sinalização da Rota"),
-    )
-    rotulos_portal = derive_rotulos(
-        por_row,
-        le=config.get("label_e_col", "LABEL_E"),
-        ls=config.get("label_s_col", "LABEL_S"),
-        concat=config.get("concat_labels", True),
-        sep=config.get("label_sep", " | "),
-    )
+    def cnl_count(self) -> int:
+        return self.session.query(CnlTable).count()
 
-    # ── Lookup Arquivo 3 ──────────────────────────────────────────────
-    ref = lookup_ref(central, tipo_rota, rotulos_portal, ref_index)
+    def cn_to_uf_count(self) -> int:
+        return self.session.query(CnToUf).count()
 
-    def _ref(key: str) -> str:
-        if not ref:
-            return ""
-        v = str(ref.get(key, "") or "").strip()
-        return "" if v.lower() in _INVALID else v
+    # ── Importações ───────────────────────────────────────────────────────
 
-    # ── UF em cascata ─────────────────────────────────────────────────
-    uf = ""
-
-    # 1. Arquivo 3 (via Central — funciona mesmo sem Tipo de Rota)
-    if ref:
-        uf = _ref("UF")
-
-    # 2. CN direto (Área Ponta B → DDD → UF)
-    cn_to_uf = config.get("_cn_to_uf_map", {})
-    if not uf and cn_to_uf:
-        cn_col = config.get("cn_sci_col", "")
-        if cn_col and cn_col != "(nenhuma)":
-            cn_val = clean_cn(sci_row.get(cn_col, ""))
-            if cn_val:
-                uf = cn_to_uf.get(cn_val, "")
-        if not uf:
-            cn_val = clean_cn(sci_row.get("CN", ""))
-            if cn_val:
-                uf = cn_to_uf.get(cn_val, "")
-
-    # 3. CNL → CN → UF via uf_map (banco)
-    if not uf and uf_map:
-        cnl_sci = clean_cnl(sci_row.get(config.get("cnl_sci_col", "CNL"), ""))
-        cnl_por = clean_cnl(coalesce(
-            por_row.get(config.get("cnl_por_col", "CNL_PPI"), ""),
-            por_row.get("CNL", ""),
-            por_row.get("PPI", ""),
+    def save_import(self, source: str, filename: str, sheet: Optional[str],
+                    file_hash: str, df: pd.DataFrame,
+                    column_map: Dict[str, str]) -> str:
+        import_id = new_uuid()
+        self.session.add(Import(
+            id=import_id, source=source, filename=filename,
+            sheet=sheet, file_hash=file_hash,
+            rows=len(df), cols=len(df.columns),
         ))
-        cnl_val = cnl_sci or cnl_por
-        if cnl_val:
-            uf = uf_map.get(cnl_val, "") or uf_map.get(cnl_val.lstrip("0"), "")
+        for orig, norm in column_map.items():
+            self.session.add(ColumnRename(
+                import_id=import_id, original_name=orig, normalized_name=norm))
 
-    # ── Restante dos campos ────────────────────────────────────────────
-    cluster     = _ref("CLUSTER")
-    rotulos     = _ref("Rótulos de Linha") or rotulos_portal
-    denominacao = _ref("Denominação") or coalesce(
-        sci_row.get(config.get("denominacao_sci_col", "Descrição"), ""),
-        por_row.get("DESIGNACAO", ""),
-    )
-    operadora = derive_operadora(
-        _ref("OPERADORA"), por_row, sci_row,
-        op_col=config.get("operadora_sci_col", "Operadora Origem"),
-    )
+        RawModel = {"SCIENCE": RawScience, "PORTAL": RawPortal}.get(source)
+        if RawModel:
+            records = df.to_dict(orient="records")
+            for i in range(0, len(records), _CHUNK):
+                for j, row in enumerate(records[i:i + _CHUNK]):
+                    self.session.add(RawModel(
+                        import_id=import_id, row_num=i + j,
+                        data_json=json.dumps(row, ensure_ascii=False, default=str)))
+                self.session.flush()
 
-    cnl_val_log = (
-        clean_cnl(sci_row.get(config.get("cnl_sci_col", "CNL"), ""))
-        or clean_cnl(por_row.get(config.get("cnl_por_col", "CNL_PPI"), ""))
-    )
+        log.info("Import salvo: %s %s rows=%d", source, import_id[:8], len(df))
+        return import_id
 
-    log.debug(
-        "Row central=%s tipo=%s tag=%s uf=%s cluster=%s arq3_match=%s",
-        central, tipo_rota, source_tag,
-        uf or "(vazio)", cluster or "(vazio)", ref is not None,
-    )
+    def save_arq3(self, import_id: str, df: pd.DataFrame,
+                  col_map: Dict[str, str]) -> int:
+        """Persiste Arquivo 3 em ref_rotas. Detecção flexível de nomes de coluna."""
+        def _find(*candidates) -> str:
+            for cand in candidates:
+                for col in df.columns:
+                    if col.strip().upper() == cand.upper():
+                        return col
+            return ""
 
-    return {
-        "REDE":             derive_rede(source_tag),
-        "UF":               uf,
-        "CLUSTER":          cluster,
-        "Tipo de Rota":     tipo_rota,
-        "Central":          central,
-        "Rótulos de Linha": rotulos,
-        "OPERADORA":        operadora,
-        "Denominação":      denominacao,
-        "_source_tag":      source_tag,
-        "_central_src":     cen_src,
-        "_tipo_rota_src":   tr_src,
-        "_arq3_match":      str(ref is not None),
-        "_cnl_val":         cnl_val_log,
-    }
+        rede_col = _find("REDE")
+        uf_col   = _find("UF")
+        cl_col   = _find("CLUSTER")
+        tr_col   = _find("TIPO DE ROTA", "TIPO_DE_ROTA", "TIPO_ROTA", "TIPO ROTA")
+        ce_col   = _find("CENTRAL")
+        rl_col   = _find("RÓTULOS DE LINHA", "ROTULOS DE LINHA",
+                         "ROTULOS_DE_LINHA", "LABEL_E", "ROTULO")
+        op_col   = _find("OPERADORA")
+        dn_col   = _find("DENOMINAÇÃO", "DENOMINACAO", "DENOMINACÃO")
+
+        output_cols = {rede_col, uf_col, cl_col, tr_col,
+                       ce_col, rl_col, op_col, dn_col} - {""}
+        extra_cols  = [c for c in df.columns if c not in output_cols]
+
+        count = 0
+        for i in range(0, len(df), _CHUNK):
+            batch = df.iloc[i:i + _CHUNK]
+            for j, (_, row) in enumerate(batch.iterrows()):
+                extra = {c: str(row.get(c, "")) for c in extra_cols}
+                self.session.add(RefRotas(
+                    import_id=import_id, row_num=i + j,
+                    REDE             = str(row.get(rede_col, "") or ""),
+                    UF               = str(row.get(uf_col, "") or ""),
+                    CLUSTER          = str(row.get(cl_col, "") or ""),
+                    Tipo_de_Rota     = str(row.get(tr_col, "") or ""),
+                    Central          = str(row.get(ce_col, "") or "").strip().upper(),
+                    Rotulos_de_Linha = str(row.get(rl_col, "") or ""),
+                    OPERADORA        = str(row.get(op_col, "") or ""),
+                    Denominacao      = str(row.get(dn_col, "") or ""),
+                    extra_json       = json.dumps(extra, ensure_ascii=False),
+                ))
+                count += 1
+            self.session.flush()
+        log.info("RefRotas salvo: %d linhas (uf_col=%r, cl_col=%r, ce_col=%r)",
+                 count, uf_col, cl_col, ce_col)
+        return count
+
+    def list_imports(self, source: Optional[str] = None) -> List[Dict]:
+        q = self.session.query(Import)
+        if source:
+            q = q.filter(Import.source == source)
+        return [{"id": r.id, "source": r.source, "filename": r.filename,
+                 "sheet": r.sheet, "rows": r.rows, "cols": r.cols,
+                 "created_at": r.created_at.isoformat() if r.created_at else ""}
+                for r in q.order_by(Import.created_at.desc()).all()]
+
+    def load_raw_df(self, import_id: str, source: str) -> pd.DataFrame:
+        RawModel = {"SCIENCE": RawScience, "PORTAL": RawPortal}.get(source.upper())
+        if not RawModel:
+            return pd.DataFrame()
+        rows = (self.session.query(RawModel)
+                .filter(RawModel.import_id == import_id)
+                .order_by(RawModel.row_num).all())
+        if not rows:
+            return pd.DataFrame()
+        return pd.DataFrame([json.loads(r.data_json) for r in rows])
+
+    def load_ref_rotas_df(self, import_id: Optional[str] = None) -> pd.DataFrame:
+        """Carrega ref_rotas. Se import_id=None, carrega o mais recente."""
+        q = self.session.query(RefRotas)
+        if import_id:
+            q = q.filter(RefRotas.import_id == import_id)
+        else:
+            latest = (self.session.query(Import)
+                      .filter(Import.source == "ARQ3")
+                      .order_by(Import.created_at.desc()).first())
+            if latest:
+                q = q.filter(RefRotas.import_id == latest.id)
+        rows = q.order_by(RefRotas.row_num).all()
+        if not rows:
+            return pd.DataFrame()
+        return pd.DataFrame([{
+            "REDE":             r.REDE,
+            "UF":               r.UF,
+            "CLUSTER":          r.CLUSTER,
+            "Tipo de Rota":     r.Tipo_de_Rota,
+            "Central":          r.Central,
+            "Rótulos de Linha": r.Rotulos_de_Linha,
+            "OPERADORA":        r.OPERADORA,
+            "Denominação":      r.Denominacao,
+        } for r in rows])
+
+    # ── Merge ─────────────────────────────────────────────────────────────
+
+    def save_merge_version(self, tag: str, sci_id: Optional[str],
+                           por_id: Optional[str], arq3_id: Optional[str],
+                           mapping: Dict, join_keys: List[str], join_type: str,
+                           fuzzy_threshold: int, merged_df: pd.DataFrame,
+                           rows_sci: int, rows_por: int) -> str:
+        version_id = new_uuid()
+        self.session.add(MappingVersion(
+            id=version_id, tag=tag,
+            science_import_id=sci_id, portal_import_id=por_id,
+            arq3_import_id=arq3_id,
+            mapping_json=json.dumps(mapping, ensure_ascii=False, default=str),
+            join_keys_json=json.dumps(join_keys),
+            join_type=join_type, fuzzy_threshold=fuzzy_threshold,
+            rows_science=rows_sci, rows_portal=rows_por,
+            rows_merged=len(merged_df),
+        ))
+        _COL = {
+            "REDE": "REDE", "UF": "UF", "CLUSTER": "CLUSTER",
+            "Tipo de Rota": "Tipo_de_Rota", "Central": "Central",
+            "Rótulos de Linha": "Rotulos_de_Linha",
+            "OPERADORA": "OPERADORA", "Denominação": "Denominacao",
+        }
+        for i, row in enumerate(merged_df.to_dict(orient="records")):
+            mr = MergedRow(
+                version_id=version_id, row_id=i,
+                source_tag=str(row.get("_source_tag", "")),
+                source_keys_json=json.dumps(row, ensure_ascii=False, default=str),
+            )
+            for out, db in _COL.items():
+                setattr(mr, db, str(row.get(out, "") or ""))
+            self.session.add(mr)
+            if i % _CHUNK == 0:
+                self.session.flush()
+        self.session.flush()
+        log.info("Merge salvo: version_id=%s rows=%d", version_id[:8], len(merged_df))
+        return version_id
+
+    def list_versions(self) -> List[Dict]:
+        rows = (self.session.query(MappingVersion)
+                .order_by(MappingVersion.created_at.desc()).all())
+        return [{"id": r.id, "tag": r.tag, "rows_merged": r.rows_merged,
+                 "rows_science": r.rows_science, "rows_portal": r.rows_portal,
+                 "join_type": r.join_type,
+                 "created_at": r.created_at.isoformat() if r.created_at else ""}
+                for r in rows]
+
+    def load_merged_df(self, version_id: Optional[str] = None) -> pd.DataFrame:
+        if version_id is None:
+            v = (self.session.query(MappingVersion)
+                 .filter(MappingVersion.is_active == True)
+                 .order_by(MappingVersion.created_at.desc()).first())
+            if v is None:
+                return pd.DataFrame()
+            version_id = v.id
+        rows = (self.session.query(MergedRow)
+                .filter(MergedRow.version_id == version_id)
+                .order_by(MergedRow.row_id).all())
+        if not rows:
+            return pd.DataFrame()
+        return pd.DataFrame([{
+            "REDE": r.REDE, "UF": r.UF, "CLUSTER": r.CLUSTER,
+            "Tipo de Rota": r.Tipo_de_Rota, "Central": r.Central,
+            "Rótulos de Linha": r.Rotulos_de_Linha,
+            "OPERADORA": r.OPERADORA, "Denominação": r.Denominacao,
+            "_source_tag": r.source_tag,
+        } for r in rows])
