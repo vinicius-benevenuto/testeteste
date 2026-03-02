@@ -1,158 +1,242 @@
 """
-core/merge.py
-Junção Science + Portal + Arquivo 3 com REDE/UF/CLUSTER/etc.
-Garante outer join: nenhuma linha perdida.
+ui/mapping_wizard.py
+Assistente de Mapeamento: configura todas as colunas necessárias para o merge.
 """
 from __future__ import annotations
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List
 
-import pandas as pd
-
-from app.core.map_rules import (
-    OUTPUT_COLUMNS, build_output_row, build_ref_index,
-)
-from app.utils.logging_utils import get_logger
-
-log = get_logger(__name__)
-
-_SCI = "_sci"
-_POR = "_por"
-_ALL_OUTPUT = OUTPUT_COLUMNS + ["_source_tag", "_central_src",
-                                  "_tipo_rota_src", "_arq3_match", "_cnl_val"]
-
-_NAN_STRINGS = {"nan", "none", "null", "<na>", "n/a", "na", "#n/a", ""}
-
-def _clean_val(v) -> str:
-    """Converte qualquer valor para string limpa. NaN, None, 'nan' → ''."""
-    if v is None:
-        return ""
-    try:
-        import math
-        if isinstance(v, float) and math.isnan(v):
-            return ""
-    except (TypeError, ValueError):
-        pass
-    s = str(v).strip()
-    return "" if s.lower() in _NAN_STRINGS else s
+import streamlit as st
 
 
-def _prefix(df: pd.DataFrame, pfx: str) -> pd.DataFrame:
-    return df.rename(columns={c: f"{c}{pfx}" for c in df.columns})
+def run_mapping_wizard(
+    science_cols: List[str],
+    portal_cols: List[str],
+    arq3_cols: List[str],
+) -> Dict:
+    st.subheader("🗺️ Assistente de Mapeamento")
+    st.markdown("Configure como cada coluna de saída será preenchida. "
+                "As sugestões foram geradas automaticamente.")
 
+    cfg: Dict = {}
+    sci  = science_cols or []
+    por  = portal_cols  or []
+    arq3 = arq3_cols    or []
 
-def build_merged_df(
-    science_df: pd.DataFrame,
-    portal_df: pd.DataFrame,
-    ref_df: Optional[pd.DataFrame],
-    uf_map: Dict[str, str],
-    join_keys_sci: List[str],   # colunas em science_df usadas para junção
-    join_keys_por: List[str],   # colunas em portal_df usadas para junção
-    join_type: str = "outer",
-    config: Optional[Dict] = None,
-    cn_to_uf_map: Optional[Dict[str, str]] = None,
-) -> Tuple[pd.DataFrame, Dict]:
-    """
-    Une Science + Portal (outer join padrão).
-    Aplica regras de negócio linha a linha.
-    Retorna (merged_df_com_OUTPUT_COLUMNS + _aux, relatorio).
-    """
-    config = config or {}
-    ref_index = build_ref_index(ref_df, config)
-    rows_sci = len(science_df)
-    rows_por = len(portal_df)
+    def _sel(label, options, default, key, help=""):
+        opts = list(options)
+        idx  = opts.index(default) if default in opts else 0
+        return st.selectbox(label, opts, index=idx, key=key, help=help)
 
-    # ── Junção ──────────────────────────────────────────────────────────
-    if join_keys_sci and join_keys_por and \
-       all(k in science_df.columns for k in join_keys_sci) and \
-       all(k in portal_df.columns  for k in join_keys_por):
-        merged = _exact_join(science_df, portal_df,
-                              join_keys_sci, join_keys_por, join_type)
-    else:
-        log.warning("Sem chaves de junção válidas — concatenação posicional.")
-        merged = _positional_join(science_df, portal_df)
+    def _guess(cols, *candidates):
+        up = {c.strip().upper(): c for c in cols}
+        for cand in candidates:
+            hit = up.get(cand.strip().upper())
+            if hit:
+                return hit
+        return cols[0] if cols else ""
 
-    # ── Aplicar regras por linha ─────────────────────────────────────────
-    sci_cols = list(science_df.columns)
-    por_cols = list(portal_df.columns)
-    records = []
+    NONE = "(nenhuma)"
 
-    for _, row in merged.iterrows():
-        sci_row = {c: _clean_val(row.get(f"{c}{_SCI}")) for c in sci_cols}
-        por_row = {c: _clean_val(row.get(f"{c}{_POR}")) for c in por_cols}
+    # ── 1. Coluna CN/DDD no Science ────────────────────────────────────
+    with st.expander("1️⃣ Colunas para derivar UF", expanded=True):
+        st.caption(
+            "O app deriva UF em cascata: **Arquivo 3** → CN/DDD direto → CNL/PPI. "
+            "Configure as colunas abaixo."
+        )
+        st.markdown("**A — Arquivo 3** (fonte principal — já funciona via Central)")
+        st.info("✅ UF e CLUSTER são lidos automaticamente do Arquivo 3 pela coluna Central. "
+                "Configure as colunas do Arquivo 3 na seção 8️⃣ abaixo.")
 
-        # source_tag: distingue origem da linha
-        has_sci = any(v for v in sci_row.values())
-        has_por = any(v for v in por_row.values())
-        if has_sci and has_por:
-            tag = "BOTH"
-        elif has_sci:
-            tag = "SCIENCE"
-        else:
-            tag = "PORTAL"
+        st.markdown("**B — CN/DDD direto no Science** (fallback)")
+        cfg["cn_sci_col"] = _sel(
+            "Coluna CN/DDD no Science",
+            [NONE] + sci,
+            _guess(sci, "Área Ponta B", "Area Ponta B", "CN", "DDD", "AREA_PONTA_B"),
+            "wiz_cn_sci",
+            "Coluna com DDD numérico (ex: 43, 11). Mapeia direto para UF.",
+        )
 
-        cfg = dict(config)
-        cfg["_cn_to_uf_map"] = cn_to_uf_map or {}
-        out_row = build_output_row(sci_row, por_row, tag, ref_index, uf_map, cfg)
-        records.append(out_row)
+        st.markdown("**C — CNL/PPI** (fallback)")
+        cfg["cnl_sci_col"] = _sel(
+            "Coluna CNL no Science", [NONE] + sci,
+            _guess(sci, "CNL", "CNL_PPI", "Num SSI"),
+            "wiz_cnl_sci",
+        )
+        cfg["cnl_por_col"] = _sel(
+            "Coluna CNL no Portal", [NONE] + por,
+            _guess(por, "CNL_PPI", "PPI", "CNL"),
+            "wiz_cnl_por",
+        )
 
-    result = pd.DataFrame(records)
-    # Garante colunas de saída mesmo se vazia
-    for col in OUTPUT_COLUMNS:
-        if col not in result.columns:
-            result[col] = ""
+    # ── 2. Tipo de Rota ────────────────────────────────────────────────
+    with st.expander("2️⃣ Tipo de Rota", expanded=True):
+        cfg["tipo_rota_portal_col"] = _sel(
+            "Tipo de Rota — Portal (prioritário)", [NONE] + por,
+            _guess(por, "TIPO_ROTA", "TIPO"),
+            "wiz_tr_por",
+        )
+        cfg["tipo_rota_sci_col"] = _sel(
+            "Tipo de Rota — Science (fallback)", [NONE] + sci,
+            _guess(sci, "Sinalização da Rota", "Tipo da Rota", "Tipo"),
+            "wiz_tr_sci",
+        )
 
-    report = {
-        "rows_science":       rows_sci,
-        "rows_portal":        rows_por,
-        "rows_merged":        len(result),
-        "join_type":          join_type,
-        "arq3_match_count":   int(result.get("_arq3_match", pd.Series()).eq("True").sum()),
-        "uf_missing":         int(result["UF"].eq("").sum()),
-        "cluster_missing":    int(result["CLUSTER"].eq("").sum()),
-        "source_breakdown":   result["_source_tag"].value_counts().to_dict()
-                              if "_source_tag" in result.columns else {},
-    }
-    log.info("Merge: %d linhas (sci=%d por=%d arq3_matches=%d)",
-             len(result), rows_sci, rows_por, report["arq3_match_count"])
-    return result, report
+    # ── 3. Central ─────────────────────────────────────────────────────
+    with st.expander("3️⃣ Central", expanded=True):
+        cfg["central_portal_col"] = _sel(
+            "Central — Portal (prioritário)", [NONE] + por,
+            _guess(por, "CENTRAL"),
+            "wiz_ce_por",
+        )
+        cfg["central_sci_col"] = _sel(
+            "Central — Science (fallback)", [NONE] + sci,
+            _guess(sci, "Central Origem", "Central Interna"),
+            "wiz_ce_sci",
+        )
 
+    # ── 4. Rótulos de Linha ────────────────────────────────────────────
+    with st.expander("4️⃣ Rótulos de Linha (Portal)", expanded=False):
+        cfg["label_e_col"] = _sel(
+            "LABEL_E (entrada)", [NONE] + por,
+            _guess(por, "LABEL_E"),
+            "wiz_le",
+        )
+        cfg["label_s_col"] = _sel(
+            "LABEL_S (saída)", [NONE] + por,
+            _guess(por, "LABEL_S"),
+            "wiz_ls",
+        )
+        cfg["concat_labels"] = st.checkbox(
+            "Concatenar LABEL_E | LABEL_S",
+            value=True, key="wiz_concat_labels",
+        )
+        cfg["label_sep"] = st.text_input(
+            "Separador", value=" | ", key="wiz_label_sep",
+        ) if cfg["concat_labels"] else " | "
 
-def _exact_join(sci: pd.DataFrame, por: pd.DataFrame,
-                sci_keys: List[str], por_keys: List[str],
-                join_type: str) -> pd.DataFrame:
-    sci_w = _prefix(sci.copy(), _SCI)
-    por_w = _prefix(por.copy(), _POR)
-    l_on = [f"{k}{_SCI}" for k in sci_keys]
-    r_on = [f"{k}{_POR}" for k in por_keys]
-    # Normaliza chaves
-    for c in l_on: sci_w[c] = sci_w[c].str.strip().str.upper()
-    for c in r_on: por_w[c] = por_w[c].str.strip().str.upper()
-    merged = pd.merge(sci_w, por_w, left_on=l_on, right_on=r_on, how=join_type)
-    merged = merged.fillna("")
-    log.info("Exact join: %d linhas (type=%s)", len(merged), join_type)
-    return merged
+    # ── 5. OPERADORA ──────────────────────────────────────────────────
+    with st.expander("5️⃣ OPERADORA — fallback Science", expanded=False):
+        cfg["operadora_sci_col"] = _sel(
+            "Operadora Science", [NONE] + sci,
+            _guess(sci, "Operadora Origem", "OP Origem"),
+            "wiz_op_sci",
+        )
 
+    # ── 6. Denominação ────────────────────────────────────────────────
+    with st.expander("6️⃣ Denominação — fallback Science", expanded=False):
+        cfg["denominacao_sci_col"] = _sel(
+            "Denominação Science", [NONE] + sci,
+            _guess(sci, "Descrição", "Descricao"),
+            "wiz_dn_sci",
+        )
 
-def _positional_join(sci: pd.DataFrame, por: pd.DataFrame) -> pd.DataFrame:
-    sci_w = _prefix(sci.copy(), _SCI)
-    por_w = _prefix(por.copy(), _POR)
-    max_rows = max(len(sci_w), len(por_w))
-    sci_w = sci_w.reindex(range(max_rows))
-    por_w = por_w.reindex(range(max_rows))
-    return pd.concat([sci_w.reset_index(drop=True),
-                      por_w.reset_index(drop=True)], axis=1).fillna("")
+    # ── 7. Chaves de junção ───────────────────────────────────────────
+    st.markdown("---")
+    st.markdown("### 7️⃣ Chaves de Junção Science ↔ Portal")
+    st.caption("Colunas que identificam a mesma rota nas duas tabelas. "
+               "O app normaliza para UPPER antes de comparar.")
 
+    join_sci = st.multiselect(
+        "Colunas do Science para junção:",
+        options=sci,
+        default=[c for c in [
+            _guess(sci, "Central Interna", "Central Origem"),
+            _guess(sci, "Tipo da Rota", "Sinalização da Rota"),
+        ] if c],
+        key="wiz_join_sci",
+    )
+    join_por = st.multiselect(
+        "Colunas correspondentes no Portal (mesma ordem):",
+        options=por,
+        default=[c for c in [
+            _guess(por, "CENTRAL"),
+            _guess(por, "TIPO_ROTA"),
+        ] if c],
+        key="wiz_join_por",
+    )
 
-def count_join_matches(science_df: pd.DataFrame, portal_df: pd.DataFrame,
-                        sci_key: str, por_key: str) -> Dict:
-    if sci_key not in science_df.columns or por_key not in portal_df.columns:
-        return {"error": "coluna não encontrada"}
-    sci_vals = set(science_df[sci_key].str.strip().str.upper().dropna())
-    por_vals = set(portal_df[por_key].str.strip().str.upper().dropna())
-    return {
-        "sci_unique": len(sci_vals),
-        "por_unique": len(por_vals),
-        "matches":    len(sci_vals & por_vals),
-        "sci_only":   len(sci_vals - por_vals),
-        "por_only":   len(por_vals - sci_vals),
-    }
+    if len(join_sci) != len(join_por):
+        st.warning("⚠️ Selecione o mesmo número de colunas em Science e Portal.")
+
+    cfg["join_keys_sci"] = join_sci
+    cfg["join_keys_por"] = join_por
+
+    join_type = st.radio(
+        "Tipo de junção:",
+        options=["outer", "inner", "left", "right"],
+        format_func=lambda v: {
+            "outer": "OUTER — mantém todas as linhas (recomendado)",
+            "left":  "LEFT — mantém todas do Science",
+            "right": "RIGHT — mantém todas do Portal",
+            "inner": "INNER — apenas matches",
+        }.get(v, v),
+        key="wiz_join_type",
+    )
+    cfg["join_type"] = join_type
+
+    # ── 8. Arquivo 3 — colunas explícitas ─────────────────────────────
+    if arq3:
+        st.markdown("---")
+        st.markdown("### 8️⃣ Arquivo 3 — Mapeamento de Colunas")
+        st.caption(
+            "⚠️ **Configure aqui as colunas do Arquivo 3.** "
+            "O CLUSTER e a UF só serão preenchidos corretamente se estas colunas estiverem certas."
+        )
+        with st.expander("🗂️ Colunas do Arquivo 3", expanded=True):
+            col1, col2 = st.columns(2)
+            with col1:
+                cfg["arq3_central_col"] = _sel(
+                    "Central",
+                    [NONE] + arq3,
+                    _guess(arq3, "Central", "CENTRAL", "Central Origem"),
+                    "wiz_arq3_central",
+                    "Coluna que contém o nome da Central no Arquivo 3",
+                )
+                cfg["arq3_uf_col"] = _sel(
+                    "UF",
+                    [NONE] + arq3,
+                    _guess(arq3, "UF", "uf", "Estado", "ESTADO"),
+                    "wiz_arq3_uf",
+                    "Coluna que contém a sigla do estado (ex: PR, SP)",
+                )
+                cfg["arq3_cluster_col"] = _sel(
+                    "CLUSTER ⭐",
+                    [NONE] + arq3,
+                    _guess(arq3, "CLUSTER", "Cluster", "cluster",
+                           "AGRUPAMENTO", "Agrupamento", "CLUSTER_NOME"),
+                    "wiz_arq3_cluster",
+                    "Coluna que contém o identificador de Cluster — obrigatória para preencher CLUSTER",
+                )
+            with col2:
+                cfg["arq3_tipo_rota_col"] = _sel(
+                    "Tipo de Rota",
+                    [NONE] + arq3,
+                    _guess(arq3, "Tipo de Rota", "TIPO DE ROTA", "TIPO_ROTA"),
+                    "wiz_arq3_tr",
+                )
+                cfg["arq3_rotulos_col"] = _sel(
+                    "Rótulos de Linha",
+                    [NONE] + arq3,
+                    _guess(arq3, "Rótulos de Linha", "ROTULOS DE LINHA",
+                           "ROTULOS_DE_LINHA", "LABEL_E", "Rótulo"),
+                    "wiz_arq3_rotulos",
+                )
+                cfg["arq3_operadora_col"] = _sel(
+                    "OPERADORA",
+                    [NONE] + arq3,
+                    _guess(arq3, "OPERADORA", "Operadora"),
+                    "wiz_arq3_op",
+                )
+                cfg["arq3_denominacao_col"] = _sel(
+                    "Denominação",
+                    [NONE] + arq3,
+                    _guess(arq3, "Denominação", "DENOMINAÇÃO", "Denominacao"),
+                    "wiz_arq3_den",
+                )
+
+        # Mostra colunas do Arquivo 3 para referência
+        with st.expander("📋 Todas as colunas do Arquivo 3 (para consulta)", expanded=False):
+            for i, c in enumerate(arq3):
+                st.text(f"{i+1:3d}. {c}")
+
+    return cfg
