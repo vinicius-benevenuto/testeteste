@@ -1,631 +1,1037 @@
-"""
-ui/pages.py — Páginas principais do app Streamlit.
-"""
-from __future__ import annotations
-import json
-from typing import Optional
-
-import pandas as pd
-import streamlit as st
-
-from app.core.merge import build_merged_df, count_join_matches
-from app.core.normalize import (apply_column_normalization,
-                                 infer_and_coerce_types, strip_whitespace)
-from app.core.validate import generate_report, quality_summary
-from app.db.repository import Repository
-from app.db.session import session_scope
-from app.io.readers import list_sheets, read_file
-from app.io.writers import logs_to_text, to_csv_bytes, to_mapping_json, to_xlsx_bytes
-from app.ui.grid import show_grid
-from app.ui.mapping_wizard import run_mapping_wizard
-from app.utils.ids import file_hash, version_tag
-from app.utils.logging_utils import get_logger
-
-log = get_logger(__name__)
-
-
-# ── helpers de estado ──────────────────────────────────────────────────────
-
-def _ss(k, default=None):
-    return st.session_state.get(k, default)
-
-
-def _init_state() -> None:
-    defaults = {
-        "sci_df": None, "sci_filename": "", "sci_import_id": None,
-        "sci_col_map": {}, "sci_hash": "", "sci_sheet": None,
-        "por_df": None, "por_filename": "", "por_import_id": None,
-        "por_col_map": {}, "por_hash": "", "por_sheet": None,
-        "arq3_df": None, "arq3_filename": "", "arq3_import_id": None,
-        "arq3_col_map": {}, "arq3_hash": "", "arq3_sheet": None,
-        "merged_df": None, "merge_report": None, "version_id": None,
-        "wizard_cfg": {}, "uf_map": {},
-        "seeds_loaded": False,
-    }
-    for k, v in defaults.items():
-        if k not in st.session_state:
-            st.session_state[k] = v
-
-
-# ── Upload helper ──────────────────────────────────────────────────────────
-
-def _handle_upload(uploaded_file, prefix: str, source_label: str) -> None:
-    ext = uploaded_file.name.split(".")[-1].lower()
-    raw = uploaded_file.read()
-    import io
-    sheet: Optional[str] = None
-    if ext in ("xlsx", "xls"):
-        sheets = list_sheets(io.BytesIO(raw))
-        if len(sheets) > 1:
-            sheet = st.selectbox(f"Planilha — {source_label}",
-                                  sheets, key=f"sheet_{prefix}")
-        elif sheets:
-            sheet = sheets[0]
-    try:
-        df = read_file(io.BytesIO(raw), filename=uploaded_file.name, sheet=sheet)
-        df, col_map = apply_column_normalization(df)
-        df = strip_whitespace(df)
-        df = infer_and_coerce_types(df)
-        st.session_state[f"{prefix}_df"]        = df
-        st.session_state[f"{prefix}_filename"]  = uploaded_file.name
-        st.session_state[f"{prefix}_raw"]       = raw
-        st.session_state[f"{prefix}_col_map"]   = col_map
-        st.session_state[f"{prefix}_hash"]      = file_hash(raw)
-        st.session_state[f"{prefix}_sheet"]     = sheet
-        st.success(f"✅ {uploaded_file.name}: {len(df):,} linhas · {len(df.columns)} colunas")
-    except Exception as e:
-        st.error(f"❌ Erro ao ler {uploaded_file.name}: {e}")
-        log.error("Upload error: %s", e, exc_info=True)
-
-
-# ── Página 1: Upload ────────────────────────────────────────────────────────
-
-def render_upload_page() -> None:
-    st.header("📂 1. Carregar Arquivos")
-    st.markdown("""
-    Faça upload dos três arquivos. Dados processados **100% localmente**.
-    """)
-
-    c1, c2, c3 = st.columns(3)
-
-    with c1:
-        st.subheader("Planilha Science")
-        f = st.file_uploader("Science (xlsx/csv/parquet)",
-                             type=["xlsx","xls","csv","parquet"],
-                             key="up_sci")
-        if f: _handle_upload(f, "sci", "Science")
-
-    with c2:
-        st.subheader("Portal de Cadastros")
-        f = st.file_uploader("Portal (xlsx/csv/parquet)",
-                             type=["xlsx","xls","csv","parquet"],
-                             key="up_por")
-        if f: _handle_upload(f, "por", "Portal")
-
-    with c3:
-        st.subheader("Arquivo 3 (Referência)")
-        f = st.file_uploader("Arquivo 3 (xlsx/csv/parquet)",
-                             type=["xlsx","xls","csv","parquet"],
-                             key="up_arq3")
-        if f: _handle_upload(f, "arq3", "Arquivo 3")
-
-    # Previews
-    for prefix, label in [("sci","Science"), ("por","Portal"), ("arq3","Arquivo 3")]:
-        df = _ss(f"{prefix}_df")
-        if df is not None:
-            with st.expander(f"👁️ Preview {label} ({len(df):,} linhas)", expanded=False):
-                st.dataframe(df.head(20), width="stretch", hide_index=True)
-                st.caption(f"Colunas: {', '.join(df.columns.tolist())}")
-
-    sci_ok  = _ss("sci_df")  is not None
-    por_ok  = _ss("por_df")  is not None
-    arq3_ok = _ss("arq3_df") is not None
-
-    if sci_ok and por_ok:
-        msg = "✅ Science e Portal carregados."
-        msg += " ✅ Arquivo 3 carregado." if arq3_ok else " ℹ️ Arquivo 3 não carregado (opcional)."
-        st.success(msg)
-
-    # Seeds status
-    with session_scope() as s:
-        repo = Repository(s)
-        cnl_n  = repo.cnl_count()
-        uf_n   = repo.cn_to_uf_count()
-    st.info(f"🗄️ Seeds: {cnl_n:,} registros CNL · {uf_n} mapeamentos CN→UF")
-    if cnl_n == 0:
-        st.warning("⚠️ Tabela CNL vazia. Execute: **Ferramentas → Carregar Seeds** para habilitar derivação de UF.")
-
-
-# ── Página 2: Mapeamento ───────────────────────────────────────────────────
-
-def render_mapping_page() -> None:
-    sci_df  = _ss("sci_df")
-    por_df  = _ss("por_df")
-    arq3_df = _ss("arq3_df")
-
-    if sci_df is None or por_df is None:
-        st.warning("⚠️ Carregue Science e Portal primeiro (Passo 1).")
-        return
-
-    cfg = run_mapping_wizard(
-        science_cols=list(sci_df.columns),
-        portal_cols=list(por_df.columns),
-        arq3_cols=list(arq3_df.columns) if arq3_df is not None else [],
-    )
-
-    # Preview de matches
-    join_sci = cfg.get("join_keys_sci", [])
-    join_por = cfg.get("join_keys_por", [])
-    if join_sci and join_por and len(join_sci) == len(join_por):
-        st.markdown("---")
-        st.markdown("### 📊 Preview de matches por chave de junção")
-        for ks, kp in zip(join_sci, join_por):
-            if ks in sci_df.columns and kp in por_df.columns:
-                stats = count_join_matches(sci_df, por_df, ks, kp)
-                st.markdown(f"**`{ks}`** (Science) ↔ **`{kp}`** (Portal):")
-                mc1, mc2, mc3 = st.columns(3)
-                mc1.metric("Matches", stats.get("matches", 0))
-                mc2.metric("Só Science", stats.get("sci_only", 0))
-                mc3.metric("Só Portal", stats.get("por_only", 0))
-
-    st.markdown("---")
-    if st.button("💾 Salvar Configuração", type="primary", key="btn_save_cfg"):
-        st.session_state["wizard_cfg"] = cfg
-        st.success("✅ Configuração salva! Prossiga para Gerar Tabela Final.")
-
-
-# ── Página 3: Merge ────────────────────────────────────────────────────────
-
-def render_merge_page() -> None:
-    sci_df  = _ss("sci_df")
-    por_df  = _ss("por_df")
-    arq3_df = _ss("arq3_df")
-    cfg     = _ss("wizard_cfg") or {}
-
-    if sci_df is None or por_df is None:
-        st.warning("⚠️ Carregue os arquivos primeiro (Passo 1).")
-        return
-
-    st.header("⚙️ 3. Gerar Tabela Final")
-
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Linhas Science", f"{len(sci_df):,}")
-    c2.metric("Linhas Portal",  f"{len(por_df):,}")
-    c3.metric("Arquivo 3",      f"{len(arq3_df):,}" if arq3_df is not None else "—")
-
-    if st.button("🚀 Gerar Tabela Combinada", type="primary", key="btn_merge"):
-        with st.spinner("Processando..."):
-            try:
-                # Carrega uf_map do banco
-                with session_scope() as s:
-                    repo = Repository(s)
-                    all_cnls = (
-                        list(sci_df.get(cfg.get("cnl_sci_col","CNL"), pd.Series()).dropna())
-                        + list(por_df.get(cfg.get("cnl_por_col","CNL_PPI"), pd.Series()).dropna())
-                    )
-                    uf_map = repo.resolve_ufs_batch([str(c) for c in all_cnls])
-                st.session_state["uf_map"] = uf_map
-
-                merged, report = build_merged_df(
-                    science_df=sci_df.copy(),
-                    portal_df=por_df.copy(),
-                    ref_df=arq3_df.copy() if arq3_df is not None else None,
-                    uf_map=uf_map,
-                    join_keys_sci=cfg.get("join_keys_sci", []),
-                    join_keys_por=cfg.get("join_keys_por", []),
-                    join_type=cfg.get("join_type", "outer"),
-                    config=cfg,
-                )
-                st.session_state["merged_df"]    = merged
-                st.session_state["merge_report"] = report
-                st.success(f"✅ {len(merged):,} linhas geradas.")
-            except Exception as e:
-                st.error(f"❌ Erro: {e}")
-                log.error("Merge error: %s", e, exc_info=True)
-                return
-
-    merged_df = _ss("merged_df")
-    if merged_df is None:
-        # Tenta carregar a última versão persistida
-        with session_scope() as s:
-            repo = Repository(s)
-            merged_df = repo.load_merged_df()
-        if merged_df is not None and not merged_df.empty:
-            st.info("ℹ️ Exibindo última versão salva no banco.")
-            st.session_state["merged_df"] = merged_df
-
-    if merged_df is None or merged_df.empty:
-        return
-
-    # Qualidade
-    report = _ss("merge_report") or {}
-    with st.expander("📋 Relatório do Merge"):
-        q = quality_summary(merged_df)
-        rc1, rc2, rc3, rc4 = st.columns(4)
-        rc1.metric("Total linhas",   q.get("total", 0))
-        rc2.metric("UF em branco",   q.get("UF_missing", 0))
-        rc3.metric("Cluster em branco", q.get("CLUSTER_missing", 0))
-        rc4.metric("Sem match Arq3", q.get("arq3_no_match", 0))
-
-        sb = q.get("source_breakdown", {})
-        if sb:
-            st.markdown("**Origem das linhas:**")
-            for tag, cnt in sb.items():
-                st.write(f"  - `{tag}`: {cnt:,}")
-
-    # Grid com floating filters
-    display_cols = [c for c in merged_df.columns if not c.startswith("_")]
-    filtered_df = show_grid(
-        merged_df[display_cols],
-        key="merge_grid",
-        title="📊 Tabela Final Combinada",
-        height=540,
-    )
-
-    # Exportações
-    st.markdown("---")
-    st.markdown("### 💾 Salvar e Exportar")
-    ex1, ex2, ex3, ex4 = st.columns(4)
-
-    with ex1:
-        if st.button("🗄️ Salvar no SQLite", key="btn_save"):
-            _save_to_db(merged_df)
-
-    with ex2:
-        st.download_button("⬇️ CSV (filtrado)",
-                           to_csv_bytes(filtered_df),
-                           f"resultado_{version_tag()}.csv",
-                           "text/csv", key="btn_csv")
-    with ex3:
-        try:
-            st.download_button("⬇️ XLSX (filtrado)",
-                               to_xlsx_bytes(filtered_df),
-                               f"resultado_{version_tag()}.xlsx",
-                               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                               key="btn_xlsx")
-        except Exception as e:
-            st.error(f"XLSX: {e}")
-
-    with ex4:
-        st.download_button("⬇️ Mapeamento JSON",
-                           to_mapping_json({"config": cfg}),
-                           f"mapping_{version_tag()}.json",
-                           "application/json", key="btn_map_json")
-
-
-def _save_to_db(merged_df: pd.DataFrame) -> None:
-    try:
-        with session_scope() as s:
-            repo = Repository(s)
-            cfg  = _ss("wizard_cfg") or {}
-
-            # Science
-            sci_id = _ss("sci_import_id")
-            if not sci_id and _ss("sci_df") is not None:
-                sci_id = repo.save_import(
-                    "SCIENCE", _ss("sci_filename") or "science.xlsx",
-                    _ss("sci_sheet"), _ss("sci_hash") or "",
-                    st.session_state["sci_df"], _ss("sci_col_map") or {})
-                st.session_state["sci_import_id"] = sci_id
-
-            # Portal
-            por_id = _ss("por_import_id")
-            if not por_id and _ss("por_df") is not None:
-                por_id = repo.save_import(
-                    "PORTAL", _ss("por_filename") or "portal.xlsx",
-                    _ss("por_sheet"), _ss("por_hash") or "",
-                    st.session_state["por_df"], _ss("por_col_map") or {})
-                st.session_state["por_import_id"] = por_id
-
-            # Arquivo 3
-            arq3_id = _ss("arq3_import_id")
-            if not arq3_id and _ss("arq3_df") is not None:
-                arq3_id = repo.save_import(
-                    "ARQ3", _ss("arq3_filename") or "arquivo3.xlsx",
-                    _ss("arq3_sheet"), _ss("arq3_hash") or "",
-                    st.session_state["arq3_df"], _ss("arq3_col_map") or {})
-                repo.save_arq3(arq3_id, st.session_state["arq3_df"],
-                               _ss("arq3_col_map") or {})
-                st.session_state["arq3_import_id"] = arq3_id
-
-            vid = repo.save_merge_version(
-                version_tag(), sci_id, por_id, arq3_id,
-                mapping=cfg, join_keys=cfg.get("join_keys_sci", []),
-                join_type=cfg.get("join_type", "outer"),
-                fuzzy_threshold=90,
-                merged_df=merged_df,
-                rows_sci=len(st.session_state.get("sci_df") or []),
-                rows_por=len(st.session_state.get("por_df") or []),
-            )
-            st.session_state["version_id"] = vid
-            repo.add_log("INFO", f"Merge salvo version_id={vid}")
-
-        st.success(f"✅ Salvo! version_id: `{vid[:8]}...`")
-    except Exception as e:
-        st.error(f"❌ Erro ao salvar: {e}")
-        log.error("DB save: %s", e, exc_info=True)
-
-
-# ── Página 4: Seeds ─────────────────────────────────────────────────────────
-
-def render_seeds_page() -> None:
-    st.header("🌱 Ferramentas — Seeds e Referências")
-
-    with session_scope() as s:
-        repo = Repository(s)
-        cnl_n = repo.cnl_count()
-        uf_n  = repo.cn_to_uf_count()
-
-    st.info(f"Estado atual: **{cnl_n:,}** registros CNL · **{uf_n}** mapeamentos CN→UF")
-
-    import os
-    from pathlib import Path
-
-    st.markdown("### 📋 Carregar Seeds automáticos")
-    seed_dir = Path("seeds")
-    cnl_sql  = seed_dir / "cnl.sql"
-    uf_csv   = seed_dir / "cn_to_uf.csv"
-
-    c1, c2 = st.columns(2)
-    with c1:
-        if cnl_sql.exists():
-            if st.button("▶️ Carregar seeds/cnl.sql", key="btn_cnl_seed"):
-                with session_scope() as s:
-                    repo = Repository(s)
-                    n = repo.load_cnl_seeds(str(cnl_sql))
-                st.success(f"✅ {n} statements CNL executados.")
-        else:
-            st.warning("seeds/cnl.sql não encontrado.")
-
-    with c2:
-        if uf_csv.exists():
-            if st.button("▶️ Carregar seeds/cn_to_uf.csv", key="btn_uf_seed"):
-                with session_scope() as s:
-                    repo = Repository(s)
-                    n = repo.load_cn_to_uf_csv(str(uf_csv))
-                st.success(f"✅ {n} mapeamentos CN→UF carregados.")
-        else:
-            st.warning("seeds/cn_to_uf.csv não encontrado.")
-
-    st.markdown("### 📤 Upload manual de seeds")
-    uf_file = st.file_uploader("Upload cn_to_uf.csv personalizado",
-                                type=["csv"], key="up_uf_csv")
-    if uf_file:
-        import io, tempfile
-        tmp = tempfile.NamedTemporaryFile(suffix=".csv", delete=False)
-        tmp.write(uf_file.read())
-        tmp.flush()
-        try:
-            with session_scope() as s:
-                repo = Repository(s)
-                n = repo.load_cn_to_uf_csv(tmp.name)
-            st.success(f"✅ {n} mapeamentos carregados.")
-        finally:
-            os.unlink(tmp.name)
-
-    st.markdown("### 🔍 Testar lookup de UF")
-    test_cnl = st.text_input("Digite um COD_CNL para testar:", key="test_cnl")
-    if test_cnl:
-        with session_scope() as s:
-            repo = Repository(s)
-            uf = repo.get_uf_for_cnl(test_cnl)
-        if uf:
-            st.success(f"CNL `{test_cnl}` → UF: **{uf}**")
-        else:
-            st.warning(f"CNL `{test_cnl}` não encontrado nas tabelas de referência.")
-
-
-# ── Página 5: Histórico ─────────────────────────────────────────────────────
-
-def render_history_page() -> None:
-    st.header("🕐 Histórico de Versões")
-    with session_scope() as s:
-        repo = Repository(s)
-        versions = repo.list_versions()
-        imports  = repo.list_imports()
-
-    if not versions:
-        st.info("Nenhum merge salvo ainda.")
-    else:
-        df_v = pd.DataFrame(versions)
-        st.dataframe(df_v, width="stretch", hide_index=True)
-
-        sel = st.selectbox("Carregar versão:",
-                            [v["id"] for v in versions],
-                            format_func=lambda x: next(
-                                (f"{v['tag']} — {v['rows_merged']} linhas"
-                                 for v in versions if v["id"] == x), x),
-                            key="hist_sel")
-        if st.button("📂 Carregar", key="btn_hist_load"):
-            with session_scope() as s2:
-                repo2 = Repository(s2)
-                loaded = repo2.load_merged_df(sel)
-            st.session_state["merged_df"] = loaded
-            st.success(f"✅ {len(loaded):,} linhas carregadas.")
-            show_grid(loaded[[c for c in loaded.columns if not c.startswith("_")]],
-                      key="hist_grid", title="Versão carregada")
-
-    if imports:
-        with st.expander("📁 Importações"):
-            st.dataframe(pd.DataFrame(imports), width="stretch", hide_index=True)
-
-
-# ── Página 6: Validação ────────────────────────────────────────────────────
-
-def render_validation_page() -> None:
-    st.header("✅ Relatório de Qualidade")
-    merged = _ss("merged_df")
-    if merged is None:
-        with session_scope() as s:
-            repo = Repository(s)
-            merged = repo.load_merged_df()
-    if merged is None or merged.empty:
-        st.info("Nenhum resultado gerado ainda.")
-        return
-
-    q = quality_summary(merged)
-    cols = st.columns(4)
-    cols[0].metric("Total linhas",   q.get("total", 0))
-    cols[1].metric("UF em branco",   q.get("UF_missing", 0))
-    cols[2].metric("Cluster em branco", q.get("CLUSTER_missing", 0))
-    cols[3].metric("Sem match Arq3", q.get("arq3_no_match", 0))
-
-    # Amostras de pendentes
-    uf_pending = merged[merged["UF"].eq("") | merged["UF"].isna()]
-    if not uf_pending.empty:
-        with st.expander(f"⚠️ Linhas sem UF ({len(uf_pending)})"):
-            display = [c for c in uf_pending.columns if not c.startswith("_")]
-            st.dataframe(uf_pending[display].head(50),
-                         width="stretch", hide_index=True)
-
-    for df, name in [(_ss("sci_df"), "Science"), (_ss("por_df"), "Portal"),
-                     (merged, "Resultado")]:
-        if df is not None:
-            with st.expander(f"📊 {name}"):
-                rep = generate_report(df, name)
-                st.dataframe(pd.DataFrame(rep["colunas"]),
-                             width="stretch", hide_index=True)
-
-
-
-# ── Página de Diagnóstico ────────────────────────────────────────────────
-
-def render_diagnostico_page() -> None:
-    st.header("🔬 Diagnóstico de Mapeamento")
-    st.markdown("""
-    Esta página mostra **por que** colunas ficam vazias — exibe os valores reais
-    que o app usa como chave para buscar no Arquivo 3.
-    """)
-
-    sci_df  = _ss("sci_df")
-    por_df  = _ss("por_df")
-    arq3_df = _ss("arq3_df")
-    cfg     = _ss("wizard_cfg") or {}
-
-    if sci_df is None and por_df is None:
-        st.warning("⚠️ Carregue os arquivos primeiro.")
-        return
-
-    # ── 1. Mostra colunas encontradas ────────────────────────────────────
-    st.markdown("### 1️⃣ Colunas configuradas no Mapeamento")
-    campos = {
-        "Central (Portal)":        cfg.get("central_portal_col", "CENTRAL"),
-        "Central (Science)":       cfg.get("central_sci_col", "Central Origem"),
-        "Tipo de Rota (Portal)":   cfg.get("tipo_rota_portal_col", "TIPO_ROTA"),
-        "Tipo de Rota (Science)":  cfg.get("tipo_rota_sci_col", "Sinalização da Rota"),
-        "CNL (Science)":           cfg.get("cnl_sci_col", "CNL"),
-        "CNL (Portal)":            cfg.get("cnl_por_col", "CNL_PPI"),
-        "LABEL_E (Portal)":        cfg.get("label_e_col", "LABEL_E"),
-        "LABEL_S (Portal)":        cfg.get("label_s_col", "LABEL_S"),
-        "OPERADORA (Science)":     cfg.get("operadora_sci_col", "Operadora Origem"),
-    }
-    rows = []
-    for campo, col_name in campos.items():
-        fonte = "Science" if "Science" in campo else "Portal"
-        df_check = sci_df if fonte == "Science" else por_df
-        if df_check is None:
-            rows.append({"Campo": campo, "Coluna configurada": col_name,
-                         "Existe no arquivo?": "—", "Exemplo de valor": "—"})
-            continue
-        existe = col_name in df_check.columns if col_name != "(nenhuma)" else False
-        exemplo = ""
-        if existe:
-            serie = df_check[col_name].replace("", pd.NA).dropna()
-            exemplo = str(serie.iloc[0]) if not serie.empty else "(vazio)"
-        rows.append({
-            "Campo":              campo,
-            "Coluna configurada": col_name,
-            "Existe no arquivo?": "✅ Sim" if existe else "❌ NÃO ENCONTRADA",
-            "Exemplo de valor":   exemplo,
-        })
-    st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
-
-    # ── 2. Amostra das chaves de busca no Arquivo 3 ──────────────────────
-    st.markdown("### 2️⃣ Como o app monta a chave de busca no Arquivo 3")
-    st.markdown("""
-    O app busca cada rota no Arquivo 3 usando **duas tentativas em ordem**:
-    1. `Central (normalizado UPPER)` + `Tipo de Rota (normalizado UPPER)`
-    2. `Central (normalizado UPPER)` + `Rótulos de Linha (do Portal)`
-
-    Se nenhuma bater → CLUSTER, UF (via Arq3), Denominação ficam vazios.
-    """)
-
-    if sci_df is not None or por_df is not None:
-        ce_por = cfg.get("central_portal_col","CENTRAL")
-        ce_sci = cfg.get("central_sci_col","Central Origem")
-        tr_por = cfg.get("tipo_rota_portal_col","TIPO_ROTA")
-        tr_sci = cfg.get("tipo_rota_sci_col","Sinalização da Rota")
-
-        sample_rows = []
-        df_src = por_df if por_df is not None else sci_df
-        n_show = min(10, len(df_src))
-        for i in range(n_show):
-            por_r = df_src.iloc[i].to_dict() if por_df is not None else {}
-            sci_r = sci_df.iloc[min(i, len(sci_df)-1)].to_dict() if sci_df is not None else {}
-            from app.core.map_rules import coalesce
-            central = coalesce(
-                str(por_r.get(ce_por,"") or ""),
-                str(sci_r.get(ce_sci,"") or "")
-            ).strip().upper()
-            tipo = coalesce(
-                str(por_r.get(tr_por,"") or ""),
-                str(sci_r.get(tr_sci,"") or "")
-            ).strip().upper()
-            sample_rows.append({
-                "Central (chave)": central or "(vazio!)",
-                "Tipo de Rota (chave)": tipo or "(vazio!)",
-                "Chave final": f"{central}|{tipo}" if central and tipo else "⚠️ CHAVE INCOMPLETA",
-            })
-        st.dataframe(pd.DataFrame(sample_rows), width="stretch", hide_index=True)
-
-        vazios_central = sum(1 for r in sample_rows if "(vazio!)" in r["Central (chave)"])
-        if vazios_central > 0:
-            st.error(f"⚠️ {vazios_central}/{n_show} linhas com Central vazia — o lookup no Arquivo 3 vai falhar para estas!")
-
-    # ── 3. Amostra das chaves disponíveis no Arquivo 3 ───────────────────
-    if arq3_df is not None:
-        st.markdown("### 3️⃣ Chaves disponíveis no Arquivo 3 (primeiras 20 linhas)")
-        from app.core.map_rules import build_ref_index
-        idx = build_ref_index(arq3_df)
-        st.caption(f"Total de chaves indexadas: **{len(idx)}**")
-
-        from app.utils.encoding import normalize_column_label
-        # Mostra colunas Central e Tipo de Rota do Arquivo 3
-        cols_arq3 = list(arq3_df.columns)
-        central_col = next((c for c in cols_arq3 if "central" in c.lower()), None)
-        tipo_col    = next((c for c in cols_arq3 if "tipo" in c.lower() and "rota" in c.lower()), None)
-        rotulo_col  = next((c for c in cols_arq3 if "r" in c.lower() and "tulo" in c.lower()), None)
-
-        show_cols = [c for c in [central_col, tipo_col, rotulo_col,
-                                  "CLUSTER","UF","OPERADORA","Denominação","Denominacao"]
-                     if c and c in arq3_df.columns]
-        if show_cols:
-            st.dataframe(arq3_df[show_cols].head(20), width="stretch", hide_index=True)
-        else:
-            st.info("Colunas de referência não identificadas automaticamente.")
-            st.dataframe(arq3_df.head(10), width="stretch", hide_index=True)
-
-        st.markdown("**Exemplo de chaves indexadas (primeiras 10):**")
-        for k in list(idx.keys())[:10]:
-            st.code(k)
-    else:
-        st.warning("⚠️ Arquivo 3 não carregado — sem referência para CLUSTER, UF, Denominação e Rótulos padronizados.")
-
-# ── Página 7: Logs ─────────────────────────────────────────────────────────
-
-def render_logs_page() -> None:
-    st.header("📋 Logs e Auditoria")
-    with session_scope() as s:
-        repo = Repository(s)
-        logs = repo.get_logs(200)
-    if not logs:
-        st.info("Nenhum log ainda.")
-        return
-    df_l = pd.DataFrame(logs)[["timestamp", "level", "message"]]
-    lvl_filter = st.multiselect("Nível:", ["INFO","WARNING","ERROR","DEBUG"],
-                                 default=["INFO","WARNING","ERROR"],
-                                 key="log_lvl")
-    st.dataframe(df_l[df_l["level"].isin(lvl_filter)],
-                 width="stretch", hide_index=True)
-    st.download_button("⬇️ Baixar log", logs_to_text(logs),
-                       f"logs_{version_tag()}.txt", key="btn_log_dl")
+DROP TABLE IF EXISTS tabela_unificada;
+DROP TABLE IF EXISTS cnl;
+
+CREATE TABLE tabela_unificada (
+  rowid INTEGER PRIMARY KEY AUTOINCREMENT,
+  ID TEXT,
+  Portal TEXT,
+  Tipo_de_Trafego TEXT,
+  EOT TEXT,
+  Operadora TEXT,
+  CN TEXT,
+  ID_Rota TEXT,
+  LABEL_E TEXT,
+  LABEL_S TEXT,
+  Origem_Rota TEXT,
+  Tipo_de_Rota TEXT,
+  Sinalizacao TEXT,
+  Trafego TEXT,
+  Descricao TEXT,
+  Central TEXT,
+  Bilhetador TEXT,
+  OPC TEXT,
+  DPC TEXT,
+  Data_Desativacao TEXT,
+  UNIQUE(ID, Portal, EOT, Operadora)
+);
+
+CREATE INDEX IF NOT EXISTS idx_unificada_trafego   ON tabela_unificada (Tipo_de_Trafego);
+CREATE INDEX IF NOT EXISTS idx_unificada_operadora ON tabela_unificada (Operadora);
+CREATE INDEX IF NOT EXISTS idx_unificada_eot       ON tabela_unificada (EOT);
+CREATE INDEX IF NOT EXISTS idx_unificada_data      ON tabela_unificada (Data_Desativacao);
+
+CREATE TABLE cnl (
+  COD_CNL TEXT PRIMARY KEY,
+  CN TEXT
+);
+
+INSERT INTO cnl (CN, COD_CNL) VALUES (43,41406);
+INSERT INTO cnl (CN, COD_CNL) VALUES (43,41497);
+INSERT INTO cnl (CN, COD_CNL) VALUES (43,41503);
+INSERT INTO cnl (CN, COD_CNL) VALUES (43,41515);
+INSERT INTO cnl (CN, COD_CNL) VALUES (43,41521);
+INSERT INTO cnl (CN, COD_CNL) VALUES (43,41535);
+INSERT INTO cnl (CN, COD_CNL) VALUES (43,41559);
+INSERT INTO cnl (CN, COD_CNL) VALUES (43,41617);
+INSERT INTO cnl (CN, COD_CNL) VALUES (43,41638);
+INSERT INTO cnl (CN, COD_CNL) VALUES (43,41639);
+INSERT INTO cnl (CN, COD_CNL) VALUES (43,41680);
+INSERT INTO cnl (CN, COD_CNL) VALUES (43,41715);
+INSERT INTO cnl (CN, COD_CNL) VALUES (42,41367);
+INSERT INTO cnl (CN, COD_CNL) VALUES (46,42306);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64130);
+INSERT INTO cnl (CN, COD_CNL) VALUES (46,41373);
+INSERT INTO cnl (CN, COD_CNL) VALUES (43,41374);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41385);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41034);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41055);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41056);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41196);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41224);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41225);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41228);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41281);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41305);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41314);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41360);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41370);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41371);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41382);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41389);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41412);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41423);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41444);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41447);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41519);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41628);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41653);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41784);
+INSERT INTO cnl (CN, COD_CNL) VALUES (46,41390);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64088);
+INSERT INTO cnl (CN, COD_CNL) VALUES (46,41393);
+INSERT INTO cnl (CN, COD_CNL) VALUES (42,41396);
+INSERT INTO cnl (CN, COD_CNL) VALUES (41,41267);
+INSERT INTO cnl (CN, COD_CNL) VALUES (41,41399);
+INSERT INTO cnl (CN, COD_CNL) VALUES (41,41501);
+INSERT INTO cnl (CN, COD_CNL) VALUES (42,41830);
+INSERT INTO cnl (CN, COD_CNL) VALUES (45,41401);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64089);
+INSERT INTO cnl (CN, COD_CNL) VALUES (45,41407);
+INSERT INTO cnl (CN, COD_CNL) VALUES (41,41411);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41440);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41415);
+INSERT INTO cnl (CN, COD_CNL) VALUES (43,41416);
+INSERT INTO cnl (CN, COD_CNL) VALUES (46,41422);
+INSERT INTO cnl (CN, COD_CNL) VALUES (42,41735);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41425);
+INSERT INTO cnl (CN, COD_CNL) VALUES (43,41648);
+INSERT INTO cnl (CN, COD_CNL) VALUES (46,41429);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64091);
+INSERT INTO cnl (CN, COD_CNL) VALUES (42,41765);
+INSERT INTO cnl (CN, COD_CNL) VALUES (42,41442);
+INSERT INTO cnl (CN, COD_CNL) VALUES (46,41449);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64000);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64007);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64019);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64024);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64047);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64055);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64063);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64065);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64066);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64079);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64090);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64106);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64113);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64137);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64149);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64151);
+INSERT INTO cnl (CN, COD_CNL) VALUES (42,41450);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11436);
+INSERT INTO cnl (CN, COD_CNL) VALUES (42,41453);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41460);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41462);
+INSERT INTO cnl (CN, COD_CNL) VALUES (41,41464);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41465);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41466);
+INSERT INTO cnl (CN, COD_CNL) VALUES (46,41469);
+INSERT INTO cnl (CN, COD_CNL) VALUES (42,41472);
+INSERT INTO cnl (CN, COD_CNL) VALUES (42,41474);
+INSERT INTO cnl (CN, COD_CNL) VALUES (46,41481);
+INSERT INTO cnl (CN, COD_CNL) VALUES (43,41488);
+INSERT INTO cnl (CN, COD_CNL) VALUES (46,41487);
+INSERT INTO cnl (CN, COD_CNL) VALUES (42,41491);
+INSERT INTO cnl (CN, COD_CNL) VALUES (79,79049);
+INSERT INTO cnl (CN, COD_CNL) VALUES (42,41493);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64163);
+INSERT INTO cnl (CN, COD_CNL) VALUES (42,41496);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41498);
+INSERT INTO cnl (CN, COD_CNL) VALUES (42,41502);
+INSERT INTO cnl (CN, COD_CNL) VALUES (42,41505);
+INSERT INTO cnl (CN, COD_CNL) VALUES (42,41511);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41510);
+INSERT INTO cnl (CN, COD_CNL) VALUES (42,41514);
+INSERT INTO cnl (CN, COD_CNL) VALUES (46,41517);
+INSERT INTO cnl (CN, COD_CNL) VALUES (42,41523);
+INSERT INTO cnl (CN, COD_CNL) VALUES (43,41526);
+INSERT INTO cnl (CN, COD_CNL) VALUES (69,69148);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64157);
+INSERT INTO cnl (CN, COD_CNL) VALUES (46,41529);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41530);
+INSERT INTO cnl (CN, COD_CNL) VALUES (45,41534);
+INSERT INTO cnl (CN, COD_CNL) VALUES (46,41536);
+INSERT INTO cnl (CN, COD_CNL) VALUES (42,41537);
+INSERT INTO cnl (CN, COD_CNL) VALUES (46,41539);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64095);
+INSERT INTO cnl (CN, COD_CNL) VALUES (42,41540);
+INSERT INTO cnl (CN, COD_CNL) VALUES (42,41541);
+INSERT INTO cnl (CN, COD_CNL) VALUES (43,41543);
+INSERT INTO cnl (CN, COD_CNL) VALUES (43,41544);
+INSERT INTO cnl (CN, COD_CNL) VALUES (42,41545);
+INSERT INTO cnl (CN, COD_CNL) VALUES (42,41547);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64094);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41562);
+INSERT INTO cnl (CN, COD_CNL) VALUES (46,41619);
+INSERT INTO cnl (CN, COD_CNL) VALUES (43,41621);
+INSERT INTO cnl (CN, COD_CNL) VALUES (46,41622);
+INSERT INTO cnl (CN, COD_CNL) VALUES (43,41647);
+INSERT INTO cnl (CN, COD_CNL) VALUES (43,41649);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64097);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41650);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41656);
+INSERT INTO cnl (CN, COD_CNL) VALUES (46,41657);
+INSERT INTO cnl (CN, COD_CNL) VALUES (42,41661);
+INSERT INTO cnl (CN, COD_CNL) VALUES (43,41663);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41664);
+INSERT INTO cnl (CN, COD_CNL) VALUES (43,41625);
+INSERT INTO cnl (CN, COD_CNL) VALUES (45,41667);
+INSERT INTO cnl (CN, COD_CNL) VALUES (43,41670);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41671);
+INSERT INTO cnl (CN, COD_CNL) VALUES (43,41674);
+INSERT INTO cnl (CN, COD_CNL) VALUES (46,41675);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41676);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41564);
+INSERT INTO cnl (CN, COD_CNL) VALUES (43,41571);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64099);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41573);
+INSERT INTO cnl (CN, COD_CNL) VALUES (42,41576);
+INSERT INTO cnl (CN, COD_CNL) VALUES (46,41579);
+INSERT INTO cnl (CN, COD_CNL) VALUES (43,41582);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64155);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41593);
+INSERT INTO cnl (CN, COD_CNL) VALUES (42,41595);
+INSERT INTO cnl (CN, COD_CNL) VALUES (45,41598);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41602);
+INSERT INTO cnl (CN, COD_CNL) VALUES (43,41609);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41613);
+INSERT INTO cnl (CN, COD_CNL) VALUES (84,84069);
+INSERT INTO cnl (CN, COD_CNL) VALUES (43,41627);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64138);
+INSERT INTO cnl (CN, COD_CNL) VALUES (46,41799);
+INSERT INTO cnl (CN, COD_CNL) VALUES (43,41633);
+INSERT INTO cnl (CN, COD_CNL) VALUES (45,43818);
+INSERT INTO cnl (CN, COD_CNL) VALUES (43,41642);
+INSERT INTO cnl (CN, COD_CNL) VALUES (46,41631);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41681);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64100);
+INSERT INTO cnl (CN, COD_CNL) VALUES (42,41684);
+INSERT INTO cnl (CN, COD_CNL) VALUES (42,41685);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41690);
+INSERT INTO cnl (CN, COD_CNL) VALUES (42,41692);
+INSERT INTO cnl (CN, COD_CNL) VALUES (43,41696);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64120);
+INSERT INTO cnl (CN, COD_CNL) VALUES (42,41797);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41021);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41024);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41099);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41106);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41152);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41182);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41194);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41234);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41279);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41294);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41313);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41381);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41387);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41428);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41479);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41480);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41682);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41683);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41703);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41711);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41747);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41770);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41814);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41874);
+INSERT INTO cnl (CN, COD_CNL) VALUES (42,41712);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41714);
+INSERT INTO cnl (CN, COD_CNL) VALUES (69,69077);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64201);
+INSERT INTO cnl (CN, COD_CNL) VALUES (42,41719);
+INSERT INTO cnl (CN, COD_CNL) VALUES (46,41724);
+INSERT INTO cnl (CN, COD_CNL) VALUES (42,41743);
+INSERT INTO cnl (CN, COD_CNL) VALUES (46,41746);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64122);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64167);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64102);
+INSERT INTO cnl (CN, COD_CNL) VALUES (47,47013);
+INSERT INTO cnl (CN, COD_CNL) VALUES (47,47019);
+INSERT INTO cnl (CN, COD_CNL) VALUES (47,47025);
+INSERT INTO cnl (CN, COD_CNL) VALUES (47,47027);
+INSERT INTO cnl (CN, COD_CNL) VALUES (47,47028);
+INSERT INTO cnl (CN, COD_CNL) VALUES (47,47031);
+INSERT INTO cnl (CN, COD_CNL) VALUES (47,47065);
+INSERT INTO cnl (CN, COD_CNL) VALUES (47,47070);
+INSERT INTO cnl (CN, COD_CNL) VALUES (47,47078);
+INSERT INTO cnl (CN, COD_CNL) VALUES (47,47082);
+INSERT INTO cnl (CN, COD_CNL) VALUES (47,47108);
+INSERT INTO cnl (CN, COD_CNL) VALUES (47,47145);
+INSERT INTO cnl (CN, COD_CNL) VALUES (47,47160);
+INSERT INTO cnl (CN, COD_CNL) VALUES (47,47163);
+INSERT INTO cnl (CN, COD_CNL) VALUES (47,47194);
+INSERT INTO cnl (CN, COD_CNL) VALUES (47,47309);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64104);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47005);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47044);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47045);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47046);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47048);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47059);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47087);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47125);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47133);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47141);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47147);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47154);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47167);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47181);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47183);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47204);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47208);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47209);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47210);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47255);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47268);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47320);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47321);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47339);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47353);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47361);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47378);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47395);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47578);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47598);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47808);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,48325);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64107);
+INSERT INTO cnl (CN, COD_CNL) VALUES (48,47016);
+INSERT INTO cnl (CN, COD_CNL) VALUES (48,47051);
+INSERT INTO cnl (CN, COD_CNL) VALUES (48,47060);
+INSERT INTO cnl (CN, COD_CNL) VALUES (48,47077);
+INSERT INTO cnl (CN, COD_CNL) VALUES (48,47095);
+INSERT INTO cnl (CN, COD_CNL) VALUES (48,47104);
+INSERT INTO cnl (CN, COD_CNL) VALUES (48,47112);
+INSERT INTO cnl (CN, COD_CNL) VALUES (48,47117);
+INSERT INTO cnl (CN, COD_CNL) VALUES (48,47122);
+INSERT INTO cnl (CN, COD_CNL) VALUES (48,47127);
+INSERT INTO cnl (CN, COD_CNL) VALUES (48,47150);
+INSERT INTO cnl (CN, COD_CNL) VALUES (48,47171);
+INSERT INTO cnl (CN, COD_CNL) VALUES (48,47184);
+INSERT INTO cnl (CN, COD_CNL) VALUES (48,47185);
+INSERT INTO cnl (CN, COD_CNL) VALUES (48,47193);
+INSERT INTO cnl (CN, COD_CNL) VALUES (48,47200);
+INSERT INTO cnl (CN, COD_CNL) VALUES (48,47203);
+INSERT INTO cnl (CN, COD_CNL) VALUES (48,47228);
+INSERT INTO cnl (CN, COD_CNL) VALUES (48,47240);
+INSERT INTO cnl (CN, COD_CNL) VALUES (48,47243);
+INSERT INTO cnl (CN, COD_CNL) VALUES (48,47258);
+INSERT INTO cnl (CN, COD_CNL) VALUES (48,47304);
+INSERT INTO cnl (CN, COD_CNL) VALUES (48,47342);
+INSERT INTO cnl (CN, COD_CNL) VALUES (48,47389);
+INSERT INTO cnl (CN, COD_CNL) VALUES (48,47418);
+INSERT INTO cnl (CN, COD_CNL) VALUES (48,48552);
+INSERT INTO cnl (CN, COD_CNL) VALUES (48,47000);
+INSERT INTO cnl (CN, COD_CNL) VALUES (48,47006);
+INSERT INTO cnl (CN, COD_CNL) VALUES (48,47007);
+INSERT INTO cnl (CN, COD_CNL) VALUES (48,47009);
+INSERT INTO cnl (CN, COD_CNL) VALUES (48,47011);
+INSERT INTO cnl (CN, COD_CNL) VALUES (48,47012);
+INSERT INTO cnl (CN, COD_CNL) VALUES (48,47026);
+INSERT INTO cnl (CN, COD_CNL) VALUES (48,47040);
+INSERT INTO cnl (CN, COD_CNL) VALUES (48,47063);
+INSERT INTO cnl (CN, COD_CNL) VALUES (48,47067);
+INSERT INTO cnl (CN, COD_CNL) VALUES (48,47110);
+INSERT INTO cnl (CN, COD_CNL) VALUES (48,47126);
+INSERT INTO cnl (CN, COD_CNL) VALUES (48,47131);
+INSERT INTO cnl (CN, COD_CNL) VALUES (48,47135);
+INSERT INTO cnl (CN, COD_CNL) VALUES (48,47155);
+INSERT INTO cnl (CN, COD_CNL) VALUES (48,47166);
+INSERT INTO cnl (CN, COD_CNL) VALUES (48,47170);
+INSERT INTO cnl (CN, COD_CNL) VALUES (48,47188);
+INSERT INTO cnl (CN, COD_CNL) VALUES (48,47192);
+INSERT INTO cnl (CN, COD_CNL) VALUES (48,47213);
+INSERT INTO cnl (CN, COD_CNL) VALUES (48,47224);
+INSERT INTO cnl (CN, COD_CNL) VALUES (48,47225);
+INSERT INTO cnl (CN, COD_CNL) VALUES (69,69055);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64131);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64108);
+INSERT INTO cnl (CN, COD_CNL) VALUES (47,47034);
+INSERT INTO cnl (CN, COD_CNL) VALUES (47,47089);
+INSERT INTO cnl (CN, COD_CNL) VALUES (47,47090);
+INSERT INTO cnl (CN, COD_CNL) VALUES (47,47124);
+INSERT INTO cnl (CN, COD_CNL) VALUES (47,47137);
+INSERT INTO cnl (CN, COD_CNL) VALUES (47,47140);
+INSERT INTO cnl (CN, COD_CNL) VALUES (47,47148);
+INSERT INTO cnl (CN, COD_CNL) VALUES (47,47211);
+INSERT INTO cnl (CN, COD_CNL) VALUES (47,47285);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47004);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47018);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47032);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47038);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47042);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47043);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47047);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47058);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47061);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47074);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47075);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47083);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47084);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47085);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47094);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47098);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47100);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47105);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47116);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47130);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47138);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47142);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47144);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47151);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47156);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47180);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47190);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47197);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47206);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47216);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47230);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47257);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47259);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47266);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47289);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47332);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47334);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47391);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47406);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47414);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,47415);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64025);
+INSERT INTO cnl (CN, COD_CNL) VALUES (16,11142);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11144);
+INSERT INTO cnl (CN, COD_CNL) VALUES (15,11145);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11152);
+INSERT INTO cnl (CN, COD_CNL) VALUES (19,11153);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11155);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11156);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11157);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11160);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11165);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11166);
+INSERT INTO cnl (CN, COD_CNL) VALUES (69,69074);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64141);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,12136);
+INSERT INTO cnl (CN, COD_CNL) VALUES (67,66153);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11168);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11170);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11159);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11175);
+INSERT INTO cnl (CN, COD_CNL) VALUES (16,11178);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11180);
+INSERT INTO cnl (CN, COD_CNL) VALUES (19,11184);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11186);
+INSERT INTO cnl (CN, COD_CNL) VALUES (19,11188);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64029);
+INSERT INTO cnl (CN, COD_CNL) VALUES (16,11189);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11190);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11191);
+INSERT INTO cnl (CN, COD_CNL) VALUES (16,11192);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11193);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11194);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11196);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64134);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11200);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11736);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,12052);
+INSERT INTO cnl (CN, COD_CNL) VALUES (19,11206);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11207);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11209);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64031);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11211);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11215);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11218);
+INSERT INTO cnl (CN, COD_CNL) VALUES (16,11217);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11219);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11221);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11222);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11223);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11224);
+INSERT INTO cnl (CN, COD_CNL) VALUES (16,11226);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11230);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11231);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11232);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11233);
+INSERT INTO cnl (CN, COD_CNL) VALUES (16,11711);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11234);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11236);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64178);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11237);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11240);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11241);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11242);
+INSERT INTO cnl (CN, COD_CNL) VALUES (15,11244);
+INSERT INTO cnl (CN, COD_CNL) VALUES (16,12139);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11245);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11246);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11247);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64034);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11248);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11250);
+INSERT INTO cnl (CN, COD_CNL) VALUES (15,11253);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11257);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64035);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11258);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11259);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11260);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11903);
+INSERT INTO cnl (CN, COD_CNL) VALUES (16,11261);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11263);
+INSERT INTO cnl (CN, COD_CNL) VALUES (16,11264);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64127);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11269);
+INSERT INTO cnl (CN, COD_CNL) VALUES (16,11270);
+INSERT INTO cnl (CN, COD_CNL) VALUES (11,11271);
+INSERT INTO cnl (CN, COD_CNL) VALUES (13,11272);
+INSERT INTO cnl (CN, COD_CNL) VALUES (13,11957);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11273);
+INSERT INTO cnl (CN, COD_CNL) VALUES (69,69113);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64037);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11276);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11277);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11278);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11279);
+INSERT INTO cnl (CN, COD_CNL) VALUES (15,11283);
+INSERT INTO cnl (CN, COD_CNL) VALUES (16,12141);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64038);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11285);
+INSERT INTO cnl (CN, COD_CNL) VALUES (15,11286);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11287);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11288);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11289);
+INSERT INTO cnl (CN, COD_CNL) VALUES (15,12274);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64040);
+INSERT INTO cnl (CN, COD_CNL) VALUES (19,11295);
+INSERT INTO cnl (CN, COD_CNL) VALUES (15,12065);
+INSERT INTO cnl (CN, COD_CNL) VALUES (16,11296);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11298);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11299);
+INSERT INTO cnl (CN, COD_CNL) VALUES (15,11301);
+INSERT INTO cnl (CN, COD_CNL) VALUES (13,11302);
+INSERT INTO cnl (CN, COD_CNL) VALUES (11,11303);
+INSERT INTO cnl (CN, COD_CNL) VALUES (11,11396);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11304);
+INSERT INTO cnl (CN, COD_CNL) VALUES (19,11305);
+INSERT INTO cnl (CN, COD_CNL) VALUES (16,11306);
+INSERT INTO cnl (CN, COD_CNL) VALUES (19,11307);
+INSERT INTO cnl (CN, COD_CNL) VALUES (11,11308);
+INSERT INTO cnl (CN, COD_CNL) VALUES (11,11357);
+INSERT INTO cnl (CN, COD_CNL) VALUES (11,11572);
+INSERT INTO cnl (CN, COD_CNL) VALUES (11,11584);
+INSERT INTO cnl (CN, COD_CNL) VALUES (11,11898);
+INSERT INTO cnl (CN, COD_CNL) VALUES (11,12214);
+INSERT INTO cnl (CN, COD_CNL) VALUES (16,12142);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64042);
+INSERT INTO cnl (CN, COD_CNL) VALUES (13,11313);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11316);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64128);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11321);
+INSERT INTO cnl (CN, COD_CNL) VALUES (16,11753);
+INSERT INTO cnl (CN, COD_CNL) VALUES (11,11322);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11323);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11325);
+INSERT INTO cnl (CN, COD_CNL) VALUES (11,11123);
+INSERT INTO cnl (CN, COD_CNL) VALUES (11,11136);
+INSERT INTO cnl (CN, COD_CNL) VALUES (11,11319);
+INSERT INTO cnl (CN, COD_CNL) VALUES (11,11326);
+INSERT INTO cnl (CN, COD_CNL) VALUES (11,11691);
+INSERT INTO cnl (CN, COD_CNL) VALUES (11,11791);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11327);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64043);
+INSERT INTO cnl (CN, COD_CNL) VALUES (13,11328);
+INSERT INTO cnl (CN, COD_CNL) VALUES (15,11335);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11336);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11339);
+INSERT INTO cnl (CN, COD_CNL) VALUES (19,11341);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64044);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11342);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11914);
+INSERT INTO cnl (CN, COD_CNL) VALUES (19,11344);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11345);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11346);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11348);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11349);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11351);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11352);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11354);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11355);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11360);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11361);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11362);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11782);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11364);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11365);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11366);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11368);
+INSERT INTO cnl (CN, COD_CNL) VALUES (16,11369);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11372);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11846);
+INSERT INTO cnl (CN, COD_CNL) VALUES (16,12145);
+INSERT INTO cnl (CN, COD_CNL) VALUES (69,69046);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11373);
+INSERT INTO cnl (CN, COD_CNL) VALUES (13,11375);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11374);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11376);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11377);
+INSERT INTO cnl (CN, COD_CNL) VALUES (19,11380);
+INSERT INTO cnl (CN, COD_CNL) VALUES (19,11630);
+INSERT INTO cnl (CN, COD_CNL) VALUES (19,11649);
+INSERT INTO cnl (CN, COD_CNL) VALUES (19,11382);
+INSERT INTO cnl (CN, COD_CNL) VALUES (19,11383);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11385);
+INSERT INTO cnl (CN, COD_CNL) VALUES (19,11387);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11390);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11391);
+INSERT INTO cnl (CN, COD_CNL) VALUES (16,11712);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11398);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,12071);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11399);
+INSERT INTO cnl (CN, COD_CNL) VALUES (11,11401);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11403);
+INSERT INTO cnl (CN, COD_CNL) VALUES (15,12275);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11908);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,12080);
+INSERT INTO cnl (CN, COD_CNL) VALUES (16,11409);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11411);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11412);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64136);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11907);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11413);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11418);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11419);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11423);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64051);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11426);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11427);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11428);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11430);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11429);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11431);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64052);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11434);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11435);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11437);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11440);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11442);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11443);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11444);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11445);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64053);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11446);
+INSERT INTO cnl (CN, COD_CNL) VALUES (13,11447);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11922);
+INSERT INTO cnl (CN, COD_CNL) VALUES (16,11449);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11450);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11452);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11455);
+INSERT INTO cnl (CN, COD_CNL) VALUES (11,11719);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64001);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64004);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64011);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64028);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64041);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64045);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64048);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64050);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64054);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64059);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64078);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64083);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64098);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64103);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64105);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64109);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64124);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64132);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11456);
+INSERT INTO cnl (CN, COD_CNL) VALUES (16,12149);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11754);
+INSERT INTO cnl (CN, COD_CNL) VALUES (13,11458);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11459);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11460);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11461);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11464);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11468);
+INSERT INTO cnl (CN, COD_CNL) VALUES (11,11469);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11471);
+INSERT INTO cnl (CN, COD_CNL) VALUES (11,11473);
+INSERT INTO cnl (CN, COD_CNL) VALUES (19,11007);
+INSERT INTO cnl (CN, COD_CNL) VALUES (19,11025);
+INSERT INTO cnl (CN, COD_CNL) VALUES (19,11042);
+INSERT INTO cnl (CN, COD_CNL) VALUES (19,11148);
+INSERT INTO cnl (CN, COD_CNL) VALUES (19,11163);
+INSERT INTO cnl (CN, COD_CNL) VALUES (19,11167);
+INSERT INTO cnl (CN, COD_CNL) VALUES (19,11169);
+INSERT INTO cnl (CN, COD_CNL) VALUES (19,11173);
+INSERT INTO cnl (CN, COD_CNL) VALUES (19,11199);
+INSERT INTO cnl (CN, COD_CNL) VALUES (19,11281);
+INSERT INTO cnl (CN, COD_CNL) VALUES (19,11338);
+INSERT INTO cnl (CN, COD_CNL) VALUES (19,11340);
+INSERT INTO cnl (CN, COD_CNL) VALUES (19,11384);
+INSERT INTO cnl (CN, COD_CNL) VALUES (19,11474);
+INSERT INTO cnl (CN, COD_CNL) VALUES (19,11483);
+INSERT INTO cnl (CN, COD_CNL) VALUES (19,11516);
+INSERT INTO cnl (CN, COD_CNL) VALUES (19,11535);
+INSERT INTO cnl (CN, COD_CNL) VALUES (19,11536);
+INSERT INTO cnl (CN, COD_CNL) VALUES (19,11570);
+INSERT INTO cnl (CN, COD_CNL) VALUES (19,11616);
+INSERT INTO cnl (CN, COD_CNL) VALUES (19,11622);
+INSERT INTO cnl (CN, COD_CNL) VALUES (19,11626);
+INSERT INTO cnl (CN, COD_CNL) VALUES (19,11805);
+INSERT INTO cnl (CN, COD_CNL) VALUES (19,11829);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11476);
+INSERT INTO cnl (CN, COD_CNL) VALUES (69,69090);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64056);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11477);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11479);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11482);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11484);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11487);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64057);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11490);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11491);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11493);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11494);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11495);
+INSERT INTO cnl (CN, COD_CNL) VALUES (15,11496);
+INSERT INTO cnl (CN, COD_CNL) VALUES (19,11498);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64147);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11500);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11503);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11504);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11506);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11507);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64058);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11508);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11509);
+INSERT INTO cnl (CN, COD_CNL) VALUES (15,12280);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11511);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11512);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11514);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11517);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11519);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11520);
+INSERT INTO cnl (CN, COD_CNL) VALUES (13,11521);
+INSERT INTO cnl (CN, COD_CNL) VALUES (16,11523);
+INSERT INTO cnl (CN, COD_CNL) VALUES (15,11531);
+INSERT INTO cnl (CN, COD_CNL) VALUES (16,11524);
+INSERT INTO cnl (CN, COD_CNL) VALUES (15,11525);
+INSERT INTO cnl (CN, COD_CNL) VALUES (16,12150);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11526);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11872);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64148);
+INSERT INTO cnl (CN, COD_CNL) VALUES (15,11527);
+INSERT INTO cnl (CN, COD_CNL) VALUES (16,11070);
+INSERT INTO cnl (CN, COD_CNL) VALUES (16,11177);
+INSERT INTO cnl (CN, COD_CNL) VALUES (16,11195);
+INSERT INTO cnl (CN, COD_CNL) VALUES (16,11254);
+INSERT INTO cnl (CN, COD_CNL) VALUES (16,11310);
+INSERT INTO cnl (CN, COD_CNL) VALUES (16,11388);
+INSERT INTO cnl (CN, COD_CNL) VALUES (16,11485);
+INSERT INTO cnl (CN, COD_CNL) VALUES (16,11492);
+INSERT INTO cnl (CN, COD_CNL) VALUES (16,11501);
+INSERT INTO cnl (CN, COD_CNL) VALUES (16,11529);
+INSERT INTO cnl (CN, COD_CNL) VALUES (16,11576);
+INSERT INTO cnl (CN, COD_CNL) VALUES (16,11596);
+INSERT INTO cnl (CN, COD_CNL) VALUES (16,11598);
+INSERT INTO cnl (CN, COD_CNL) VALUES (16,11599);
+INSERT INTO cnl (CN, COD_CNL) VALUES (16,11631);
+INSERT INTO cnl (CN, COD_CNL) VALUES (16,11648);
+INSERT INTO cnl (CN, COD_CNL) VALUES (16,11653);
+INSERT INTO cnl (CN, COD_CNL) VALUES (16,11738);
+INSERT INTO cnl (CN, COD_CNL) VALUES (16,11869);
+INSERT INTO cnl (CN, COD_CNL) VALUES (16,11889);
+INSERT INTO cnl (CN, COD_CNL) VALUES (16,12126);
+INSERT INTO cnl (CN, COD_CNL) VALUES (16,12130);
+INSERT INTO cnl (CN, COD_CNL) VALUES (16,12131);
+INSERT INTO cnl (CN, COD_CNL) VALUES (16,12133);
+INSERT INTO cnl (CN, COD_CNL) VALUES (16,12135);
+INSERT INTO cnl (CN, COD_CNL) VALUES (16,12143);
+INSERT INTO cnl (CN, COD_CNL) VALUES (16,12146);
+INSERT INTO cnl (CN, COD_CNL) VALUES (16,12147);
+INSERT INTO cnl (CN, COD_CNL) VALUES (16,12148);
+INSERT INTO cnl (CN, COD_CNL) VALUES (16,12152);
+INSERT INTO cnl (CN, COD_CNL) VALUES (16,12153);
+INSERT INTO cnl (CN, COD_CNL) VALUES (15,11530);
+INSERT INTO cnl (CN, COD_CNL) VALUES (16,12151);
+INSERT INTO cnl (CN, COD_CNL) VALUES (16,11533);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11534);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11538);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11542);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11544);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11545);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11579);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11580);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64150);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11583);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11586);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11587);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11610);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11611);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11615);
+INSERT INTO cnl (CN, COD_CNL) VALUES (19,11617);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11618);
+INSERT INTO cnl (CN, COD_CNL) VALUES (16,11619);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11621);
+INSERT INTO cnl (CN, COD_CNL) VALUES (16,11625);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64346);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11628);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11588);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11629);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11916);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11632);
+INSERT INTO cnl (CN, COD_CNL) VALUES (69,69065);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64060);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11963);
+INSERT INTO cnl (CN, COD_CNL) VALUES (19,11636);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11638);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11591);
+INSERT INTO cnl (CN, COD_CNL) VALUES (13,11079);
+INSERT INTO cnl (CN, COD_CNL) VALUES (13,11182);
+INSERT INTO cnl (CN, COD_CNL) VALUES (13,11256);
+INSERT INTO cnl (CN, COD_CNL) VALUES (13,11290);
+INSERT INTO cnl (CN, COD_CNL) VALUES (13,11386);
+INSERT INTO cnl (CN, COD_CNL) VALUES (13,11463);
+INSERT INTO cnl (CN, COD_CNL) VALUES (13,11502);
+INSERT INTO cnl (CN, COD_CNL) VALUES (13,11577);
+INSERT INTO cnl (CN, COD_CNL) VALUES (13,11592);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64188);
+INSERT INTO cnl (CN, COD_CNL) VALUES (16,11551);
+INSERT INTO cnl (CN, COD_CNL) VALUES (19,11553);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11554);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11771);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11556);
+INSERT INTO cnl (CN, COD_CNL) VALUES (16,12155);
+INSERT INTO cnl (CN, COD_CNL) VALUES (16,11558);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64061);
+INSERT INTO cnl (CN, COD_CNL) VALUES (19,11561);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11002);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11060);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11062);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11158);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11243);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11262);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11267);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11282);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11284);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11312);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11324);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11353);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11371);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11378);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11379);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11389);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11402);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11404);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11406);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11410);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11420);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11422);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11424);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11433);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11453);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11489);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11499);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11562);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11581);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11602);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11650);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11679);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11680);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11683);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11944);
+INSERT INTO cnl (CN, COD_CNL) VALUES (12,11032);
+INSERT INTO cnl (CN, COD_CNL) VALUES (12,11040);
+INSERT INTO cnl (CN, COD_CNL) VALUES (12,11044);
+INSERT INTO cnl (CN, COD_CNL) VALUES (12,11063);
+INSERT INTO cnl (CN, COD_CNL) VALUES (12,11124);
+INSERT INTO cnl (CN, COD_CNL) VALUES (12,11125);
+INSERT INTO cnl (CN, COD_CNL) VALUES (12,11137);
+INSERT INTO cnl (CN, COD_CNL) VALUES (12,11140);
+INSERT INTO cnl (CN, COD_CNL) VALUES (12,11150);
+INSERT INTO cnl (CN, COD_CNL) VALUES (12,11181);
+INSERT INTO cnl (CN, COD_CNL) VALUES (12,11183);
+INSERT INTO cnl (CN, COD_CNL) VALUES (12,11252);
+INSERT INTO cnl (CN, COD_CNL) VALUES (12,11274);
+INSERT INTO cnl (CN, COD_CNL) VALUES (12,11311);
+INSERT INTO cnl (CN, COD_CNL) VALUES (12,11317);
+INSERT INTO cnl (CN, COD_CNL) VALUES (12,11334);
+INSERT INTO cnl (CN, COD_CNL) VALUES (12,11337);
+INSERT INTO cnl (CN, COD_CNL) VALUES (12,11343);
+INSERT INTO cnl (CN, COD_CNL) VALUES (12,11394);
+INSERT INTO cnl (CN, COD_CNL) VALUES (12,11400);
+INSERT INTO cnl (CN, COD_CNL) VALUES (12,11441);
+INSERT INTO cnl (CN, COD_CNL) VALUES (12,11467);
+INSERT INTO cnl (CN, COD_CNL) VALUES (12,11472);
+INSERT INTO cnl (CN, COD_CNL) VALUES (12,11513);
+INSERT INTO cnl (CN, COD_CNL) VALUES (12,11518);
+INSERT INTO cnl (CN, COD_CNL) VALUES (12,11543);
+INSERT INTO cnl (CN, COD_CNL) VALUES (12,11547);
+INSERT INTO cnl (CN, COD_CNL) VALUES (12,11560);
+INSERT INTO cnl (CN, COD_CNL) VALUES (12,11563);
+INSERT INTO cnl (CN, COD_CNL) VALUES (12,11566);
+INSERT INTO cnl (CN, COD_CNL) VALUES (12,11573);
+INSERT INTO cnl (CN, COD_CNL) VALUES (12,11604);
+INSERT INTO cnl (CN, COD_CNL) VALUES (12,11614);
+INSERT INTO cnl (CN, COD_CNL) VALUES (12,11637);
+INSERT INTO cnl (CN, COD_CNL) VALUES (12,11661);
+INSERT INTO cnl (CN, COD_CNL) VALUES (12,11670);
+INSERT INTO cnl (CN, COD_CNL) VALUES (12,11677);
+INSERT INTO cnl (CN, COD_CNL) VALUES (12,12271);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11567);
+INSERT INTO cnl (CN, COD_CNL) VALUES (11,11000);
+INSERT INTO cnl (CN, COD_CNL) VALUES (11,11048);
+INSERT INTO cnl (CN, COD_CNL) VALUES (11,11071);
+INSERT INTO cnl (CN, COD_CNL) VALUES (11,11082);
+INSERT INTO cnl (CN, COD_CNL) VALUES (11,11130);
+INSERT INTO cnl (CN, COD_CNL) VALUES (11,11132);
+INSERT INTO cnl (CN, COD_CNL) VALUES (11,11151);
+INSERT INTO cnl (CN, COD_CNL) VALUES (11,11176);
+INSERT INTO cnl (CN, COD_CNL) VALUES (11,11185);
+INSERT INTO cnl (CN, COD_CNL) VALUES (11,11202);
+INSERT INTO cnl (CN, COD_CNL) VALUES (11,11203);
+INSERT INTO cnl (CN, COD_CNL) VALUES (11,11220);
+INSERT INTO cnl (CN, COD_CNL) VALUES (11,11227);
+INSERT INTO cnl (CN, COD_CNL) VALUES (11,11229);
+INSERT INTO cnl (CN, COD_CNL) VALUES (11,11251);
+INSERT INTO cnl (CN, COD_CNL) VALUES (11,11291);
+INSERT INTO cnl (CN, COD_CNL) VALUES (11,11294);
+INSERT INTO cnl (CN, COD_CNL) VALUES (11,11300);
+INSERT INTO cnl (CN, COD_CNL) VALUES (11,11318);
+INSERT INTO cnl (CN, COD_CNL) VALUES (11,11330);
+INSERT INTO cnl (CN, COD_CNL) VALUES (11,11358);
+INSERT INTO cnl (CN, COD_CNL) VALUES (11,11370);
+INSERT INTO cnl (CN, COD_CNL) VALUES (11,11381);
+INSERT INTO cnl (CN, COD_CNL) VALUES (11,11425);
+INSERT INTO cnl (CN, COD_CNL) VALUES (11,11480);
+INSERT INTO cnl (CN, COD_CNL) VALUES (11,11488);
+INSERT INTO cnl (CN, COD_CNL) VALUES (11,11528);
+INSERT INTO cnl (CN, COD_CNL) VALUES (11,11548);
+INSERT INTO cnl (CN, COD_CNL) VALUES (11,11550);
+INSERT INTO cnl (CN, COD_CNL) VALUES (11,11564);
+INSERT INTO cnl (CN, COD_CNL) VALUES (11,11582);
+INSERT INTO cnl (CN, COD_CNL) VALUES (11,11589);
+INSERT INTO cnl (CN, COD_CNL) VALUES (11,11623);
+INSERT INTO cnl (CN, COD_CNL) VALUES (11,11633);
+INSERT INTO cnl (CN, COD_CNL) VALUES (11,11641);
+INSERT INTO cnl (CN, COD_CNL) VALUES (11,11644);
+INSERT INTO cnl (CN, COD_CNL) VALUES (11,11892);
+INSERT INTO cnl (CN, COD_CNL) VALUES (11,11964);
+INSERT INTO cnl (CN, COD_CNL) VALUES (11,12210);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11571);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64062);
+INSERT INTO cnl (CN, COD_CNL) VALUES (19,11574);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11594);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11595);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64162);
+INSERT INTO cnl (CN, COD_CNL) VALUES (19,11597);
+INSERT INTO cnl (CN, COD_CNL) VALUES (13,11600);
+INSERT INTO cnl (CN, COD_CNL) VALUES (19,11607);
+INSERT INTO cnl (CN, COD_CNL) VALUES (15,11010);
+INSERT INTO cnl (CN, COD_CNL) VALUES (15,11038);
+INSERT INTO cnl (CN, COD_CNL) VALUES (15,11109);
+INSERT INTO cnl (CN, COD_CNL) VALUES (15,11146);
+INSERT INTO cnl (CN, COD_CNL) VALUES (15,11161);
+INSERT INTO cnl (CN, COD_CNL) VALUES (15,11162);
+INSERT INTO cnl (CN, COD_CNL) VALUES (15,11266);
+INSERT INTO cnl (CN, COD_CNL) VALUES (15,11280);
+INSERT INTO cnl (CN, COD_CNL) VALUES (15,11292);
+INSERT INTO cnl (CN, COD_CNL) VALUES (15,11465);
+INSERT INTO cnl (CN, COD_CNL) VALUES (15,11466);
+INSERT INTO cnl (CN, COD_CNL) VALUES (15,11497);
+INSERT INTO cnl (CN, COD_CNL) VALUES (15,11569);
+INSERT INTO cnl (CN, COD_CNL) VALUES (15,11585);
+INSERT INTO cnl (CN, COD_CNL) VALUES (15,11593);
+INSERT INTO cnl (CN, COD_CNL) VALUES (15,11609);
+INSERT INTO cnl (CN, COD_CNL) VALUES (15,11651);
+INSERT INTO cnl (CN, COD_CNL) VALUES (15,11660);
+INSERT INTO cnl (CN, COD_CNL) VALUES (15,11666);
+INSERT INTO cnl (CN, COD_CNL) VALUES (15,11885);
+INSERT INTO cnl (CN, COD_CNL) VALUES (15,11912);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11639);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11832);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11642);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11645);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11646);
+INSERT INTO cnl (CN, COD_CNL) VALUES (16,11647);
+INSERT INTO cnl (CN, COD_CNL) VALUES (19,11652);
+INSERT INTO cnl (CN, COD_CNL) VALUES (16,11656);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11657);
+INSERT INTO cnl (CN, COD_CNL) VALUES (15,11658);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11659);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11945);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11662);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11664);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11667);
+INSERT INTO cnl (CN, COD_CNL) VALUES (15,12276);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11669);
+INSERT INTO cnl (CN, COD_CNL) VALUES (16,11718);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11672);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64068);
+INSERT INTO cnl (CN, COD_CNL) VALUES (11,11720);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11673);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11674);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11675);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11678);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64133);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11681);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11682);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11685);
+INSERT INTO cnl (CN, COD_CNL) VALUES (18,11687);
+INSERT INTO cnl (CN, COD_CNL) VALUES (11,11689);
+INSERT INTO cnl (CN, COD_CNL) VALUES (19,11690);
+INSERT INTO cnl (CN, COD_CNL) VALUES (69,69063);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64069);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11698);
+INSERT INTO cnl (CN, COD_CNL) VALUES (16,11699);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11798);
+INSERT INTO cnl (CN, COD_CNL) VALUES (17,11701);
+INSERT INTO cnl (CN, COD_CNL) VALUES (14,11164);
+INSERT INTO cnl (CN, COD_CNL) VALUES (19,11940);
+INSERT INTO cnl (CN, COD_CNL) VALUES (43,41002);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41020);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41027);
+INSERT INTO cnl (CN, COD_CNL) VALUES (46,41030);
+INSERT INTO cnl (CN, COD_CNL) VALUES (43,41032);
+INSERT INTO cnl (CN, COD_CNL) VALUES (41,41037);
+INSERT INTO cnl (CN, COD_CNL) VALUES (42,41036);
+INSERT INTO cnl (CN, COD_CNL) VALUES (43,41041);
+INSERT INTO cnl (CN, COD_CNL) VALUES (43,41045);
+INSERT INTO cnl (CN, COD_CNL) VALUES (43,41052);
+INSERT INTO cnl (CN, COD_CNL) VALUES (43,41095);
+INSERT INTO cnl (CN, COD_CNL) VALUES (43,41108);
+INSERT INTO cnl (CN, COD_CNL) VALUES (43,41177);
+INSERT INTO cnl (CN, COD_CNL) VALUES (43,41213);
+INSERT INTO cnl (CN, COD_CNL) VALUES (43,41243);
+INSERT INTO cnl (CN, COD_CNL) VALUES (43,41248);
+INSERT INTO cnl (CN, COD_CNL) VALUES (43,41300);
+INSERT INTO cnl (CN, COD_CNL) VALUES (43,41311);
+INSERT INTO cnl (CN, COD_CNL) VALUES (43,41337);
+INSERT INTO cnl (CN, COD_CNL) VALUES (43,41344);
+INSERT INTO cnl (CN, COD_CNL) VALUES (43,41356);
+INSERT INTO cnl (CN, COD_CNL) VALUES (43,41364);
+INSERT INTO cnl (CN, COD_CNL) VALUES (43,41384);
+INSERT INTO cnl (CN, COD_CNL) VALUES (43,41397);
+INSERT INTO cnl (CN, COD_CNL) VALUES (43,41400);
+INSERT INTO cnl (CN, COD_CNL) VALUES (43,41546);
+INSERT INTO cnl (CN, COD_CNL) VALUES (43,41574);
+INSERT INTO cnl (CN, COD_CNL) VALUES (43,41601);
+INSERT INTO cnl (CN, COD_CNL) VALUES (43,41767);
+INSERT INTO cnl (CN, COD_CNL) VALUES (43,41846);
+INSERT INTO cnl (CN, COD_CNL) VALUES (43,41044);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64074);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41054);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41251);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41455);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41691);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41704);
+INSERT INTO cnl (CN, COD_CNL) VALUES (44,41732);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64075);
+INSERT INTO cnl (CN, COD_CNL) VALUES (49,41959);
+INSERT INTO cnl (CN, COD_CNL) VALUES (54,51032);
+INSERT INTO cnl (CN, COD_CNL) VALUES (43,41069);
+INSERT INTO cnl (CN, COD_CNL) VALUES (46,41076);
+INSERT INTO cnl (CN, COD_CNL) VALUES (42,41083);
+INSERT INTO cnl (CN, COD_CNL) VALUES (46,41087);
+INSERT INTO cnl (CN, COD_CNL) VALUES (42,41088);
+INSERT INTO cnl (CN, COD_CNL) VALUES (63,64076);
