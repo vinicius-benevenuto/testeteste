@@ -694,19 +694,23 @@ def _apply_validacoes_finais(
                     ),
                 })
 
-        # ── R2: Tipo de Rota — preenche se vazio (rotas Arq3 mantêm original) ──
+        # ── R2: Tipo de Rota — SOMENTE em rotas novas (sem match Arq3) ────────
+        # Registros vindos do Arq3 mantêm TODOS os seus campos intactos.
         if "Tipo de Rota" in df.columns:
-            tipo_atual = _s(df.at[idx, "Tipo de Rota"])
-            if not tipo_atual:
-                df.at[idx, "Tipo de Rota"] = TIPO_ROTA_DEFAULT
-                logs.append({
-                    "regra":    "R2 - Tipo de Rota",
-                    "linha":    int(idx),
-                    "rotulo":   rotulo,
-                    "antes":    "(vazio)",
-                    "depois":   TIPO_ROTA_DEFAULT,
-                    "mensagem": "Correção aplicada: Tipo de Rota preenchido com ITX-SIP_AS.",
-                })
+            arq3_match = _s(df.at[idx, "_arq3_match"]) if "_arq3_match" in df.columns else ""
+            if arq3_match != "True":
+                # Rota nova: preenche se vazio
+                tipo_atual = _s(df.at[idx, "Tipo de Rota"])
+                if not tipo_atual:
+                    df.at[idx, "Tipo de Rota"] = TIPO_ROTA_DEFAULT
+                    logs.append({
+                        "regra":    "R2 - Tipo de Rota",
+                        "linha":    int(idx),
+                        "rotulo":   rotulo,
+                        "antes":    "(vazio)",
+                        "depois":   TIPO_ROTA_DEFAULT,
+                        "mensagem": "Correção aplicada: Tipo de Rota preenchido com ITX-SIP_AS.",
+                    })
 
         # ── R3: UF via CNL_PPI — exclusivo para Portal ───────────────────
         if origem == "PORTAL":
