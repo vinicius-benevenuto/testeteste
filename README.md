@@ -1,284 +1,144 @@
 """
-ui/mapping_wizard.py
-Assistente de Mapeamento: configura todas as colunas necessárias para o merge.
+app.py — Data Merger v2
+Execute: streamlit run app.py
 """
 from __future__ import annotations
-from typing import Dict, List
+import os
+from pathlib import Path
 
 import streamlit as st
 
+st.set_page_config(
+    page_title="Data Merger v2",
+    page_icon="🔗",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
 
-def run_mapping_wizard(
-    science_cols: List[str],
-    portal_cols: List[str],
-    arq3_cols: List[str],
-) -> Dict:
-    st.subheader("🗺️ Assistente de Mapeamento")
-    st.markdown("Configure como cada coluna de saída será preenchida. "
-                "As sugestões foram geradas automaticamente.")
+# Carrega .env se existir
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 
-    cfg: Dict = {}
-    sci  = science_cols or []
-    por  = portal_cols  or []
-    arq3 = arq3_cols    or []
+# Inicializa banco + seeds automáticos na primeira execução
+from app.db.session import init_db
 
-    def _sel(label, options, default, key, help=""):
-        opts = list(options)
-        idx  = opts.index(default) if default in opts else 0
-        return st.selectbox(label, opts, index=idx, key=key, help=help)
+_DB = os.environ.get("DATABASE_PATH", str(Path("data") / "app.db"))
+init_db(_DB)
 
-    def _guess(cols, *candidates):
-        up = {c.strip().upper(): c for c in cols}
-        for cand in candidates:
-            hit = up.get(cand.strip().upper())
-            if hit:
-                return hit
-        return cols[0] if cols else ""
+# Carrega seeds automaticamente se tabelas estiverem vazias
+from app.db.session import session_scope
+from app.db.repository import Repository
 
-    NONE = "(nenhuma)"
+def _auto_load_seeds():
+    try:
+        with session_scope() as s:
+            repo = Repository(s)
+            if repo.cnl_count() == 0:
+                cnl_sql = Path("seeds") / "cnl.sql"
+                if cnl_sql.exists() and cnl_sql.stat().st_size > 0:
+                    repo.load_cnl_seeds(str(cnl_sql))
+            if repo.cn_to_uf_count() == 0:
+                uf_csv = Path("seeds") / "cn_to_uf.csv"
+                if uf_csv.exists() and uf_csv.stat().st_size > 0:
+                    repo.load_cn_to_uf_csv(str(uf_csv))
+    except Exception as e:
+        print(f"[AVISO] Erro ao carregar seeds: {e}")
 
-    # ── 1. Coluna CN/DDD no Science ────────────────────────────────────
-    with st.expander("1️⃣ Colunas para derivar UF", expanded=True):
-        st.caption(
-            "O app deriva UF em cascata: **Arquivo 3** → CN/DDD direto → CNL/PPI. "
-            "Configure as colunas abaixo."
-        )
-        st.markdown("**A — Arquivo 3** (fonte principal — já funciona via Central)")
-        st.info("✅ UF e CLUSTER são lidos automaticamente do Arquivo 3 pela coluna Central. "
-                "Configure as colunas do Arquivo 3 na seção 8️⃣ abaixo.")
+_auto_load_seeds()
 
-        st.markdown("**B — CN/DDD direto no Science** (fallback)")
-        cfg["cn_sci_col"] = _sel(
-            "Coluna CN/DDD no Science",
-            [NONE] + sci,
-            _guess(sci, "Área Ponta B", "Area Ponta B", "CN", "DDD", "AREA_PONTA_B"),
-            "wiz_cn_sci",
-            "Coluna com DDD numérico (ex: 43, 11). Mapeia direto para UF.",
-        )
+# CSS
+st.markdown("""
+<style>
+*:focus-visible { outline: 3px solid #4f8ef7 !important; outline-offset: 2px; }
+[data-testid="stSidebar"] { background-color: #0f1117; }
+[data-testid="stSidebar"] * { color: #e8e8e8 !important; }
+.main-header {
+    background: linear-gradient(90deg,#3a0ca3,#7209b7);
+    padding:1rem 1.5rem; border-radius:8px; margin-bottom:1rem;
+}
+[data-testid="baseButton-primary"] { background-color:#7209b7!important; }
+.skip-nav { position:absolute; top:-40px; left:0; background:#000;
+            color:#fff; padding:8px; z-index:9999; border-radius:4px; }
+.skip-nav:focus { top:0; }
+</style>
+""", unsafe_allow_html=True)
 
-        st.markdown("**C — CNL/PPI** (fallback)")
-        cfg["cnl_sci_col"] = _sel(
-            "Coluna CNL no Science", [NONE] + sci,
-            _guess(sci, "CNL", "CNL_PPI", "Num SSI"),
-            "wiz_cnl_sci",
-        )
-        cfg["cnl_por_col"] = _sel(
-            "Coluna CNL no Portal", [NONE] + por,
-            _guess(por, "CNL_PPI", "PPI", "CNL"),
-            "wiz_cnl_por",
-        )
+st.markdown('<a href="#main" class="skip-nav">Ir para conteúdo</a>',
+            unsafe_allow_html=True)
 
-    # ── 2. Tipo de Rota ────────────────────────────────────────────────
-    with st.expander("2️⃣ Tipo de Rota", expanded=True):
-        cfg["tipo_rota_portal_col"] = _sel(
-            "Tipo de Rota — Portal (prioritário)", [NONE] + por,
-            _guess(por, "TIPO_ROTA", "TIPO"),
-            "wiz_tr_por",
-        )
-        cfg["tipo_rota_sci_col"] = _sel(
-            "Tipo de Rota — Science (fallback)", [NONE] + sci,
-            _guess(sci, "Sinalização da Rota", "Tipo da Rota", "Tipo"),
-            "wiz_tr_sci",
-        )
+from app.ui.pages import (
+    _init_state, render_upload_page, render_mapping_page,
+    render_merge_page, render_seeds_page, render_history_page,
+    render_validation_page, render_logs_page, render_diagnostico_page,
+)
 
-    # ── 3. Central ─────────────────────────────────────────────────────
-    with st.expander("3️⃣ Central", expanded=True):
-        cfg["central_portal_col"] = _sel(
-            "Central — Portal (prioritário)", [NONE] + por,
-            _guess(por, "CENTRAL"),
-            "wiz_ce_por",
-        )
-        cfg["central_sci_col"] = _sel(
-            "Central — Science (para lookup no Arquivo 3)", [NONE] + sci,
-            _guess(sci, "Central Interna", "Central Origem"),
-            "wiz_ce_sci",
-            "Use 'Central Interna' — é a central local que consta no Arquivo 3",
-        )
+_init_state()
 
-    # ── 3b. Colunas do Pipeline Science ──────────────────────────────
-    with st.expander("3️⃣b Colunas Science — Pipeline (Etapas 1-4)", expanded=True):
-        st.caption(
-            "Configure as colunas necessárias para as etapas de filtro e validação do Science."
-        )
-        cfg["id_rota_sci_col"] = _sel(
-            "ID Rota — Science ⭐ (Etapa 3 — chave de validação)",
-            [NONE] + sci,
-            _guess(sci, "ID Rota", "ID_ROTA", "IDROTA", "Id Rota", "id_rota"),
-            "wiz_id_rota_sci",
-            "Usado para construir a chave Central[:7]+'_'+ID_Rota e validar no Arquivo 3",
-        )
-        cfg["data_desativ_sci_col"] = _sel(
-            "Data Desativação — Science (Etapa 2)",
-            [NONE] + sci,
-            _guess(sci, "data desativação", "Data Desativação",
-                   "DATA DESATIVACAO", "DT_DESATIVACAO",
-                   "data desativacao", "DATA_DESATIVACAO"),
-            "wiz_data_desativ_sci",
-            "Linhas com data válida anterior a hoje são removidas",
-        )
-
-    # ── 3c. Colunas do Pipeline Portal ───────────────────────────────
-    with st.expander("3️⃣c Colunas Portal — Pipeline (Etapas 5-9)", expanded=True):
-        st.caption(
-            "Configure as colunas para construção do Rótulo e extração de CN/UF."
-        )
-        cfg["designacao_col"] = _sel(
-            "DESIGNACAO — Portal (Etapa 9 — CN para derivar UF)",
-            [NONE] + por,
-            _guess(por, "DESIGNACAO", "DESIGNAÇÃO", "Designacao",
-                   "TIPO_ROTA", "TIPO ROTA", "CNL_PPI"),
-            "wiz_designacao_por",
-            "Coluna com CN/DDD (2 dígitos) para localizar a UF em novas rotas",
-        )
-
-        from app.core.pipeline import CENTRAL_PORTAL_MAP
-        st.info(
-            "ℹ️ **Mapa de conversão CENTRAL Portal** (fixo):\n" +
-            "\n".join(f"  `{k}` → `{v}`" for k, v in CENTRAL_PORTAL_MAP.items())
-        )
-
-
-    with st.expander("4️⃣ Rótulos de Linha (Portal)", expanded=False):
-        cfg["label_e_col"] = _sel(
-            "LABEL_E (entrada)", [NONE] + por,
-            _guess(por, "LABEL_E"),
-            "wiz_le",
-        )
-        cfg["label_s_col"] = _sel(
-            "LABEL_S (saída)", [NONE] + por,
-            _guess(por, "LABEL_S"),
-            "wiz_ls",
-        )
-        cfg["concat_labels"] = st.checkbox(
-            "Concatenar LABEL_E | LABEL_S",
-            value=True, key="wiz_concat_labels",
-        )
-        cfg["label_sep"] = st.text_input(
-            "Separador", value=" | ", key="wiz_label_sep",
-        ) if cfg["concat_labels"] else " | "
-
-    # ── 5. OPERADORA ──────────────────────────────────────────────────
-    with st.expander("5️⃣ OPERADORA — fallback Science", expanded=False):
-        cfg["operadora_sci_col"] = _sel(
-            "Operadora Science", [NONE] + sci,
-            _guess(sci, "Operadora Origem", "OP Origem"),
-            "wiz_op_sci",
-        )
-
-    # ── 6. Denominação ────────────────────────────────────────────────
-    with st.expander("6️⃣ Denominação — fallback Science", expanded=False):
-        cfg["denominacao_sci_col"] = _sel(
-            "Denominação Science", [NONE] + sci,
-            _guess(sci, "Descrição", "Descricao"),
-            "wiz_dn_sci",
-        )
-
-    # ── 7. Chaves de junção ───────────────────────────────────────────
+# ── Sidebar ────────────────────────────────────────────────────────────────
+with st.sidebar:
+    st.markdown("""
+    <div style="text-align:center;padding:1rem 0">
+        <h2 style="margin:0">🔗 Data Merger v2</h2>
+        <small>Science + Portal + Arq3</small>
+    </div>
+    """, unsafe_allow_html=True)
     st.markdown("---")
-    st.markdown("### 7️⃣ Chaves de Junção Science ↔ Portal")
-    st.caption("Colunas que identificam a mesma rota nas duas tabelas. "
-               "O app normaliza para UPPER antes de comparar.")
 
-    st.info(
-        "ℹ️ **Science = VIVO-SMP | Portal = VIVO-STFC.** "
-        "Por padrão as bases são **concatenadas** — cada linha mantém sua identidade. "
-        "Configure chaves abaixo **somente** se quiser unir rotas que existam nas duas bases."
-    )
-    join_sci = st.multiselect(
-        "Colunas do Science para junção (deixe vazio para concatenar):",
-        options=sci,
-        default=[],
-        key="wiz_join_sci",
-    )
-    join_por = st.multiselect(
-        "Colunas correspondentes no Portal (mesma ordem):",
-        options=por,
-        default=[],
-        key="wiz_join_por",
-    )
+    page = st.radio("Etapa:", [
+        "1. 📂 Carregar Arquivos",
+        "2. 🗺️ Mapeamento",
+        "3. ⚙️ Gerar Tabela Final",
+        "4. ✅ Validação",
+        "5. 🌱 Seeds / Referências",
+        "6. 🕐 Histórico",
+        "7. 📋 Logs",
+        "8. 🔬 Diagnóstico",
+    ], key="nav", label_visibility="collapsed")
 
-    if len(join_sci) != len(join_por):
-        st.warning("⚠️ Selecione o mesmo número de colunas em Science e Portal.")
+    st.markdown("---")
+    def _chk(label, key):
+        ok = st.session_state.get(key) is not None
+        st.markdown(f"{'✅' if ok else '⏳'} {label}")
+    _chk("Science",    "sci_df")
+    _chk("Portal",     "por_df")
+    _chk("Arquivo 3",  "arq3_df")
+    _chk("Mapeamento", "wizard_cfg")
+    _chk("Resultado",  "merged_df")
 
-    cfg["join_keys_sci"] = join_sci
-    cfg["join_keys_por"] = join_por
+    if st.session_state.get("merged_df") is not None:
+        n = len(st.session_state["merged_df"])
+        st.caption(f"**{n:,}** linhas no resultado")
 
-    join_type = st.radio(
-        "Tipo de junção:",
-        options=["outer", "inner", "left", "right"],
-        format_func=lambda v: {
-            "outer": "OUTER — mantém todas as linhas (recomendado)",
-            "left":  "LEFT — mantém todas do Science",
-            "right": "RIGHT — mantém todas do Portal",
-            "inner": "INNER — apenas matches",
-        }.get(v, v),
-        key="wiz_join_type",
-    )
-    cfg["join_type"] = join_type
+    st.markdown("---")
+    st.caption(f"🗄️ `{Path(_DB).name}`")
+    if st.button("🔄 Reiniciar sessão", key="btn_reset"):
+        for k in list(st.session_state.keys()):
+            del st.session_state[k]
+        st.rerun()
 
-    # ── 8. Arquivo 3 — colunas explícitas ─────────────────────────────
-    if arq3:
-        st.markdown("---")
-        st.markdown("### 8️⃣ Arquivo 3 — Mapeamento de Colunas")
-        st.caption(
-            "⚠️ **Configure aqui as colunas do Arquivo 3.** "
-            "O CLUSTER e a UF só serão preenchidos corretamente se estas colunas estiverem certas."
-        )
-        with st.expander("🗂️ Colunas do Arquivo 3", expanded=True):
-            col1, col2 = st.columns(2)
-            with col1:
-                cfg["arq3_central_col"] = _sel(
-                    "Central",
-                    [NONE] + arq3,
-                    _guess(arq3, "Central", "CENTRAL", "Central Origem"),
-                    "wiz_arq3_central",
-                    "Coluna que contém o nome da Central no Arquivo 3",
-                )
-                cfg["arq3_uf_col"] = _sel(
-                    "UF",
-                    [NONE] + arq3,
-                    _guess(arq3, "UF", "uf", "Estado", "ESTADO"),
-                    "wiz_arq3_uf",
-                    "Coluna que contém a sigla do estado (ex: PR, SP)",
-                )
-                cfg["arq3_cluster_col"] = _sel(
-                    "CLUSTER ⭐",
-                    [NONE] + arq3,
-                    _guess(arq3, "CLUSTER", "Cluster", "cluster",
-                           "AGRUPAMENTO", "Agrupamento", "CLUSTER_NOME"),
-                    "wiz_arq3_cluster",
-                    "Coluna que contém o identificador de Cluster — obrigatória para preencher CLUSTER",
-                )
-            with col2:
-                cfg["arq3_tipo_rota_col"] = _sel(
-                    "Tipo de Rota",
-                    [NONE] + arq3,
-                    _guess(arq3, "Tipo de Rota", "TIPO DE ROTA", "TIPO_ROTA"),
-                    "wiz_arq3_tr",
-                )
-                cfg["arq3_rotulos_col"] = _sel(
-                    "Rótulos de Linha",
-                    [NONE] + arq3,
-                    _guess(arq3, "Rótulos de Linha", "ROTULOS DE LINHA",
-                           "ROTULOS_DE_LINHA", "LABEL_E", "Rótulo"),
-                    "wiz_arq3_rotulos",
-                )
-                cfg["arq3_operadora_col"] = _sel(
-                    "OPERADORA",
-                    [NONE] + arq3,
-                    _guess(arq3, "OPERADORA", "Operadora"),
-                    "wiz_arq3_op",
-                )
-                cfg["arq3_denominacao_col"] = _sel(
-                    "Denominação",
-                    [NONE] + arq3,
-                    _guess(arq3, "Denominação", "DENOMINAÇÃO", "Denominacao"),
-                    "wiz_arq3_den",
-                )
+# ── Conteúdo ───────────────────────────────────────────────────────────────
+st.markdown('<div id="main"></div>', unsafe_allow_html=True)
+st.markdown("""
+<div class="main-header">
+    <h1 style="margin:0;color:white">🔗 Data Merger v2</h1>
+    <p style="margin:0;opacity:.85">Science · Portal de Cadastros · Arquivo 3 de Referência</p>
+</div>
+""", unsafe_allow_html=True)
 
-        # Mostra colunas do Arquivo 3 para referência
-        with st.expander("📋 Todas as colunas do Arquivo 3 (para consulta)", expanded=False):
-            for i, c in enumerate(arq3):
-                st.text(f"{i+1:3d}. {c}")
+p = page.split(". ", 1)[-1]
+if "Carregar"    in p: render_upload_page()
+elif "Mapeamento" in p: render_mapping_page()
+elif "Gerar"      in p: render_merge_page()
+elif "Validação"  in p: render_validation_page()
+elif "Seeds"      in p: render_seeds_page()
+elif "Histórico"  in p: render_history_page()
+elif "Logs"       in p: render_logs_page()
+elif "Diagnóstico" in p: render_diagnostico_page()
 
-    return cfg
+st.markdown("---")
+st.markdown("<div style='text-align:center;color:#666;font-size:.8rem'>"
+            "Data Merger v2 · 100% local · nenhum dado enviado externamente</div>",
+            unsafe_allow_html=True)
