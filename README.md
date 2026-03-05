@@ -1,509 +1,333 @@
 """
-ui/grid.py
-==========
-Grade corporativa com filtros por coluna, estilo Excel.
-Renderizada via st.components.v1.html() — sem dependências externas de Grid.
-
-Comportamento dos filtros:
-  - Cada coluna possui um ícone discreto que abre um dropdown
-  - O dropdown lista todos os valores únicos da coluna com checkboxes
-  - "Selecionar tudo" e "Limpar" funcionam como no Excel
-  - Filtros múltiplos são cumulativos (interseção)
-  - A grade atualiza imediatamente ao confirmar
-
-API pública:
-  show_grid(df, key, title, height) -> pd.DataFrame
+app.py — VIVOHUB · Data Merger v2
+Execute: streamlit run app.py
 """
 from __future__ import annotations
+import os
+from pathlib import Path
 
-import json
-from typing import Optional
-import pandas as pd
 import streamlit as st
-import streamlit.components.v1 as components
 
-_CSS_VARS = """
-  --bg:           #F8F9FA;
-  --surface:      #FFFFFF;
-  --border:       #D1D5DB;
-  --border-light: #E9ECEF;
-  --header-bg:    #1C2536;
-  --header-text:  #FFFFFF;
-  --text:         #111827;
-  --text-muted:   #6B7280;
-  --accent:       #1B5FBF;
-  --accent-light: #EFF6FF;
-  --accent-dark:  #1A54A8;
-  --row-hover:    #F3F4F6;
-  --row-alt:      #FAFAFA;
-  --danger:       #DC2626;
-"""
+st.set_page_config(
+    page_title="VIVOHUB — Data Merger",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 
-def _df_to_json(df: pd.DataFrame) -> str:
-    safe = df.copy()
-    for col in safe.columns:
-        safe[col] = safe[col].astype(str).replace({"nan": "", "None": ""})
-    return json.dumps(safe.to_dict(orient="records"), ensure_ascii=False)
+from app.db.session import init_db, session_scope
+from app.db.repository import Repository
+
+_DB = os.environ.get("DATABASE_PATH", str(Path("data") / "app.db"))
+init_db(_DB)
 
 
-def _cols_to_json(df: pd.DataFrame) -> str:
-    cols = []
-    for c in df.columns:
-        cl = c.lower()
-        if any(k in cl for k in ("rótulo", "rotulo", "denominação", "denominacao", "descrição")):
-            w = 190
-        elif any(k in cl for k in ("central", "operadora", "tipo", "cluster")):
-            w = 130
-        elif any(k in cl for k in ("uf", "rede")):
-            w = 100
-        elif any(k in cl for k in ("origem",)):
-            w = 90
-        else:
-            w = 110
-        cols.append({"key": c, "label": c, "width": w})
-    return json.dumps(cols, ensure_ascii=False)
+def _auto_load_seeds() -> None:
+    try:
+        with session_scope() as s:
+            repo = Repository(s)
+            if repo.cnl_count() == 0:
+                p = Path("seeds") / "cnl.sql"
+                if p.exists() and p.stat().st_size > 0:
+                    repo.load_cnl_seeds(str(p))
+            if repo.cn_to_uf_count() == 0:
+                p = Path("seeds") / "cn_to_uf.csv"
+                if p.exists() and p.stat().st_size > 0:
+                    repo.load_cn_to_uf_csv(str(p))
+    except Exception as e:
+        print(f"[AVISO] Seeds: {e}")
 
 
-def _build_html(df: pd.DataFrame, height: int) -> str:
-    data_json = _df_to_json(df)
-    cols_json = _cols_to_json(df)
+_auto_load_seeds()
 
-    return f"""<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-<meta charset="UTF-8">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+# ─────────────────────────────────────────────────────────────────────────────
+# CSS GLOBAL
+# Força modo claro independente das preferências do sistema.
+# Textos em fundos escuros (sidebar, header) sempre com cor explícita.
+# ─────────────────────────────────────────────────────────────────────────────
+st.markdown("""
 <style>
-  :root {{ {_CSS_VARS} }}
-  * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-  body {{
-    font-family: 'IBM Plex Sans', 'Segoe UI', 'Helvetica Neue', sans-serif;
-    font-size: 12px;
-    background: var(--bg);
-    color: var(--text);
-    overflow: hidden;
-  }}
-  #toolbar {{
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 6px 10px; background: var(--surface);
-    border-bottom: 1px solid var(--border); gap: 8px; flex-shrink: 0;
-  }}
-  #toolbar-left {{ display: flex; align-items: center; gap: 10px; }}
-  #record-count {{ font-size: 11px; color: var(--text-muted); font-weight: 500; white-space: nowrap; }}
-  #active-filters {{
-    display: none; align-items: center; gap: 6px; padding: 3px 10px;
-    background: var(--accent-light); border: 1px solid rgba(27,95,191,0.2);
-    font-size: 11px; color: var(--accent); font-weight: 500;
-  }}
-  #active-filters.visible {{ display: flex; }}
-  #clear-all-btn {{ font-weight: 700; cursor: pointer; margin-left: 4px; }}
-  #clear-all-btn:hover {{ text-decoration: underline; }}
-  #table-wrap {{ overflow: auto; flex: 1; }}
-  table {{ border-collapse: collapse; table-layout: fixed; width: max-content; min-width: 100%; }}
-  thead tr {{ position: sticky; top: 0; z-index: 10; }}
-  th {{
-    background: var(--header-bg); border-right: 1px solid #374151;
-    border-bottom: 2px solid #374151; padding: 0; white-space: nowrap; user-select: none;
-  }}
-  th.col-num {{
-    width: 44px; min-width: 44px; text-align: center; font-size: 10px;
-    font-weight: 400; color: rgba(255,255,255,0.3); letter-spacing: 0.05em;
-    padding: 0 4px; cursor: default;
-  }}
-  .th-inner {{ display: flex; align-items: stretch; height: 36px; }}
-  .th-sort {{
-    flex: 1; display: flex; align-items: center; padding: 0 8px; gap: 5px;
-    cursor: pointer; overflow: hidden; min-width: 0;
-  }}
-  .th-sort:hover {{ background: rgba(255,255,255,0.06); }}
-  .th-label {{
-    font-size: 11px; font-weight: 700; color: var(--header-text);
-    letter-spacing: 0.05em; text-transform: uppercase;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  }}
-  .sort-icon {{ flex-shrink: 0; opacity: 0.3; }}
-  .sort-icon.active {{ opacity: 1; }}
-  .th-filter-btn {{
-    width: 28px; flex-shrink: 0; display: flex; align-items: center;
-    justify-content: center; cursor: pointer; border-left: 1px solid #374151;
-  }}
-  .th-filter-btn:hover {{ background: rgba(255,255,255,0.08); }}
-  .th-filter-btn.active {{ background: var(--accent); }}
-  .th-active-bar {{ height: 2px; background: var(--accent); display: none; }}
-  th.filtered .th-active-bar {{ display: block; }}
-  tbody tr:nth-child(even) {{ background: var(--row-alt); }}
-  tbody tr:nth-child(odd)  {{ background: var(--surface); }}
-  tbody tr:hover {{ background: var(--row-hover) !important; }}
-  td {{
-    border-bottom: 1px solid var(--border-light); border-right: 1px solid var(--border-light);
-    padding: 5px 9px; font-size: 12px; color: var(--text);
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  }}
-  td.col-num {{
-    text-align: center; font-size: 10px; color: var(--text-muted);
-    font-family: 'IBM Plex Mono', 'Consolas', monospace; padding: 5px 4px;
-  }}
-  .cell-mono {{ font-family: 'IBM Plex Mono', 'Consolas', monospace; font-size: 11px; }}
-  .cell-smp  {{ color:#1B5FBF; font-weight:600; font-family:'IBM Plex Mono','Consolas',monospace; font-size:11px; }}
-  .cell-stfc {{ color:#6D28D9; font-weight:600; font-family:'IBM Plex Mono','Consolas',monospace; font-size:11px; }}
-  .badge {{
-    display: inline-block; padding: 1px 7px; font-size: 10px; font-weight: 700;
-    letter-spacing: 0.06em; text-transform: uppercase;
-  }}
-  .badge-science {{ background:#EFF6FF; color:#1D4ED8; border:1px solid rgba(29,78,216,.15); }}
-  .badge-portal  {{ background:#F0FDF4; color:#15803D; border:1px solid rgba(21,128,61,.15); }}
-  .badge-arq3    {{ background:#FEF9EF; color:#92400E; border:1px solid rgba(146,64,14,.15); }}
-  td.empty-state {{ text-align:center; padding:28px 0; color:var(--text-muted); font-style:italic; border:none; }}
-  #pagination {{
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 6px 10px; background: var(--surface);
-    border-top: 1px solid var(--border); flex-shrink: 0;
-  }}
-  #pag-info {{ font-size: 11px; color: var(--text-muted); }}
-  #pag-controls {{ display: flex; gap: 3px; }}
-  .pag-btn {{
-    min-width: 26px; height: 24px; padding: 0 5px; border: 1px solid var(--border);
-    background: var(--surface); color: var(--text-muted); font-size: 11px;
-    cursor: pointer; font-family: inherit;
-  }}
-  .pag-btn:hover:not(:disabled) {{ border-color: var(--accent); color: var(--accent); }}
-  .pag-btn.active {{ background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 700; }}
-  .pag-btn:disabled {{ opacity: 0.35; cursor: default; }}
-  #filter-overlay {{ display:none; position:fixed; inset:0; z-index:999; }}
-  #filter-dropdown {{
-    display: none; position: fixed; z-index: 1000; width: 240px;
-    background: var(--surface); border: 1px solid var(--border);
-    box-shadow: 0 4px 18px rgba(0,0,0,0.14), 0 1px 4px rgba(0,0,0,0.08);
-  }}
-  #filter-dropdown.open, #filter-overlay.open {{ display: block; }}
-  #drop-header {{ padding: 7px 10px 6px; background: #F3F4F6; border-bottom: 1px solid var(--border-light); }}
-  #drop-title {{ font-size:10px; font-weight:700; letter-spacing:0.08em; text-transform:uppercase; color:var(--text-muted); margin-bottom:5px; }}
-  #drop-search {{
-    width: 100%; padding: 4px 7px; font-size: 12px; border: 1px solid var(--border);
-    background: var(--surface); color: var(--text); outline: none; font-family: inherit;
-  }}
-  #drop-search:focus {{ border-color: var(--accent); }}
-  #drop-select-all {{
-    display: flex; align-items: center; gap: 8px; padding: 6px 10px; cursor: pointer;
-    border-bottom: 1px solid var(--border-light); background: #FAFAFA;
-    font-weight: 600; font-size: 12px;
-  }}
-  #drop-select-all:hover {{ background: var(--accent-light); }}
-  #drop-list {{ max-height: 210px; overflow-y: auto; }}
-  .drop-item {{
-    display: flex; align-items: center; gap: 8px; padding: 5px 10px; cursor: pointer;
-    border-bottom: 1px solid var(--border-light); font-size: 12px;
-  }}
-  .drop-item:hover {{ background: var(--accent-light); }}
-  .drop-item:last-child {{ border-bottom: none; }}
-  #drop-footer {{
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 6px 10px; background: #F3F4F6; border-top: 1px solid var(--border);
-  }}
-  .drop-btn-clear {{
-    padding: 3px 10px; font-size: 11px; font-weight: 600; border: 1px solid var(--border);
-    background: var(--surface); color: var(--text-muted); cursor: pointer;
-    font-family: inherit; letter-spacing: 0.03em; text-transform: uppercase;
-  }}
-  .drop-btn-clear:hover {{ color: var(--danger); border-color: var(--danger); }}
-  .drop-btn-apply {{
-    padding: 3px 14px; font-size: 11px; font-weight: 600; border: none;
-    background: var(--accent); color: #fff; cursor: pointer;
-    font-family: inherit; letter-spacing: 0.03em; text-transform: uppercase;
-  }}
-  .drop-btn-apply:hover {{ background: var(--accent-dark); }}
-  .chk {{
-    width:14px; height:14px; flex-shrink:0; border:1.5px solid var(--border);
-    background:var(--surface); display:flex; align-items:center; justify-content:center;
-    position:relative;
-  }}
-  .chk.on  {{ background:var(--accent); border-color:var(--accent); }}
-  .chk.ind {{ border-color:var(--accent); }}
-  .chk.on::after {{
-    content:''; display:block; width:8px; height:5px;
-    border-left:2px solid #fff; border-bottom:2px solid #fff;
-    transform:rotate(-45deg) translateY(-1px);
-  }}
-  .chk.ind::after {{ content:''; display:block; width:8px; height:1.5px; background:var(--accent); }}
-  #root {{ display:flex; flex-direction:column; height:{height}px; overflow:hidden; }}
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+/* MODO CLARO FORÇADO */
+html, body,
+.stApp,
+[data-testid="stAppViewContainer"],
+[data-testid="stAppViewBlockContainer"],
+[data-testid="stMain"],
+section[data-testid="stMain"],
+.main,
+.block-container,
+.main .block-container {
+    background-color: #F8F9FA !important;
+    color: #111827 !important;
+}
+.main .block-container {
+    padding-top: 0 !important;
+    padding-bottom: 2.5rem !important;
+    max-width: 100% !important;
+}
+
+/* TIPOGRAFIA */
+html, body, *, *::before, *::after {
+    font-family: 'IBM Plex Sans', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif !important;
+    box-sizing: border-box;
+}
+[data-testid="stMarkdownContainer"] *,
+[data-testid="stVerticalBlock"] p,
+[data-testid="stVerticalBlock"] span,
+[data-testid="stVerticalBlock"] li,
+.element-container p,
+.element-container span {
+    color: #111827 !important;
+}
+
+/* SIDEBAR */
+[data-testid="stSidebar"],
+[data-testid="stSidebar"] > div,
+[data-testid="stSidebar"] section,
+[data-testid="stSidebarUserContent"] {
+    background-color: #0F172A !important;
+}
+[data-testid="stSidebar"] * {
+    color: #CBD5E1 !important;
+    background-color: transparent !important;
+}
+[data-testid="stSidebar"] hr { border-color: #1E293B !important; margin: 8px 0 !important; }
+[data-testid="stSidebar"] [data-testid="stRadio"] label {
+    font-size: 12px !important; font-weight: 500 !important;
+    color: #94A3B8 !important; letter-spacing: .01em !important;
+    padding: 4px 6px !important; display: block !important;
+}
+[data-testid="stSidebar"] [data-testid="stRadio"] label:hover { color: #F1F5F9 !important; }
+[data-testid="stSidebar"] button {
+    background: transparent !important; border: 1px solid #1E293B !important;
+    color: #64748B !important; font-size: 10px !important; font-weight: 600 !important;
+    letter-spacing: .07em !important; text-transform: uppercase !important;
+    width: 100% !important; padding: 5px 8px !important; margin-top: 4px !important;
+}
+[data-testid="stSidebar"] button:hover { border-color: #1B5FBF !important; color: #93C5FD !important; }
+
+/* MÉTRICAS */
+[data-testid="metric-container"] {
+    background: #FFFFFF !important; border: 1px solid #E2E8F0 !important;
+    border-left: 3px solid #1B5FBF !important; padding: 10px 14px !important;
+}
+[data-testid="metric-container"] * { background: transparent !important; }
+[data-testid="stMetricLabel"] > div,
+[data-testid="stMetricLabel"] label,
+[data-testid="metric-container"] label {
+    font-size: 9px !important; font-weight: 700 !important;
+    letter-spacing: .09em !important; text-transform: uppercase !important; color: #6B7280 !important;
+}
+[data-testid="stMetricValue"] > div { font-size: 22px !important; font-weight: 700 !important; color: #111827 !important; }
+[data-testid="stMetricDelta"]       { font-size: 11px !important; color: #6B7280 !important; }
+
+/* BOTÕES */
+button[kind="primary"],
+[data-testid="baseButton-primary"] {
+    background-color: #1B5FBF !important; border: none !important; border-radius: 0 !important;
+    color: #FFFFFF !important; font-size: 11px !important; font-weight: 700 !important;
+    letter-spacing: .06em !important; text-transform: uppercase !important;
+}
+button[kind="primary"]:hover,
+[data-testid="baseButton-primary"]:hover { background-color: #1549A0 !important; }
+
+button[kind="secondary"],
+[data-testid="baseButton-secondary"] {
+    border-radius: 0 !important; background: #FFFFFF !important;
+    border: 1px solid #D1D5DB !important; color: #374151 !important;
+    font-size: 11px !important; font-weight: 600 !important; letter-spacing: .04em !important;
+}
+button[kind="secondary"]:hover,
+[data-testid="baseButton-secondary"]:hover { border-color: #1B5FBF !important; color: #1B5FBF !important; }
+
+[data-testid="stDownloadButton"] button {
+    border-radius: 0 !important; background: #FFFFFF !important;
+    border: 1px solid #D1D5DB !important; color: #374151 !important;
+    font-size: 10px !important; font-weight: 700 !important;
+    letter-spacing: .06em !important; text-transform: uppercase !important;
+}
+[data-testid="stDownloadButton"] button:hover { border-color: #1B5FBF !important; color: #1B5FBF !important; }
+
+/* INPUTS */
+input, textarea,
+[data-baseweb="input"] input,
+[data-baseweb="textarea"] textarea {
+    background-color: #FFFFFF !important; color: #111827 !important;
+    border-color: #D1D5DB !important; border-radius: 0 !important; font-size: 12px !important;
+}
+[data-baseweb="select"] > div {
+    background-color: #FFFFFF !important; color: #111827 !important;
+    border-color: #D1D5DB !important; border-radius: 0 !important; font-size: 12px !important;
+}
+[data-testid="stTextInput"] label,
+[data-testid="stSelectbox"] label,
+[data-testid="stMultiSelect"] label,
+[data-testid="stTextArea"] label { color: #374151 !important; font-size: 11px !important; font-weight: 600 !important; }
+[data-baseweb="tag"]             { background: #EFF6FF !important; border-radius: 0 !important; }
+[data-baseweb="tag"] span        { color: #1B5FBF !important; }
+
+/* EXPANDERS */
+[data-testid="stExpander"] {
+    background: #FFFFFF !important; border: 1px solid #E2E8F0 !important;
+    border-radius: 0 !important; margin-bottom: 6px !important;
+}
+[data-testid="stExpander"] summary {
+    background: #F8F9FA !important; color: #1C2536 !important;
+    font-size: 12px !important; font-weight: 600 !important;
+    letter-spacing: .02em !important; padding: 9px 14px !important;
+}
+[data-testid="stExpander"] summary:hover { background: #EFF6FF !important; color: #1B5FBF !important; }
+[data-testid="stExpanderDetails"]        { background: #FFFFFF !important; }
+[data-testid="stExpanderDetails"] *      { color: #111827 !important; }
+
+/* ALERTAS */
+[data-testid="stAlert"] {
+    border-radius: 0 !important; border-left-width: 3px !important;
+    font-size: 12px !important; font-weight: 500 !important;
+}
+[data-testid="stAlert"] p { color: inherit !important; }
+
+/* FILE UPLOADER */
+[data-testid="stFileUploader"] section {
+    background: #FFFFFF !important; border: 1.5px dashed #D1D5DB !important; border-radius: 0 !important;
+}
+[data-testid="stFileUploader"] section:hover { border-color: #1B5FBF !important; background: #F0F7FF !important; }
+[data-testid="stFileUploader"] * { color: #374151 !important; }
+
+/* DATAFRAMES */
+[data-testid="stDataFrame"] { border: 1px solid #E2E8F0 !important; }
+
+/* MISC */
+#MainMenu, footer, header  { visibility: hidden; }
+[data-testid="stToolbar"]  { display: none !important; }
+*:focus-visible            { outline: 2px solid #1B5FBF !important; outline-offset: 2px !important; }
 </style>
-</head>
-<body>
-<div id="root">
-  <div id="toolbar">
-    <div id="toolbar-left">
-      <div id="record-count"></div>
-      <div id="active-filters">
-        <span id="active-filters-text"></span>
-        <span id="clear-all-btn" onclick="clearAllFilters()">&#215; Limpar tudo</span>
-      </div>
-    </div>
-  </div>
-  <div id="table-wrap">
-    <table id="main-table">
-      <thead id="thead"></thead>
-      <tbody id="tbody"></tbody>
-    </table>
-  </div>
-  <div id="pagination">
-    <div id="pag-info"></div>
-    <div id="pag-controls"></div>
-  </div>
-</div>
+""", unsafe_allow_html=True)
 
-<div id="filter-overlay" onclick="closeDropdown()"></div>
-<div id="filter-dropdown">
-  <div id="drop-header">
-    <div id="drop-title">Filtrar</div>
-    <input id="drop-search" type="text" placeholder="Pesquisar valor..." oninput="renderDropList()" autocomplete="off">
-  </div>
-  <div id="drop-select-all" onclick="toggleSelectAll()">
-    <div id="chk-all" class="chk"></div>
-    <span>Selecionar tudo</span>
-  </div>
-  <div id="drop-list"></div>
-  <div id="drop-footer">
-    <button class="drop-btn-clear" onclick="clearLocal()">Limpar</button>
-    <button class="drop-btn-apply" onclick="applyFilter()">Aplicar</button>
-  </div>
-</div>
+# ─────────────────────────────────────────────────────────────────────────────
+from app.ui.pages import (
+    _init_state, render_upload_page, render_mapping_page,
+    render_merge_page, render_seeds_page, render_history_page,
+    render_validation_page, render_logs_page, render_diagnostico_page,
+)
 
-<script>
-const ALL_DATA  = {data_json};
-const COLUMNS   = {cols_json};
-const PAGE_SIZE = 500;
+_init_state()
 
-let filters  = {{}};
-let sortCol  = null;
-let sortDir  = 'asc';
-let page     = 0;
-let openKey  = null;
-let localSel = new Set();
+# ── SIDEBAR ───────────────────────────────────────────────────────────────────
+with st.sidebar:
+    st.markdown(
+        '<div style="padding:18px 12px 14px;border-bottom:1px solid #1E293B;margin-bottom:12px;">'
+        '<div style="font-size:16px;font-weight:700;color:#F1F5F9;letter-spacing:-.02em;">VIVOHUB</div>'
+        '<div style="font-size:9px;font-weight:700;color:#334155;letter-spacing:.12em;'
+        'text-transform:uppercase;margin-top:3px;">Data Merger v2</div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
 
-function getFiltered() {{
-  let rows = ALL_DATA;
-  for (const [key, vals] of Object.entries(filters)) {{
-    if (vals && vals.size > 0) rows = rows.filter(r => vals.has(String(r[key] ?? '')));
-  }}
-  if (sortCol) {{
-    rows = [...rows].sort((a, b) => {{
-      const av = String(a[sortCol] ?? ''), bv = String(b[sortCol] ?? '');
-      return sortDir === 'asc' ? av.localeCompare(bv,'pt-BR') : bv.localeCompare(av,'pt-BR');
-    }});
-  }}
-  return rows;
-}}
+    page = st.radio("", [
+        "1. Carregar Arquivos",
+        "2. Mapeamento",
+        "3. Gerar Tabela Final",
+        "4. Validação",
+        "5. Seeds / Referências",
+        "6. Histórico",
+        "7. Logs",
+        "8. Diagnóstico",
+    ], key="nav", label_visibility="collapsed")
 
-function uniqueVals(key) {{
-  return [...new Set(ALL_DATA.map(r => String(r[key] ?? '')))].sort((a,b)=>a.localeCompare(b,'pt-BR'));
-}}
+    st.markdown("<hr>", unsafe_allow_html=True)
 
-function renderHeader() {{
-  const thead = document.getElementById('thead');
-  thead.innerHTML = '';
-  const tr = document.createElement('tr');
-  const thNum = document.createElement('th');
-  thNum.className = 'col-num'; thNum.textContent = '#';
-  tr.appendChild(thNum);
+    def _status(label: str, key: str) -> None:
+        ok  = st.session_state.get(key) is not None
+        dot = "#22C55E" if ok else "#1E293B"
+        fg  = "#E2E8F0" if ok else "#475569"
+        st.markdown(
+            f'<div style="display:flex;align-items:center;gap:9px;padding:3px 0;">'
+            f'<span style="width:6px;height:6px;border-radius:50%;background:{dot};'
+            f'flex-shrink:0;display:inline-block;"></span>'
+            f'<span style="font-size:11px;font-weight:500;color:{fg};">{label}</span>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
 
-  COLUMNS.forEach(col => {{
-    const th = document.createElement('th');
-    th.id = 'th-' + col.key;
-    th.style.width = col.width + 'px'; th.style.minWidth = col.width + 'px';
-    if (filters[col.key]) th.classList.add('filtered');
+    _status("Science",    "sci_df")
+    _status("Portal",     "por_df")
+    _status("Arquivo 3",  "arq3_df")
+    _status("Mapeamento", "wizard_cfg")
+    _status("Resultado",  "merged_df")
 
-    const inner = document.createElement('div'); inner.className = 'th-inner';
-    const sortZone = document.createElement('div'); sortZone.className = 'th-sort';
-    sortZone.onclick = () => handleSort(col.key);
-    const lbl = document.createElement('span'); lbl.className = 'th-label'; lbl.textContent = col.label;
-    const ico = document.createElement('span');
-    ico.className = 'sort-icon' + (sortCol === col.key ? ' active' : '');
-    ico.innerHTML = sortCol === col.key
-      ? (sortDir==='asc'
-        ? '<svg width="9" height="11" viewBox="0 0 9 11" fill="none"><path d="M4.5 1v9M1.5 3L4.5 1 7.5 3" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M1.5 8L4.5 10 7.5 8" stroke="rgba(255,255,255,0.2)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>'
-        : '<svg width="9" height="11" viewBox="0 0 9 11" fill="none"><path d="M4.5 1v9M1.5 3L4.5 1 7.5 3" stroke="rgba(255,255,255,0.2)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M1.5 8L4.5 10 7.5 8" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>')
-      : '<svg width="9" height="11" viewBox="0 0 9 11" fill="none"><path d="M4.5 1v9M1.5 3L4.5 1 7.5 3M1.5 8L4.5 10 7.5 8" stroke="rgba(255,255,255,0.25)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-    sortZone.appendChild(lbl); sortZone.appendChild(ico); inner.appendChild(sortZone);
+    merged = st.session_state.get("merged_df")
+    if merged is not None:
+        n = len(merged)
+        st.markdown(
+            f'<div style="margin-top:10px;padding:10px 12px;background:#060D1A;'
+            f'border-left:2px solid #1B5FBF;">'
+            f'<div style="font-size:9px;font-weight:700;letter-spacing:.1em;'
+            f'text-transform:uppercase;color:#334155;margin-bottom:3px;">Resultado</div>'
+            f'<div style="font-size:20px;font-weight:700;color:#F1F5F9;line-height:1.1;">'
+            f'{n:,}<span style="font-size:11px;font-weight:400;color:#475569;"> linhas</span>'
+            f'</div></div>',
+            unsafe_allow_html=True,
+        )
 
-    const fb = document.createElement('div');
-    fb.className = 'th-filter-btn' + (filters[col.key] ? ' active' : '');
-    fb.title = 'Filtrar: ' + col.label;
-    fb.innerHTML = '<svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M1 2h9M2.5 5.5h6M4 9h3" stroke="' + (filters[col.key] ? '#fff' : 'rgba(255,255,255,0.45)') + '" stroke-width="1.6" stroke-linecap="round"/></svg>';
-    fb.onclick = (e) => {{ e.stopPropagation(); openDropdown(col.key, fb); }};
-    inner.appendChild(fb);
-    th.appendChild(inner);
-    const bar = document.createElement('div'); bar.className = 'th-active-bar';
-    th.appendChild(bar);
-    tr.appendChild(th);
-  }});
-  thead.appendChild(tr);
-}}
+    st.markdown("<hr>", unsafe_allow_html=True)
+    st.markdown(
+        f'<div style="font-size:10px;color:#334155;margin-bottom:8px;">{Path(_DB).name}</div>',
+        unsafe_allow_html=True,
+    )
+    if st.button("Reiniciar sessão", key="btn_reset"):
+        for k in list(st.session_state.keys()):
+            del st.session_state[k]
+        st.rerun()
 
-function esc(s) {{ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }}
+# ── HEADER DE PÁGINA ──────────────────────────────────────────────────────────
+p = page.split(". ", 1)[-1]
+_PAGE_META = {
+    "Carregar Arquivos":   ("Carregar Arquivos",       "Importação — Science · Portal · Arquivo 3"),
+    "Mapeamento":          ("Mapeamento de Colunas",   "Configuração das chaves e campos de junção"),
+    "Gerar Tabela Final":  ("Gerar Tabela Final",      "Execução do pipeline · Consolidação de rotas"),
+    "Validação":           ("Relatório de Qualidade",  "Validação e integridade dos dados processados"),
+    "Seeds / Referências": ("Seeds e Referências",     "Tabelas de referência CN→UF e CNL"),
+    "Histórico":           ("Histórico de Versões",    "Versões salvas do resultado consolidado"),
+    "Logs":                ("Logs e Auditoria",        "Registro de operações e eventos do sistema"),
+    "Diagnóstico":         ("Diagnóstico",             "Análise de correspondência entre fontes"),
+}
+title, subtitle = _PAGE_META.get(p, (p, ""))
 
-function renderBody() {{
-  const filtered = getFiltered();
-  const total = ALL_DATA.length, shown = filtered.length;
-  const paged = filtered.slice(page * PAGE_SIZE, (page+1) * PAGE_SIZE);
+# Inline styles garantem renderização correta independente do tema
+st.markdown(
+    f'<div style="background:#0F172A;border-bottom:2px solid #1B5FBF;'
+    f'padding:16px 24px 13px;margin-bottom:20px;">'
+    f'<div style="font-size:17px;font-weight:700;color:#F1F5F9;letter-spacing:-.01em;'
+    f'margin:0 0 3px;">{title}</div>'
+    f'<div style="font-size:10px;font-weight:600;color:#475569;letter-spacing:.09em;'
+    f'text-transform:uppercase;">{subtitle}</div>'
+    f'</div>',
+    unsafe_allow_html=True,
+)
 
-  document.getElementById('record-count').textContent =
-    shown === total ? total.toLocaleString('pt-BR') + ' registros'
-                    : shown.toLocaleString('pt-BR') + ' de ' + total.toLocaleString('pt-BR') + ' registros';
+# ── ROTEAMENTO ────────────────────────────────────────────────────────────────
+if   "Carregar"    in p: render_upload_page()
+elif "Mapeamento"  in p: render_mapping_page()
+elif "Gerar"       in p: render_merge_page()
+elif "Validação"   in p: render_validation_page()
+elif "Seeds"       in p: render_seeds_page()
+elif "Histórico"   in p: render_history_page()
+elif "Logs"        in p: render_logs_page()
+elif "Diagnóstico" in p: render_diagnostico_page()
 
-  const ac = Object.keys(filters).length;
-  const afEl = document.getElementById('active-filters');
-  if (ac > 0) {{
-    afEl.classList.add('visible');
-    document.getElementById('active-filters-text').textContent =
-      ac + ' filtro' + (ac>1?'s':'') + ' ativo' + (ac>1?'s':'');
-  }} else {{ afEl.classList.remove('visible'); }}
-
-  const tbody = document.getElementById('tbody'); tbody.innerHTML = '';
-  if (paged.length === 0) {{
-    const tr = document.createElement('tr');
-    const td = document.createElement('td');
-    td.colSpan = COLUMNS.length+1; td.className = 'empty-state';
-    td.textContent = 'Nenhum registro corresponde aos filtros selecionados.';
-    tr.appendChild(td); tbody.appendChild(tr);
-  }} else {{
-    paged.forEach((row, i) => {{
-      const idx = page * PAGE_SIZE + i + 1;
-      const tr = document.createElement('tr');
-      const tdN = document.createElement('td'); tdN.className = 'col-num'; tdN.textContent = idx;
-      tr.appendChild(tdN);
-      COLUMNS.forEach(col => {{
-        const td = document.createElement('td');
-        const v = String(row[col.key] ?? ''); const kl = col.key.toLowerCase();
-        if (kl === 'rede') {{
-          td.innerHTML = '<span class="' + (v==='VIVO-SMP'?'cell-smp':'cell-stfc') + '">' + esc(v) + '</span>';
-        }} else if (kl === 'origem') {{
-          const cls = v==='Science'?'badge-science':v==='Portal'?'badge-portal':'badge-arq3';
-          td.innerHTML = '<span class="badge ' + cls + '">' + esc(v) + '</span>';
-        }} else if (kl.includes('rotul') || kl==='central') {{
-          td.innerHTML = '<span class="cell-mono">' + esc(v) + '</span>';
-        }} else {{ td.textContent = v; }}
-        tr.appendChild(td);
-      }});
-      tbody.appendChild(tr);
-    }});
-  }}
-  renderPagination(shown);
-}}
-
-function renderPagination(total) {{
-  const tp = Math.max(1, Math.ceil(total/PAGE_SIZE));
-  const s = total===0?0:page*PAGE_SIZE+1, e = Math.min((page+1)*PAGE_SIZE, total);
-  document.getElementById('pag-info').textContent =
-    'Exibindo ' + s + '–' + e + ' de ' + total.toLocaleString('pt-BR') + ' registros';
-  const ctrl = document.getElementById('pag-controls'); ctrl.innerHTML = '';
-  function btn(label, cb, dis, active) {{
-    const b = document.createElement('button'); b.className='pag-btn'+(active?' active':'');
-    b.textContent=label; b.disabled=dis; b.onclick=cb; ctrl.appendChild(b);
-  }}
-  btn('«',()=>{{page=0;render();}},page===0);
-  btn('‹',()=>{{page--;render();}},page===0);
-  const w=5; let lo=Math.max(0,page-Math.floor(w/2)); let hi=Math.min(tp-1,lo+w-1); lo=Math.max(0,hi-w+1);
-  for(let i=lo;i<=hi;i++){{const pi=i;btn(String(i+1),()=>{{page=pi;render();}},false,i===page);}}
-  btn('›',()=>{{page++;render();}},page>=tp-1);
-  btn('»',()=>{{page=tp-1;render();}},page>=tp-1);
-}}
-
-function handleSort(key) {{
-  if(sortCol===key) sortDir=sortDir==='asc'?'desc':'asc'; else{{sortCol=key;sortDir='asc';}}
-  page=0; render();
-}}
-
-function openDropdown(key, anchorEl) {{
-  if(openKey===key){{closeDropdown();return;}}
-  openKey=key;
-  const vals=uniqueVals(key);
-  localSel=filters[key]?new Set(filters[key]):new Set(vals);
-  document.getElementById('drop-title').textContent='Filtrar: '+key;
-  document.getElementById('drop-search').value='';
-  renderDropList();
-  const rect=anchorEl.getBoundingClientRect();
-  const drop=document.getElementById('filter-dropdown');
-  drop.style.top=(rect.bottom+2)+'px';
-  drop.style.left=Math.min(rect.left,window.innerWidth-250)+'px';
-  drop.classList.add('open');
-  document.getElementById('filter-overlay').classList.add('open');
-  document.getElementById('drop-search').focus();
-}}
-
-function closeDropdown() {{
-  openKey=null;
-  document.getElementById('filter-dropdown').classList.remove('open');
-  document.getElementById('filter-overlay').classList.remove('open');
-}}
-
-function renderDropList() {{
-  if(!openKey) return;
-  const search=document.getElementById('drop-search').value.toLowerCase();
-  const all=uniqueVals(openKey);
-  const shown=search?all.filter(v=>v.toLowerCase().includes(search)):all;
-  const allSel=shown.every(v=>localSel.has(v)), anySel=shown.some(v=>localSel.has(v));
-  const ca=document.getElementById('chk-all');
-  ca.className='chk'+(allSel?' on':(anySel?' ind':''));
-  const list=document.getElementById('drop-list'); list.innerHTML='';
-  shown.forEach(v=>{{
-    const item=document.createElement('div'); item.className='drop-item';
-    item.onclick=()=>{{localSel.has(v)?localSel.delete(v):localSel.add(v);renderDropList();}};
-    const chk=document.createElement('div'); chk.className='chk'+(localSel.has(v)?' on':'');
-    const lbl=document.createElement('span'); lbl.textContent=v===''?'(vazio)':v;
-    if(v==='') lbl.style.fontStyle='italic';
-    item.appendChild(chk); item.appendChild(lbl); list.appendChild(item);
-  }});
-}}
-
-function toggleSelectAll() {{
-  const search=document.getElementById('drop-search').value.toLowerCase();
-  const all=uniqueVals(openKey);
-  const shown=search?all.filter(v=>v.toLowerCase().includes(search)):all;
-  const allSel=shown.every(v=>localSel.has(v));
-  shown.forEach(v=>allSel?localSel.delete(v):localSel.add(v));
-  renderDropList();
-}}
-
-function clearLocal()  {{ localSel=new Set(); renderDropList(); }}
-function clearAllFilters() {{ filters={{}}; page=0; render(); }}
-
-function applyFilter() {{
-  if(!openKey) return;
-  const all=uniqueVals(openKey);
-  if(localSel.size===0||all.every(v=>localSel.has(v))) delete filters[openKey];
-  else filters[openKey]=new Set(localSel);
-  page=0; closeDropdown(); render();
-}}
-
-function render() {{ renderHeader(); renderBody(); }}
-render();
-</script>
-</body>
-</html>"""
-
-
-def show_grid(
-    df: pd.DataFrame,
-    key: str = "grid",
-    title: str = "",
-    height: int = 540,
-) -> pd.DataFrame:
-    """
-    Exibe grade corporativa com filtros estilo Excel.
-    Retorna o DataFrame original (filtragem ocorre no cliente).
-    """
-    if title:
-        st.markdown(f"#### {title}")
-
-    display_cols = [c for c in df.columns if not c.startswith("_")]
-    df_disp = df[display_cols].copy()
-
-    if df_disp.empty:
-        st.info("Nenhum dado para exibir.")
-        return df_disp
-
-    html = _build_html(df_disp, height=height)
-    components.html(html, height=height + 60, scrolling=False)
-    return df_disp
+# ── RODAPÉ ────────────────────────────────────────────────────────────────────
+st.markdown(
+    '<div style="border-top:1px solid #E2E8F0;margin-top:40px;padding-top:12px;'
+    'text-align:center;font-size:10px;color:#9CA3AF;letter-spacing:.05em;">'
+    'VIVOHUB · Data Merger v2 · Processamento 100% local · Nenhum dado transmitido externamente'
+    '</div>',
+    unsafe_allow_html=True,
+)
