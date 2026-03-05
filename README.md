@@ -301,6 +301,191 @@ Critérios de aceite (teste de mesa):
 - Clique em “Exportar Dashboard (PPTX)” → faz download de um arquivo .pptx com 3–4 slides (título/KPIs, gráficos, tabela).
 - Recarregue o app → a Tabela Final volta a aparecer carregada do banco.
 
+
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+Contexto e objetivo:
+Quero um sistema Streamlit profissional, minimalista e robusto, com:
+- Fluxo limpo para o usuário final
+- Persistência completa em banco (carregar ao iniciar)
+- Deduplicação automática ao carregar novas bases
+- Geração da Tabela Final
+- Tabela Final interativa
+- (Sem selectbox) Dashboard instantâneo por coluna ao clicar no cabeçalho
+- Exportação para PowerPoint (da coluna selecionada e do painel geral)
+- Nenhuma tela técnica visível (nada de logs, diagnóstico, mapeamentos etc. no UI)
+- Corrigir bugs de UI previamente identificados
+
+📌 Regras fundamentais (obrigatórias):
+1) NÃO remover nenhuma funcionalidade interna do programa (validação, seeds/referência, histórico, logs, diagnóstico, relatório pipeline, mapeamentos).
+2) NÃO exibir essas áreas na interface do usuário. Apenas não renderizar / não chamar.
+3) A interface deve mostrar SOMENTE o fluxo principal:
+   Carregar Arquivos → Preview → Gerar Tabela Final → Mostrar Tabela Final → (Clique no cabeçalho de uma coluna) → Dashboard instantâneo → Exportar (coluna e geral).
+4) Persistência real em banco: ao abrir o app, a Tabela Final salva no banco deve ser carregada e exibida automaticamente, mesmo sem o usuário subir arquivo.
+5) Deduplicação ao importar novas bases: não inserir rotas existentes; inserir apenas as novas.
+6) Dashboard aparece instantaneamente após clique no cabeçalho de uma coluna (sem selectbox, sem botão).
+7) Exportar o dashboard:
+   - da coluna selecionada (PPTX)
+   - do painel geral (PPTX)
+8) Não criar “modo dev”, flags, permissões ou parâmetros ocultos. Apenas não renderizar o que é técnico.
+
+🧱 Schema de negócio (colunas da Tabela Final):
+REDE
+UF
+CLUSTER
+Tipo de Rota
+Central
+Rótulos de Linha
+OPERADORA
+Denominação
+
+💾 Persistência (SQLite + SQLAlchemy):
+- Banco local: app.db
+- Tabela: tabela_final
+- Ao iniciar o app:
+  - Se tabela_final existir, carregar e exibir automaticamente
+- Ao salvar/atualizar Tabela Final:
+  - Persistir no banco
+  - Guardar em st.session_state["tabela_final"]
+- Criar coluna técnica: hash_rota (UNIQUE) para deduplicação
+  - hash_rota = SHA1(normalização de: REDE, UF, CLUSTER, Tipo de Rota, Central, Rótulos de Linha, OPERADORA, Denominação)
+  - Normalização:
+    * str(value) or "" (None -> "")
+    * strip()
+    * upper()
+    * remover acentos
+    * colapsar múltiplos espaços
+    * concatenar com "||"
+    * aplicar SHA1
+  - Índice único:
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_tabela_final_hash ON tabela_final(hash_rota)
+
+🔁 Carga de novas bases + deduplicação:
+1) Ao importar novas bases:
+   - Transformar/unificar para o schema final
+   - Gerar hash_rota para cada linha (mesma regra)
+   - Anti-join contra o banco por hash_rota para detectar apenas NOVAS rotas
+   - Inserir somente novas (UPSERT: INSERT OR IGNORE / SQLAlchemy equivalente)
+   - Mensagem ao usuário (simples e clara):
+     "X rotas novas adicionadas. Y rotas já existiam e foram ignoradas."
+   - Sem logs técnicos visíveis
+
+🧮 Geração da Tabela Final:
+- Construir o DataFrame final com as colunas de negócio acima
+- Persistir no banco (com hash_rota)
+- Colocar em st.session_state["tabela_final"]
+- Exibir imediatamente a Tabela Final na interface
+
+🖱️ Interação (sem selectbox) → Dashboard por clique no cabeçalho:
+- Exibir a Tabela Final em componente interativo e instruir:
+  "Clique no cabeçalho de uma coluna para ver o dashboard."
+- Requisito: o dashboard deve surgir instantaneamente ao clique do cabeçalho (sem botões/menus)
+- Implementação sugerida:
+  - Preferência: st-aggrid (GridOptionsBuilder + eventos) para capturar header click e retornar o nome da coluna
+  - Alternativa (fallback nativo): st.data_editor + captura de interação (cell selection) e inferir a coluna clicada
+  - O resultado do clique deve disponibilizar o nome da coluna selecionada → renderizar dashboard imediatamente
+
+🤖 Insights automáticos por coluna (todas categóricas neste momento):
+- Ao identificar a coluna clicada, gerar:
+  KPIs:
+    - #Registros (n)
+    - %Nulos
+    - #Únicos
+    - %Top1
+    - %Top3 acumulado
+  Frequências:
+    - Tabela: Categoria | Quantidade | %
+    - Se cardinalidade > N (ex.: 15), mostrar Top N + “Outros”
+  Gráficos:
+    - Barras (padrão; horizontal quando rótulos longos)
+    - Pizza/Doughnut somente se nº de categorias ≤ 6, com rótulos de %
+    - Treemap (opcional) para participação
+- Colunas e perguntas chave (telecom):
+  1) REDE → distribuição e dominância
+  2) UF → ranking por estado e share
+  3) CLUSTER → frequência e % vazios
+  4) Tipo de Rota → mix INTERNA vs ITX-SIP
+  5) Central → Top 10 + Pareto (concentração)
+  6) Rótulos de Linha → rótulos únicos, duplicidade
+  7) OPERADORA → participação por operadora; cruzamentos com UF/Tipo
+  8) Denominação (texto) → padrões/termos recorrentes, duplicidades
+
+📤 Exportação para PowerPoint (obrigatório):
+1) Exportar dashboard da COLUNA selecionada (aparece quando há coluna clicada):
+   - Botão: "Exportar dashboard desta coluna (PPTX)"
+   - Conteúdo (4 slides):
+     * Slide 1: Título (nome da coluna), data/hora, KPIs (#Registros, %Nulos, #Únicos, %Top1, %Top3)
+     * Slide 2: Gráfico principal (Barras ou Pizza, conforme regra de cardinalidade)
+     * Slide 3: Gráfico secundário (Treemap ou complementar)
+     * Slide 4: Tabela de frequências (Categoria | Quantidade | %)
+   - Nome do arquivo: dashboard_<COLUNA>_<YYYY-MM-DD_HHMM>.pptx
+
+2) Exportar DASHBOARD GERAL (sempre disponível quando houver Tabela Final):
+   - Botão: "Exportar dashboard geral (PPTX)"
+   - Conteúdo (6–10+ slides):
+     * Capa (projeto, data, total de rotas)
+     * Resumo geral: KPIs globais (total, % nulos médios, # colunas, etc.)
+     * UF (ranking + share)
+     * OPERADORA (mix e/ou por UF)
+     * Tipo de Rota (INTERNA vs ITX-SIP)
+     * Central (Top10 + Pareto)
+     * CLUSTER
+     * Rótulos de Linha (Top 10)
+     * Denominação (termos recorrentes)
+     * Conclusões / próximos passos
+   - Nome do arquivo: dashboard_geral_<YYYY-MM-DD_HHMM>.pptx
+
+3) Implementação técnica do PPT (python-pptx):
+   - Opção A (preferencial): gráficos nativos (ChartData) com as séries do DataFrame
+   - Opção B: exportar gráficos plotly para PNG (kaleido) e inserir como imagem
+   - Inserir logo/título padrão e estilos consistentes (tema escuro/claro conforme o app)
+
+🎨 UX e UI (obrigatório):
+- Interface minimalista com foco no fluxo principal
+- "Reiniciar Sessão" discreto
+- Sem telas técnicas (diagnóstico, logs, mapeamentos, seeds, relatório pipeline etc.)
+- Barra lateral: somente entradas do fluxo principal
+- Após “Gerar Tabela Final”, exibir a tabela + instrução clara de clique no cabeçalho
+- Dashboard renderiza instantaneamente ao clique
+- Em altas cardinalidades, use Top N + "Outros"
+- Rótulos legíveis e percentuais nas pizzas (quando aplicável)
+
+⚙️ Performance e qualidade:
+- Pré-calcular e cachear frequências por coluna após gerar a Tabela Final (para o dashboard ficar instantâneo)
+- Cachear leitura do banco; invalidar ao inserir novas rotas
+- Normalizar/limpar strings: upper, acentos, trims, espaços duplos
+- Tratar nulos na frequência como "(Sem valor)" (sem alterar o valor persistido original)
+- Garantir UF válidas (se aplicável)
+- Registrar rejeições de insert ou inconsistências em log silencioso (não exibido na UI)
+
+🛠️ Correções de bugs de UI (aplicar):
+- Remover texto/label incorreto “keyboard_double” ao passar o mouse na área recolhível
+- Sidebar recolhível deve recolher/expandir normalmente
+- Botão “Reiniciar Sessão” deve ser discreto (sem destaque excessivo)
+- Corrigir prévia que mostra `_arrow_right` literal duplicado/sobreposto — usar ícone correto e CSS seguro
+- Garantir que nenhuma área técnica reapareça na UI por CSS/estilos globais
+  
+✅ Critérios de aceite (teste de mesa):
+1) Abrir o app sem subir arquivo: a Tabela Final existente aparece automaticamente, carregada do SQLite.
+2) Carregar novas bases com rotas repetidas e novas:
+   - Inserir apenas as novas
+   - Mostrar: "X rotas novas adicionadas. Y já existiam."
+3) Gerar Tabela Final → exibir imediatamente a Tabela Final interativa.
+4) Clicar no cabeçalho de “UF” → dashboard instantâneo de UF aparece (barras/pizza/tabela + KPIs).
+5) Clicar no cabeçalho de “OPERADORA” → dashboard muda instantaneamente.
+6) Exportar “dashboard desta coluna (PPTX)” → baixa arquivo com 4 slides.
+7) Exportar “dashboard geral (PPTX)” → baixa arquivo consolidado com múltiplos slides.
+8) Nenhuma tela técnica aparece em lugar algum.
+9) Botão “Reiniciar Sessão” permanece discreto.
+10) Sidebar recolhível funciona corretamente e sem labels estranhos.
+11) A prévia não exibe `_arrow_right` duplicado ou texto literal de ícones.
+
+Observações finais:
+- Não criar modo dev, flags ou parâmetros ocultos; apenas não renderizar áreas técnicas.
+- Siga boas práticas de código, nomes claros de funções e comentários sucintos.
+- Manter consistência visual e mensagens curtas e executivas ao usuário.
 Observações finais:
 - Não criar modo desenvolvedor, flags ou páginas ocultas.
 - Não exibir nada técnico na interface.
