@@ -1,156 +1,171 @@
-"""
-db/tf_repository.py
-===================
-Operações na tabela tabela_final:
-  - load()        → DataFrame com as 8 colunas de negócio
-  - upsert(df)    → (inserted, skipped) — INSERT OR IGNORE por hash_rota
-  - count()       → total de rotas
-"""
+"""db/models.py — Modelos SQLAlchemy. Nunca deletar dados."""
 from __future__ import annotations
+import json
+from datetime import datetime, timezone
+from sqlalchemy import (Boolean, Column, DateTime, ForeignKey,
+                        Integer, String, Text)
+from sqlalchemy.orm import DeclarativeBase, relationship
 
-import logging
-from typing import Tuple
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
 
-import pandas as pd
-from sqlalchemy import text
-from sqlalchemy.orm import Session
+class Base(DeclarativeBase):
+    pass
 
-from app.core.hash_utils import BUSINESS_COLS, make_hash_rota
-from app.db.models import TabelaFinal
+# ── Importações ───────────────────────────────────────────────────────────
 
-log = logging.getLogger(__name__)
+class Import(Base):
+    __tablename__ = "imports"
+    id         = Column(String(36), primary_key=True)
+    source     = Column(String(20), nullable=False)   # SCIENCE|PORTAL|ARQ3
+    filename   = Column(String(255), nullable=False)
+    sheet      = Column(String(100))
+    file_hash  = Column(String(64), nullable=False)
+    rows       = Column(Integer, nullable=False)
+    cols       = Column(Integer, nullable=False)
+    created_at = Column(DateTime, default=_now, nullable=False)
+    is_active  = Column(Boolean, default=True)
 
-# Mapeamento: nome de exibição → coluna SQLAlchemy
-_COL_MAP = {
-    "REDE":             "rede",
-    "UF":               "uf",
-    "CLUSTER":          "cluster",
-    "Tipo de Rota":     "tipo_de_rota",
-    "Central":          "central",
-    "Rótulos de Linha": "rotulos_de_linha",
-    "OPERADORA":        "operadora",
-    "Denominação":      "denominacao",
-}
-_COL_MAP_INV = {v: k for k, v in _COL_MAP.items()}
+    column_renames = relationship("ColumnRename", back_populates="imp",
+                                  cascade="all, delete-orphan")
+    raw_science    = relationship("RawScience",   back_populates="imp",
+                                  cascade="all, delete-orphan")
+    raw_portal     = relationship("RawPortal",    back_populates="imp",
+                                  cascade="all, delete-orphan")
+    ref_rotas      = relationship("RefRotas",     back_populates="imp",
+                                  cascade="all, delete-orphan")
+
+class ColumnRename(Base):
+    __tablename__ = "column_renames"
+    id              = Column(Integer, primary_key=True, autoincrement=True)
+    import_id       = Column(String(36), ForeignKey("imports.id"), nullable=False)
+    original_name   = Column(String(255), nullable=False)
+    normalized_name = Column(String(255), nullable=False)
+    imp = relationship("Import", back_populates="column_renames")
+
+# ── Dados brutos ──────────────────────────────────────────────────────────
+
+class RawScience(Base):
+    __tablename__ = "raw_science"
+    id        = Column(Integer, primary_key=True, autoincrement=True)
+    import_id = Column(String(36), ForeignKey("imports.id"), nullable=False)
+    row_num   = Column(Integer, nullable=False)
+    data_json = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=_now)
+    imp = relationship("Import", back_populates="raw_science")
+
+    @property
+    def data(self) -> dict:
+        return json.loads(self.data_json)
+
+class RawPortal(Base):
+    __tablename__ = "raw_portal"
+    id        = Column(Integer, primary_key=True, autoincrement=True)
+    import_id = Column(String(36), ForeignKey("imports.id"), nullable=False)
+    row_num   = Column(Integer, nullable=False)
+    data_json = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=_now)
+    imp = relationship("Import", back_populates="raw_portal")
+
+    @property
+    def data(self) -> dict:
+        return json.loads(self.data_json)
+
+class RefRotas(Base):
+    """Arquivo 3 — tabela de referência para CLUSTER/Rótulos/Denominação."""
+    __tablename__ = "ref_rotas"
+    id               = Column(Integer, primary_key=True, autoincrement=True)
+    import_id        = Column(String(36), ForeignKey("imports.id"), nullable=False)
+    row_num          = Column(Integer, nullable=False)
+    REDE             = Column(Text)
+    UF               = Column(Text)
+    CLUSTER          = Column(Text)
+    Tipo_de_Rota     = Column(Text)
+    Central          = Column(Text)
+    Rotulos_de_Linha = Column(Text)
+    OPERADORA        = Column(Text)
+    Denominacao      = Column(Text)
+    extra_json       = Column(Text, default="{}")  # demais colunas
+    created_at       = Column(DateTime, default=_now)
+    imp = relationship("Import", back_populates="ref_rotas")
+
+# ── Tabelas de referência CNL ─────────────────────────────────────────────
+
+class CnlTable(Base):
+    """COD_CNL → CN (código numérico do estado)."""
+    __tablename__ = "cnl"
+    COD_CNL = Column(String(20), primary_key=True)
+    CN      = Column(String(10), nullable=False)
+
+class CnToUf(Base):
+    """CN → UF (sigla do estado)."""
+    __tablename__ = "cn_to_uf"
+    CN = Column(String(10), primary_key=True)
+    UF = Column(String(2), nullable=False)
+
+# ── Versões de merge ──────────────────────────────────────────────────────
+
+class MappingVersion(Base):
+    __tablename__ = "mapping_versions"
+    id                 = Column(String(36), primary_key=True)
+    tag                = Column(String(50), nullable=False)
+    science_import_id  = Column(String(36), ForeignKey("imports.id"))
+    portal_import_id   = Column(String(36), ForeignKey("imports.id"))
+    arq3_import_id     = Column(String(36), ForeignKey("imports.id"))
+    mapping_json       = Column(Text, nullable=False)
+    join_keys_json     = Column(Text, nullable=False)
+    join_type          = Column(String(20), default="outer")
+    fuzzy_threshold    = Column(Integer, default=90)
+    rows_science       = Column(Integer, default=0)
+    rows_portal        = Column(Integer, default=0)
+    rows_merged        = Column(Integer, default=0)
+    created_at         = Column(DateTime, default=_now, nullable=False)
+    is_active          = Column(Boolean, default=True)
+
+    merged_rows = relationship("MergedRow", back_populates="version",
+                               cascade="all, delete-orphan")
+
+class MergedRow(Base):
+    __tablename__ = "merged_results"
+    id               = Column(Integer, primary_key=True, autoincrement=True)
+    version_id       = Column(String(36), ForeignKey("mapping_versions.id"), nullable=False)
+    row_id           = Column(Integer, nullable=False)
+    REDE             = Column(Text)
+    UF               = Column(Text)
+    CLUSTER          = Column(Text)
+    Tipo_de_Rota     = Column(Text)
+    Central          = Column(Text)
+    Rotulos_de_Linha = Column(Text)
+    OPERADORA        = Column(Text)
+    Denominacao      = Column(Text)
+    source_tag       = Column(Text)   # SCIENCE | PORTAL | BOTH
+    source_keys_json = Column(Text)
+    created_at       = Column(DateTime, default=_now)
+    version = relationship("MappingVersion", back_populates="merged_rows")
+
+class LogEntry(Base):
+    __tablename__ = "logs"
+    id           = Column(Integer, primary_key=True, autoincrement=True)
+    timestamp    = Column(DateTime, default=_now, nullable=False)
+    level        = Column(String(10), nullable=False)
+    message      = Column(Text, nullable=False)
+    context_json = Column(Text, default="{}")
 
 
-class TabelaFinalRepository:
-    def __init__(self, session: Session) -> None:
-        self.session = session
+# ── Tabela Final (schema de negócio + deduplicação por hash_rota) ─────────
 
-    # ── Leitura ───────────────────────────────────────────────────────────
+class TabelaFinal(Base):
+    """Tabela de rotas consolidadas. hash_rota garante unicidade."""
+    __tablename__ = "tabela_final"
 
-    def load(self) -> pd.DataFrame:
-        """Carrega todas as rotas como DataFrame com colunas de negócio."""
-        rows = self.session.query(TabelaFinal).order_by(TabelaFinal.id).all()
-        if not rows:
-            return pd.DataFrame(columns=BUSINESS_COLS)
-        return pd.DataFrame([_to_display(r) for r in rows])
-
-    def count(self) -> int:
-        return self.session.query(TabelaFinal).count()
-
-    # ── Escrita (INSERT OR IGNORE via hash_rota) ──────────────────────────
-
-    def upsert(self, df: pd.DataFrame) -> Tuple[int, int]:
-        """
-        Insere rotas novas, ignora duplicatas por hash_rota.
-        Retorna (inseridas, ignoradas).
-        """
-        if df is None or df.empty:
-            return 0, 0
-
-        # Normaliza nomes de colunas para o esperado
-        df = _normalize_cols(df)
-
-        # Gera hash para cada linha
-        df = df.copy()
-        df["_hash"] = df.apply(make_hash_rota, axis=1)
-
-        # Busca hashes existentes em lote
-        existing_hashes: set[str] = set(
-            h for (h,) in self.session.query(TabelaFinal.hash_rota).all()
-        )
-
-        inserted = 0
-        skipped  = 0
-
-        for _, row in df.iterrows():
-            h = row["_hash"]
-            if h in existing_hashes:
-                skipped += 1
-                continue
-            try:
-                obj = TabelaFinal(
-                    hash_rota        = h,
-                    rede             = _sv(row, "REDE"),
-                    uf               = _sv(row, "UF"),
-                    cluster          = _sv(row, "CLUSTER"),
-                    tipo_de_rota     = _sv(row, "Tipo de Rota"),
-                    central          = _sv(row, "Central"),
-                    rotulos_de_linha = _sv(row, "Rótulos de Linha"),
-                    operadora        = _sv(row, "OPERADORA"),
-                    denominacao      = _sv(row, "Denominação"),
-                )
-                self.session.add(obj)
-                self.session.flush()
-                existing_hashes.add(h)
-                inserted += 1
-            except Exception as e:
-                self.session.rollback()
-                log.debug("Insert ignorado (hash_rota duplicado): %s", e)
-                skipped += 1
-
-        return inserted, skipped
-
-    def clear(self) -> None:
-        """Remove todos os registros (uso interno/debug — não exposto na UI)."""
-        self.session.query(TabelaFinal).delete()
-
-
-# ── Helpers privados ──────────────────────────────────────────────────────
-
-def _to_display(r: TabelaFinal) -> dict:
-    return {
-        "REDE":             r.rede             or "",
-        "UF":               r.uf               or "",
-        "CLUSTER":          r.cluster          or "",
-        "Tipo de Rota":     r.tipo_de_rota     or "",
-        "Central":          r.central          or "",
-        "Rótulos de Linha": r.rotulos_de_linha or "",
-        "OPERADORA":        r.operadora        or "",
-        "Denominação":      r.denominacao      or "",
-    }
-
-
-def _sv(row, col: str) -> str:
-    """Safe value: converte para str, None → ''."""
-    v = row.get(col, "") if hasattr(row, "get") else getattr(row, col, "")
-    if v is None or (isinstance(v, float) and str(v) == "nan"):
-        return ""
-    return str(v).strip()
-
-
-def _normalize_cols(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Garante que o DataFrame tenha as 8 colunas de negócio.
-    Tenta mapear variações comuns de nome.
-    """
-    rename = {}
-    for col in df.columns:
-        cu = col.strip().upper()
-        if cu == "TIPO DE ROTA" and "Tipo de Rota" not in df.columns:
-            rename[col] = "Tipo de Rota"
-        elif cu == "ROTULOS DE LINHA" and "Rótulos de Linha" not in df.columns:
-            rename[col] = "Rótulos de Linha"
-        elif cu == "DENOMINACAO" and "Denominação" not in df.columns:
-            rename[col] = "Denominação"
-        elif cu == "DENOMINAÇÃO" and "Denominação" not in df.columns:
-            rename[col] = "Denominação"
-    if rename:
-        df = df.rename(columns=rename)
-    # Garante que todas as colunas existam
-    for c in BUSINESS_COLS:
-        if c not in df.columns:
-            df[c] = ""
-    return df
+    id               = Column(Integer, primary_key=True, autoincrement=True)
+    hash_rota        = Column(String(40), unique=True, nullable=False, index=True)
+    rede             = Column(Text)
+    uf               = Column(Text)
+    cluster          = Column(Text)
+    tipo_de_rota     = Column(Text)
+    central          = Column(Text)
+    rotulos_de_linha = Column(Text)
+    operadora        = Column(Text)
+    denominacao      = Column(Text)
+    created_at       = Column(DateTime, default=_now)
