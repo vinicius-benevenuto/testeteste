@@ -1,3 +1,4 @@
+
 Você é um desenvolvedor full-stack sênior especialista em Streamlit, Python, CSS, UX minimalista e criação de dashboards profissionais. Sua missão é corrigir todos os problemas da aplicação e implementar filtros idênticos aos do Excel. A aplicação deve funcionar perfeitamente, com layout consistente, minimalista e profissional.
 ==== 1. CORRIGIR TÍTULOS QUE NÃO APARECEM ====
 Os títulos (H1, H2, H3) não aparecem porque estão sendo estilizados por algum CSS global que deixa o texto muito escuro sobre fundo escuro. Corrigir da seguinte forma:
