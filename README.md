@@ -1,1184 +1,484 @@
 """
-app.py — VIVOHUB · Data Merger v2  (v6 — FINAL)
-=================================================
-Correções definitivas:
-  [1] CSS totalmente reescrito sem regra global de cor que quebre headings.
-      h1-h6 no conteúdo claro = #1C2536. Custom headers escuros = inline style.
-  [2] Botão colapso sidebar: "font-size:0" esconde texto Material Icons sem
-      afetar o SVG (que ignora font-size). Sem `:has()` — compatível com todos
-      os browsers.
-  [3] Filtros estilo Excel: painel com 2 linhas × 4 colunas de multiselect,
-      totalmente incremental — cada dropdown reflete somente valores presentes
-      após os outros filtros ativos.
-  [4] Exports sempre abaixo da tabela e do dashboard.
-  [5] Excel profissional via openpyxl puro.
-  [6] PPTX via pptx_builder v3 (sem bugs de format code).
+export/pptx_builder.py
+======================
+Geração de dashboards em PPTX com python-pptx nativo.
+  build_column_pptx(df, col_name) → bytes  (4 slides)
+  build_general_pptx(df)          → bytes  (9+ slides)
+
+CORREÇÕES v3:
+  • _safe_qty/_safe_pct → nunca lançam "Unknown format code 'd' for str"
+  • _kpis() → retorna float/int Python nativos, nunca numpy
+  • _add_freq_table() → Percentual aceita str ou float
+  • Verificações de len() antes de .index[0]
+  • Todas colunas tratadas com guard "if col in df.columns"
 """
 from __future__ import annotations
 
-import io as _io
-import os
+import io
 from datetime import datetime
-from pathlib import Path
 
 import pandas as pd
-import streamlit as st
+from pptx import Presentation
+from pptx.chart.data import ChartData
+from pptx.dml.color import RGBColor
+from pptx.enum.chart import XL_CHART_TYPE
+from pptx.enum.text import PP_ALIGN
+from pptx.util import Inches, Pt, Emu
 
-# ─── Configuração da página ────────────────────────────────────────────────────
-st.set_page_config(
-    page_title="VIVOHUB — Data Merger",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
+# ── Paleta ────────────────────────────────────────────────────────────────────
+_DARK   = RGBColor(0x0F, 0x17, 0x2A)
+_ACCENT = RGBColor(0x1B, 0x5F, 0xBF)
+_WHITE  = RGBColor(0xFF, 0xFF, 0xFF)
+_LIGHT  = RGBColor(0xF8, 0xF9, 0xFA)
+_MUTED  = RGBColor(0x6B, 0x72, 0x80)
+_SLATE  = RGBColor(0x47, 0x55, 0x69)
 
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except ImportError:
-    pass
+_SLIDE_W = Inches(13.33)
+_SLIDE_H = Inches(7.5)
+_TOP_N   = 15
 
-# ─── Banco ────────────────────────────────────────────────────────────────────
-from app.db.session import init_db, session_scope
-from app.db.repository import Repository
-from app.db.tf_repository import TabelaFinalRepository
+_PALETTE = [
+    RGBColor(0x1B, 0x5F, 0xBF), RGBColor(0x16, 0xA3, 0x4A),
+    RGBColor(0xD9, 0x77, 0x06), RGBColor(0xDC, 0x26, 0x26),
+    RGBColor(0x6D, 0x28, 0xD9), RGBColor(0x0E, 0x7A, 0x8B),
+    RGBColor(0xDB, 0x27, 0x77), RGBColor(0x05, 0x96, 0x68),
+]
 
-_DB = os.environ.get("DATABASE_PATH", str(Path("data") / "app.db"))
-init_db(_DB)
 
-def _auto_seeds() -> None:
+# ── Formatação segura ─────────────────────────────────────────────────────────
+
+def _safe_str(v) -> str:
+    if v is None:
+        return ""
+    s = str(v)
+    return "" if s in ("nan", "None", "NaN") else s
+
+
+def _safe_qty(v) -> str:
+    """Qualquer valor → '1.234' sem erro."""
     try:
-        with session_scope() as s:
-            repo = Repository(s)
-            if repo.cnl_count() == 0:
-                p = Path("seeds") / "cnl.sql"
-                if p.exists() and p.stat().st_size:
-                    repo.load_cnl_seeds(str(p))
-            if repo.cn_to_uf_count() == 0:
-                p = Path("seeds") / "cn_to_uf.csv"
-                if p.exists() and p.stat().st_size:
-                    repo.load_cn_to_uf_csv(str(p))
+        return f"{int(float(_safe_str(v) or '0')):,}"
     except Exception:
-        pass
-
-_auto_seeds()
-
-# ═══════════════════════════════════════════════════════════════════════════════
-#  CSS GLOBAL — REGRAS E DECISÕES DE DESIGN
-#
-#  PROBLEMA 1 — "keyboard_double_arrow_left" visível:
-#    O botão de colapso do Streamlit usa Material Icons: um <span> cujo
-#    TEXT CONTENT é o nome do ícone ("keyboard_double_arrow_left").
-#    A fonte Material Icons mapeia esse texto para um glyph.
-#    Se a fonte não carrega, o texto literal aparece.
-#    FIX: font-size:0 no botão oculta qualquer texto; SVG ignora font-size.
-#
-#  PROBLEMA 2 — Títulos invisíveis:
-#    CSS anterior tinha h1-h4 { color: #111827 } — escuro sobre fundo escuro
-#    nos custom headers. Nossa solução: não forçar cor em h1-h6 globalmente.
-#    Custom headers dark usam <span style="color:#F1F5F9"> — inline style
-#    tem especificidade > qualquer regra de stylesheet, logo sempre ganha.
-#    Para headings reais (st.title, st.header) no conteúdo claro, herdamos
-#    #111827 do body — correto.
-#
-#  PROBLEMA 3 — Sidebar div overbroadcast:
-#    Regra anterior: [stSidebarUserContent] div { color: CBD5E1 }
-#    Isso afeta botões, selects, etc. dentro de divs. Removemos essa regra.
-#    Cor clara aplicada apenas em p, span, label específicos.
-# ═══════════════════════════════════════════════════════════════════════════════
-
-_CSS = """
-<style>
-/* ════════════════════════════════════════════════════════════════════════════
-   FONTES
-   ════════════════════════════════════════════════════════════════════════════ */
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap');
-
-/* ════════════════════════════════════════════════════════════════════════════
-   BASE — MODO CLARO
-   ════════════════════════════════════════════════════════════════════════════ */
-html, body,
-.stApp,
-[data-testid="stAppViewContainer"],
-[data-testid="stMain"],
-section[data-testid="stMain"],
-.main, .block-container {
-  background-color: #F8F9FA !important;
-  font-family: 'IBM Plex Sans', 'Segoe UI', Arial, sans-serif !important;
-}
-.main .block-container {
-  padding-top:    0 !important;
-  padding-bottom: 2.5rem !important;
-  max-width:      100% !important;
-}
-
-/* Cor de texto padrão para conteúdo principal */
-body, .main { color: #1C2536; }
-
-/* h1-h6 no conteúdo claro — tom escuro legível */
-/* NÃO usar !important — inline styles dos custom headers ganham automaticamente */
-h1, h2, h3, h4, h5, h6 { color: #1C2536; }
-
-/* Parágrafos e labels no conteúdo claro */
-.main p,
-[data-testid="stMarkdownContainer"] p { color: #374151; }
-
-/* ════════════════════════════════════════════════════════════════════════════
-   SIDEBAR — FUNDO ESCURO
-   ════════════════════════════════════════════════════════════════════════════ */
-[data-testid="stSidebar"] > div:first-child,
-[data-testid="stSidebarUserContent"] {
-  background-color: #0F172A !important;
-}
-
-/* Texto claro nos elementos de texto da sidebar (escopo preciso) */
-[data-testid="stSidebarUserContent"] p,
-[data-testid="stSidebarUserContent"] span,
-[data-testid="stSidebarUserContent"] label {
-  color: #CBD5E1;
-  font-family: 'IBM Plex Sans', sans-serif;
-}
-
-[data-testid="stSidebar"] hr {
-  border-color: #1E293B !important;
-  margin: 8px 0 !important;
-}
-
-/* Radio de navegação */
-[data-testid="stSidebar"] [data-testid="stRadio"] label {
-  font-size:     12px !important;
-  font-weight:   500 !important;
-  color:         #94A3B8 !important;
-  padding:       5px 10px !important;
-  display:       block !important;
-  border-radius: 3px !important;
-  cursor:        pointer !important;
-}
-[data-testid="stSidebar"] [data-testid="stRadio"] label:hover {
-  color:      #F1F5F9 !important;
-  background: rgba(255,255,255,.05) !important;
-}
-
-/* Botão reiniciar — invisível até hover */
-[data-testid="stSidebarUserContent"] button {
-  background:     transparent !important;
-  border:         1px solid #1E293B !important;
-  color:          #475569 !important;
-  font-size:      10px !important;
-  font-weight:    500 !important;
-  width:          100% !important;
-  padding:        5px 10px !important;
-  border-radius:  3px !important;
-  text-transform: none !important;
-  letter-spacing: normal !important;
-}
-[data-testid="stSidebarUserContent"] button:hover {
-  border-color: #334155 !important;
-  color:        #94A3B8 !important;
-}
-
-/* ════════════════════════════════════════════════════════════════════════════
-   BOTÃO DE COLAPSO DA SIDEBAR
-   FIX DEFINITIVO para "keyboard_double_arrow_left":
-   • font-size:0 no button oculta o texto do Material Icons
-   • SVG não é afetado por font-size — continua visível
-   • Sem :has() — compatível com todos os browsers
-   ════════════════════════════════════════════════════════════════════════════ */
-[data-testid="stSidebarCollapseButton"] {
-  visibility: visible !important;
-  display:    flex !important;
-}
-[data-testid="stSidebarCollapseButton"] button {
-  display:         flex !important;
-  align-items:     center !important;
-  justify-content: center !important;
-  visibility:      visible !important;
-  font-size:       0 !important;        /* ← oculta texto Material Icons */
-  background:      transparent !important;
-  border:          none !important;
-  border-radius:   4px !important;
-  width:           32px !important;
-  height:          32px !important;
-  cursor:          pointer !important;
-  padding:         0 !important;
-}
-[data-testid="stSidebarCollapseButton"] button:hover {
-  background: rgba(255,255,255,.1) !important;
-}
-[data-testid="stSidebarCollapseButton"] svg {
-  display:    block !important;
-  visibility: visible !important;
-  fill:       #64748B !important;
-  width:      18px !important;
-  height:     18px !important;
-}
-[data-testid="stSidebarCollapseButton"] button:hover svg {
-  fill: #94A3B8 !important;
-}
-
-/* Botão de re-abrir (quando sidebar está fechada) */
-[data-testid="collapsedControl"] {
-  display:    flex !important;
-  visibility: visible !important;
-}
-[data-testid="collapsedControl"] button {
-  display:     flex !important;
-  visibility:  visible !important;
-  cursor:      pointer !important;
-  font-size:   0 !important;            /* ← mesma correção */
-}
-[data-testid="collapsedControl"] svg {
-  display:    block !important;
-  visibility: visible !important;
-}
-
-/* ════════════════════════════════════════════════════════════════════════════
-   MÉTRICAS
-   ════════════════════════════════════════════════════════════════════════════ */
-[data-testid="metric-container"] {
-  background:    #FFFFFF !important;
-  border:        1px solid #E2E8F0 !important;
-  border-left:   3px solid #1B5FBF !important;
-  border-radius: 0 3px 3px 0 !important;
-  padding:       10px 14px !important;
-}
-[data-testid="metric-container"] * { background: transparent !important; }
-[data-testid="stMetricLabel"] > div {
-  font-size:      9px !important;
-  font-weight:    700 !important;
-  letter-spacing: .08em !important;
-  text-transform: uppercase !important;
-  color:          #6B7280 !important;
-}
-[data-testid="stMetricValue"] > div {
-  font-size:   22px !important;
-  font-weight: 700 !important;
-  color:       #1C2536 !important;
-}
-
-/* ════════════════════════════════════════════════════════════════════════════
-   BOTÕES
-   ════════════════════════════════════════════════════════════════════════════ */
-/* Primary */
-[data-testid="baseButton-primary"] {
-  background-color: #1B5FBF !important;
-  border:           none !important;
-  border-radius:    3px !important;
-  color:            #FFFFFF !important;
-  font-size:        11px !important;
-  font-weight:      700 !important;
-  letter-spacing:   .04em !important;
-  text-transform:   uppercase !important;
-}
-[data-testid="baseButton-primary"]:hover {
-  background-color: #1549A0 !important;
-}
-
-/* Secondary */
-[data-testid="baseButton-secondary"] {
-  background:    #FFFFFF !important;
-  border:        1px solid #D1D5DB !important;
-  border-radius: 3px !important;
-  color:         #374151 !important;
-  font-size:     11px !important;
-  font-weight:   500 !important;
-}
-[data-testid="baseButton-secondary"]:hover {
-  border-color: #1B5FBF !important;
-  color:        #1B5FBF !important;
-  background:   #EFF6FF !important;
-}
-
-/* Download */
-[data-testid="stDownloadButton"] button {
-  background:    #FFFFFF !important;
-  border:        1px solid #D1D5DB !important;
-  border-radius: 3px !important;
-  color:         #374151 !important;
-  font-size:     11px !important;
-  font-weight:   600 !important;
-  padding:       7px 12px !important;
-}
-[data-testid="stDownloadButton"] button:hover {
-  border-color: #1B5FBF !important;
-  color:        #1B5FBF !important;
-  background:   #EFF6FF !important;
-}
-
-/* ════════════════════════════════════════════════════════════════════════════
-   FILTROS (MULTISELECT)
-   ════════════════════════════════════════════════════════════════════════════ */
-[data-testid="stMultiSelect"] label {
-  font-size:      9px !important;
-  font-weight:    700 !important;
-  letter-spacing: .08em !important;
-  text-transform: uppercase !important;
-  color:          #6B7280 !important;
-  margin-bottom:  2px !important;
-}
-[data-baseweb="select"] > div {
-  border-color:  #E2E8F0 !important;
-  border-radius: 3px !important;
-  min-height:    34px !important;
-  background:    #FFFFFF !important;
-  font-size:     12px !important;
-}
-[data-baseweb="select"] > div:focus-within {
-  border-color: #1B5FBF !important;
-  box-shadow:   0 0 0 2px rgba(27,95,191,.15) !important;
-}
-[data-baseweb="tag"] {
-  background:    #EFF6FF !important;
-  border-radius: 2px !important;
-}
-[data-baseweb="tag"] span { color: #1B5FBF !important; font-size: 10px !important; }
-[data-testid="stMultiSelect"] input { font-size: 11px !important; }
-
-/* ════════════════════════════════════════════════════════════════════════════
-   EXPANDERS
-   ════════════════════════════════════════════════════════════════════════════ */
-[data-testid="stExpander"] {
-  background:    #FFFFFF !important;
-  border:        1px solid #E2E8F0 !important;
-  border-radius: 4px !important;
-  margin-bottom: 8px !important;
-}
-[data-testid="stExpander"] summary {
-  background:    #F8F9FA !important;
-  color:         #374151 !important;
-  font-size:     12px !important;
-  font-weight:   600 !important;
-  padding:       10px 14px !important;
-  border-radius: 4px !important;
-}
-[data-testid="stExpander"] summary:hover {
-  background: #EFF6FF !important;
-  color:      #1B5FBF !important;
-}
-[data-testid="stExpander"] summary [data-testid="stExpanderToggleIcon"] {
-  display: none !important;
-}
-[data-testid="stExpanderDetails"] { padding: 12px 14px !important; }
-
-/* ════════════════════════════════════════════════════════════════════════════
-   INPUTS
-   ════════════════════════════════════════════════════════════════════════════ */
-input, [data-baseweb="input"] input {
-  background:    #FFFFFF !important;
-  color:         #1C2536 !important;
-  border-color:  #D1D5DB !important;
-  border-radius: 3px !important;
-  font-size:     12px !important;
-}
-[data-testid="stTextInput"] label,
-[data-testid="stFileUploader"] label {
-  color:       #374151 !important;
-  font-size:   11px !important;
-  font-weight: 600 !important;
-}
-
-/* ════════════════════════════════════════════════════════════════════════════
-   ALERTAS
-   ════════════════════════════════════════════════════════════════════════════ */
-[data-testid="stAlert"] {
-  border-radius:     0 3px 3px 0 !important;
-  border-left-width: 3px !important;
-  font-size:         12px !important;
-}
-[data-testid="stAlert"] p { color: inherit !important; }
-
-/* ════════════════════════════════════════════════════════════════════════════
-   FILE UPLOADER
-   ════════════════════════════════════════════════════════════════════════════ */
-[data-testid="stFileUploader"] section {
-  background:    #FFFFFF !important;
-  border:        1.5px dashed #D1D5DB !important;
-  border-radius: 4px !important;
-}
-[data-testid="stFileUploader"] section:hover {
-  border-color: #1B5FBF !important;
-  background:   #F0F7FF !important;
-}
-
-/* ════════════════════════════════════════════════════════════════════════════
-   DATAFRAMES
-   ════════════════════════════════════════════════════════════════════════════ */
-[data-testid="stDataFrame"] {
-  border:        1px solid #E2E8F0 !important;
-  border-radius: 4px !important;
-}
-
-/* ════════════════════════════════════════════════════════════════════════════
-   CHROME DESNECESSÁRIO
-   ════════════════════════════════════════════════════════════════════════════ */
-#MainMenu, footer { visibility: hidden; }
-[data-testid="stToolbar"] { display: none !important; }
-header { background: transparent !important; }
-/* Esconde somente o branding do header, não o botão de colapso */
-header [data-testid="stHeader"] a,
-header [class*="viewerBadge"],
-header [class*="reportStatus"] { display: none !important; }
-
-/* ════════════════════════════════════════════════════════════════════════════
-   FILTROS EXCEL — PAINEL
-   ════════════════════════════════════════════════════════════════════════════ */
-.filter-panel {
-  background:    #FFFFFF;
-  border:        1px solid #E2E8F0;
-  border-radius: 6px;
-  padding:       16px 18px 8px;
-  margin-bottom: 14px;
-}
-.filter-header {
-  display:        flex;
-  align-items:    center;
-  gap:            8px;
-  margin-bottom:  12px;
-  padding-bottom: 10px;
-  border-bottom:  1px solid #F1F5F9;
-}
-
-/* ════════════════════════════════════════════════════════════════════════════
-   FOCO
-   ════════════════════════════════════════════════════════════════════════════ */
-*:focus-visible {
-  outline:        2px solid #1B5FBF !important;
-  outline-offset: 2px !important;
-}
-</style>
-"""
-st.markdown(_CSS, unsafe_allow_html=True)
-
-# ─── Imports internos ─────────────────────────────────────────────────────────
-from app.core.merge import build_merged_df
-from app.core.normalize import (apply_column_normalization,
-                                 infer_and_coerce_types, strip_whitespace)
-from app.core.hash_utils import BUSINESS_COLS
-from app.core.analytics import precompute_all
-from app.io.readers import list_sheets, read_file
-from app.ui.interactive_table import render_interactive_table
-from app.ui.dashboard import render_column_dashboard
-from app.export.pptx_builder import build_column_pptx, build_general_pptx
-from app.utils.logging_utils import get_logger
-
-log = get_logger(__name__)
-
-# ─── Helpers de UI ────────────────────────────────────────────────────────────
-
-def _ss(k, default=None):
-    return st.session_state.get(k, default)
+        return _safe_str(v)
 
 
-def _alert(text: str, kind: str = "info") -> None:
-    pal = {
-        "info":  ("#EFF6FF", "#1B5FBF", "#1E3A5F"),
-        "ok":    ("#F0FDF4", "#16A34A", "#14532D"),
-        "warn":  ("#FFFBEB", "#D97706", "#78350F"),
-        "error": ("#FEF2F2", "#DC2626", "#7F1D1D"),
+def _safe_pct(v) -> str:
+    """Qualquer valor → '12.3%' sem erro. Strings já formatadas são passadas."""
+    try:
+        s = _safe_str(v).strip()
+        if s.endswith("%"):
+            return s           # já formatado — não reformata
+        return f"{float(s):.1f}%"
+    except Exception:
+        return _safe_str(v)
+
+
+# ── Análise ───────────────────────────────────────────────────────────────────
+
+def _freq(df: pd.DataFrame, col: str, top_n: int = _TOP_N) -> pd.DataFrame:
+    if col not in df.columns:
+        return pd.DataFrame(columns=["Categoria", "Quantidade", "Percentual"])
+    s     = df[col].fillna("").astype(str).str.strip().replace("", "(Sem valor)")
+    vc    = s.value_counts()
+    total = max(int(len(s)), 1)
+    if len(vc) > top_n:
+        top   = vc.iloc[:top_n]
+        other = int(vc.iloc[top_n:].sum())
+        vc    = pd.concat([top, pd.Series({"Outros": other})])
+    return pd.DataFrame({
+        "Categoria":  [_safe_str(c) for c in vc.index],
+        "Quantidade": [int(x) for x in vc.values],          # int Python nativo
+        "Percentual": [round(float(x) / total * 100, 1) for x in vc.values],  # float nativo
+    })
+
+
+def _kpis(df: pd.DataFrame, col: str) -> dict:
+    if col not in df.columns:
+        return {"n": 0, "pct_null": 0.0, "unique": 0, "pct_top1": 0.0, "pct_top3": 0.0}
+    s     = df[col].fillna("").astype(str).str.strip()
+    total = max(int(len(s)), 1)
+    nulls = int((s == "").sum())
+    real  = s[s != ""]
+    vc    = real.value_counts()
+    return {
+        "n":        total,
+        "pct_null": round(nulls / total * 100, 1),
+        "unique":   int(real.nunique()),
+        "pct_top1": round(float(vc.iloc[0]) / total * 100, 1) if len(vc) >= 1 else 0.0,
+        "pct_top3": round(float(vc.iloc[:3].sum()) / total * 100, 1) if len(vc) >= 1 else 0.0,
     }
-    bg, bd, fg = pal.get(kind, pal["info"])
-    st.markdown(
-        f'<div style="background:{bg};border-left:3px solid {bd};'
-        f'padding:10px 14px;margin:8px 0;font-size:12px;color:{fg};'
-        f'border-radius:0 3px 3px 0;">{text}</div>',
-        unsafe_allow_html=True,
-    )
 
 
-def _divider():
-    st.markdown(
-        '<div style="height:1px;background:#E2E8F0;margin:16px 0;"></div>',
-        unsafe_allow_html=True,
-    )
+# ── Primitivos de slide ───────────────────────────────────────────────────────
+
+def _new_prs() -> Presentation:
+    prs = Presentation()
+    prs.slide_width  = _SLIDE_W
+    prs.slide_height = _SLIDE_H
+    return prs
 
 
-def _label(text: str):
-    st.markdown(
-        f'<div style="font-size:9px;font-weight:700;letter-spacing:.1em;'
-        f'text-transform:uppercase;color:#9CA3AF;margin:12px 0 6px;">{text}</div>',
-        unsafe_allow_html=True,
-    )
+def _blank_slide(prs: Presentation):
+    return prs.slides.add_slide(prs.slide_layouts[6])
 
 
-def _page_header(title: str, subtitle: str = ""):
-    """
-    Header de página com fundo escuro.
-    Título usa <span style="color:#F1F5F9"> — inline style vence qualquer CSS.
-    Não depende de h1/h2/h3 para evitar conflito com regras globais.
-    """
-    st.markdown(
-        f'<div style="background:#0F172A;border-bottom:2px solid #1B5FBF;'
-        f'padding:16px 24px 14px;margin-bottom:22px;">'
-        f'<span style="display:block;font-size:18px;font-weight:700;'
-        f'color:#F1F5F9;line-height:1.3;margin-bottom:4px;">{title}</span>'
-        f'<span style="display:block;font-size:10px;font-weight:600;'
-        f'color:#475569;letter-spacing:.08em;text-transform:uppercase;">'
-        f'{subtitle}</span>'
-        f'</div>',
-        unsafe_allow_html=True,
-    )
+def _add_rect(slide, x, y, w, h, fill: RGBColor, line: RGBColor = None):
+    sh = slide.shapes.add_shape(1, x, y, w, h)
+    sh.fill.solid()
+    sh.fill.fore_color.rgb = fill
+    if line:
+        sh.line.color.rgb = line
+    else:
+        sh.line.fill.background()
+    return sh
 
 
-def _section_title(text: str, icon: str = ""):
-    """Barra de seção com fundo escuro — título sempre branco via inline style."""
-    ico = f'<span style="font-size:14px;margin-right:8px;">{icon}</span>' if icon else ""
-    st.markdown(
-        f'<div style="background:#0F172A;border-left:4px solid #1B5FBF;'
-        f'padding:10px 16px;margin:16px 0 12px;">'
-        f'<span style="display:block;font-size:13px;font-weight:700;'
-        f'color:#F1F5F9;">{ico}{text}</span>'
-        f'</div>',
-        unsafe_allow_html=True,
-    )
+def _add_text(slide, text: str, x, y, w, h, *,
+              font_size: int = 12, bold: bool = False,
+              color: RGBColor = None, align=PP_ALIGN.LEFT, wrap: bool = True):
+    txb = slide.shapes.add_textbox(x, y, w, h)
+    tf  = txb.text_frame
+    tf.word_wrap = wrap
+    p   = tf.paragraphs[0]
+    p.alignment = align
+    run = p.add_run()
+    run.text           = _safe_str(text)
+    run.font.size      = Pt(font_size)
+    run.font.bold      = bold
+    run.font.color.rgb = color or _DARK
+    return txb
 
 
-# ─── Filtros estilo Excel ──────────────────────────────────────────────────────
-
-def _apply_filters(df: pd.DataFrame, filters: dict) -> pd.DataFrame:
-    """Aplica filtros incrementais. filters = {col: [val1, val2, ...]}."""
-    for col, vals in filters.items():
-        if vals and col in df.columns:
-            # Mapeia "(Sem valor)" → "" para comparar com df
-            mapped = ["" if v == "(Sem valor)" else v for v in vals]
-            df = df[df[col].fillna("").astype(str).isin(mapped)]
-    return df
-
-
-def _render_excel_filters(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Painel de filtros estilo Excel.
-    
-    Comportamento incremental:
-      Cada dropdown exibe SOMENTE os valores presentes após aplicar todos os
-      outros filtros ativos — exatamente como o AutoFiltro do Excel.
-    
-    Retorna o DataFrame filtrado conforme as seleções.
-    """
-    # Garante que excel_filters está inicializado
-    if "excel_filters" not in st.session_state:
-        st.session_state["excel_filters"] = {c: [] for c in BUSINESS_COLS}
-    filters: dict = st.session_state["excel_filters"]
-
-    n_active = sum(1 for v in filters.values() if v)
-
-    # ── Cabeçalho do painel de filtros ────────────────────────────────────
-    st.markdown(
-        f'<div style="background:#FFFFFF;border:1px solid #E2E8F0;'
-        f'border-radius:6px;padding:14px 16px 4px;margin-bottom:14px;">'
-        f'<div style="display:flex;align-items:center;justify-content:space-between;'
-        f'margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid #F1F5F9;">'
-        f'<span style="font-size:12px;font-weight:700;color:#1C2536;">'
-        f'Filtros — estilo Excel</span>'
-        f'<span style="font-size:11px;color:{"#1B5FBF" if n_active else "#9CA3AF"};'
-        f'font-weight:{"600" if n_active else "400"};">'
-        f'{"🔵 " + str(n_active) + " filtro(s) ativo(s)" if n_active else "Nenhum filtro ativo"}'
-        f'</span>'
-        f'</div>',
-        unsafe_allow_html=True,
-    )
-
-    # ── Grid de multiselects (4 colunas × 2 linhas) ───────────────────────
-    for row_cols in (BUSINESS_COLS[:4], BUSINESS_COLS[4:]):
-        grid = st.columns(4, gap="small")
-        for i, col in enumerate(row_cols):
-            with grid[i]:
-                # Contexto: aplica todos os filtros MENOS este col
-                others = {k: v for k, v in filters.items() if k != col and v}
-                df_ctx = _apply_filters(df, others)
-
-                raw_vals = sorted(
-                    df_ctx[col].fillna("").astype(str).unique().tolist()
-                )
-                # Substitui "" por label amigável
-                options = []
-                has_empty = "" in raw_vals
-                if has_empty:
-                    options.append("(Sem valor)")
-                options += [v for v in raw_vals if v != ""]
-
-                # Mantém seleção válida
-                current = [v for v in filters.get(col, []) if v in options]
-
-                selected = st.multiselect(
-                    col,
-                    options=options,
-                    default=current,
-                    key=f"flt_{col}",
-                    placeholder="Todos os valores",
-                    label_visibility="visible",
-                )
-                filters[col] = selected
-
-    st.markdown('</div>', unsafe_allow_html=True)
-
-    # ── Aplica filtros ao DataFrame completo ──────────────────────────────
-    df_filtered = _apply_filters(df, filters)
-
-    total   = len(df)
-    showing = len(df_filtered)
-    pct     = round(showing / total * 100, 1) if total else 0.0
-
-    # Linha de status + botão limpar
-    sc1, sc2 = st.columns([7, 2])
-    with sc1:
-        color = "#DC2626" if showing == 0 else ("#16A34A" if showing < total else "#6B7280")
-        st.markdown(
-            f'<div style="font-size:11px;color:{color};padding:2px 0;">'
-            f'Exibindo <strong style="color:#1C2536">{showing:,}</strong> de '
-            f'<strong style="color:#1C2536">{total:,}</strong> rotas '
-            f'({pct:.1f}%)</div>',
-            unsafe_allow_html=True,
-        )
-    with sc2:
-        if n_active and st.button("✕ Limpar filtros", key="btn_clr_flt",
-                                   use_container_width=True):
-            st.session_state["excel_filters"] = {c: [] for c in BUSINESS_COLS}
-            st.rerun()
-
-    return df_filtered
+def _slide_header(slide, title: str, subtitle: str = ""):
+    _add_rect(slide, Inches(0), Inches(0), _SLIDE_W, Inches(1.1), _DARK)
+    _add_text(slide, title,
+              Inches(0.4), Inches(0.08), Inches(12), Inches(0.65),
+              font_size=22, bold=True, color=_WHITE)
+    if subtitle:
+        _add_text(slide, subtitle,
+                  Inches(0.4), Inches(0.68), Inches(12), Inches(0.34),
+                  font_size=10, color=_SLATE)
+    _add_rect(slide, Inches(0), Inches(1.08), _SLIDE_W, Emu(36000), _ACCENT)
 
 
-# ─── Excel profissional ────────────────────────────────────────────────────────
+def _slide_footer(slide, right_text: str = ""):
+    y = _SLIDE_H - Inches(0.3)
+    _add_rect(slide, Inches(0), y, _SLIDE_W, Inches(0.3), _DARK)
+    ts = datetime.now().strftime("%d/%m/%Y %H:%M")
+    _add_text(slide, f"VIVOHUB · Data Merger v2 · {ts}",
+              Inches(0.3), y, Inches(9), Inches(0.28), font_size=8, color=_SLATE)
+    if right_text:
+        _add_text(slide, right_text,
+                  Inches(10), y, Inches(3), Inches(0.28),
+                  font_size=8, color=_SLATE, align=PP_ALIGN.RIGHT)
 
-def _make_excel_professional(df: pd.DataFrame) -> bytes:
-    """
-    XLSX nível Big Four / consultoria.
-    Usa openpyxl puro — sem pd.to_excel — para controle total de estilos.
-    Nunca lança format-code errors: valores são sempre convertidos para str.
-    """
-    from openpyxl import Workbook
-    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
-    from openpyxl.utils import get_column_letter
-    from openpyxl.formatting.rule import CellIsRule
 
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Tabela Final"
+def _add_kpi_boxes(slide, kpi: dict, y_start=Inches(1.25)):
+    labels = ["Registros",        "% Nulos",              "Únicos",
+              "% Top 1",          "% Top 3"]
+    values = [f"{kpi['n']:,}",    f"{kpi['pct_null']:.1f}%", f"{kpi['unique']:,}",
+              f"{kpi['pct_top1']:.1f}%", f"{kpi['pct_top3']:.1f}%"]
+    bw, gap, x0 = Inches(2.4), Inches(0.14), Inches(0.4)
+    for i, (lbl, val) in enumerate(zip(labels, values)):
+        x = x0 + i * (bw + gap)
+        _add_rect(slide, x, y_start, bw, Inches(1.0), _LIGHT,
+                  line=RGBColor(0xE2, 0xE8, 0xF0))
+        _add_rect(slide, x, y_start, Emu(34000), Inches(1.0), _ACCENT)
+        _add_text(slide, lbl, x + Inches(0.08), y_start + Inches(0.05),
+                  bw, Inches(0.28), font_size=8, color=_MUTED)
+        _add_text(slide, val, x + Inches(0.08), y_start + Inches(0.28),
+                  bw, Inches(0.6), font_size=20, bold=True, color=_DARK)
 
-    # ── Paleta de estilos ─────────────────────────────────────────────────
-    F_TITLE  = Font(name="Calibri", size=13, bold=True,  color="0F172A")
-    F_HEADER = Font(name="Calibri", size=10, bold=True,  color="FFFFFF")
-    F_CELL   = Font(name="Calibri", size=10, bold=False, color="111827")
 
-    FILL_TITLE = PatternFill("solid", fgColor="EFF6FF")
-    FILL_HEAD  = PatternFill("solid", fgColor="0F172A")
-    FILL_EVEN  = PatternFill("solid", fgColor="F1F5F9")
-    FILL_ODD   = PatternFill("solid", fgColor="FFFFFF")
-    FILL_EMPTY = PatternFill("solid", fgColor="FFFBEB")
+def _add_bar_chart(slide, freq_df: pd.DataFrame, x, y, w, h, title: str = ""):
+    if freq_df is None or freq_df.empty:
+        return None
+    cd = ChartData()
+    cd.categories = [_safe_str(c) for c in freq_df["Categoria"]]
+    cd.add_series("Quantidade", [int(v) for v in freq_df["Quantidade"]])
+    chart = slide.shapes.add_chart(XL_CHART_TYPE.BAR_CLUSTERED, x, y, w, h, cd).chart
+    chart.has_title  = bool(title)
+    chart.has_legend = False
+    if title and chart.has_title:
+        chart.chart_title.text_frame.text = title
+        chart.chart_title.text_frame.paragraphs[0].runs[0].font.size = Pt(11)
+    s = chart.series[0]
+    s.format.fill.solid()
+    s.format.fill.fore_color.rgb = _ACCENT
+    chart.value_axis.has_major_gridlines = True
+    chart.category_axis.tick_labels.font.size = Pt(8)
+    chart.value_axis.tick_labels.font.size    = Pt(8)
+    return chart
 
-    TH  = Side(style="thin",   color="D1D5DB")
-    ACC = Side(style="medium", color="1B5FBF")
 
-    B_TITLE = Border(top=ACC, bottom=ACC, left=ACC, right=ACC)
-    B_HEAD  = Border(top=ACC, bottom=ACC, left=TH,  right=TH)
-    B_CELL  = Border(top=TH,  bottom=TH,  left=TH,  right=TH)
+def _add_pie_chart(slide, freq_df: pd.DataFrame, x, y, w, h, title: str = ""):
+    if freq_df is None or len(freq_df) < 2:
+        return None
+    cd = ChartData()
+    cd.categories = [_safe_str(c) for c in freq_df["Categoria"]]
+    cd.add_series("Participação", [int(v) for v in freq_df["Quantidade"]])
+    chart = slide.shapes.add_chart(XL_CHART_TYPE.DOUGHNUT, x, y, w, h, cd).chart
+    chart.has_title  = bool(title)
+    chart.has_legend = True
+    if title and chart.has_title:
+        chart.chart_title.text_frame.text = title
+        chart.chart_title.text_frame.paragraphs[0].runs[0].font.size = Pt(11)
+    chart.legend.font.size = Pt(8)
+    for i, pt in enumerate(chart.series[0].points):
+        pt.format.fill.solid()
+        pt.format.fill.fore_color.rgb = _PALETTE[i % len(_PALETTE)]
+    return chart
 
-    n_cols   = len(df.columns)
-    n_rows   = len(df)
-    last_col = get_column_letter(n_cols)
 
-    # ── Linha 1 — Título centralizado ────────────────────────────────────
-    ws.merge_cells(f"A1:{last_col}1")
-    tc = ws["A1"]
-    tc.value = (
-        f"VIVOHUB — Tabela Final de Rotas  ·  "
-        f"{datetime.now().strftime('%d/%m/%Y  %H:%M')}  ·  "
-        f"{n_rows:,} rotas"
-    )
-    tc.font      = F_TITLE
-    tc.fill      = FILL_TITLE
-    tc.border    = B_TITLE
-    tc.alignment = Alignment(horizontal="center", vertical="center")
-    ws.row_dimensions[1].height = 28
+def _add_freq_table(slide, freq_df: pd.DataFrame, x, y, w, h):
+    """Tabela de frequências tolerante a qualquer tipo em Quantidade/Percentual."""
+    if freq_df is None or freq_df.empty:
+        return
+    rows_n = min(len(freq_df) + 1, 20)
+    tbl    = slide.shapes.add_table(rows_n, 3, x, y, w, h).table
+    tbl.columns[0].width = int(w * 0.55)
+    tbl.columns[1].width = int(w * 0.22)
+    tbl.columns[2].width = int(w * 0.23)
 
-    # ── Linha 2 — Cabeçalhos ─────────────────────────────────────────────
-    for ci, col in enumerate(df.columns, 1):
-        c = ws.cell(row=2, column=ci, value=col)
-        c.font      = F_HEADER
-        c.fill      = FILL_HEAD
-        c.border    = B_HEAD
-        c.alignment = Alignment(horizontal="center", vertical="center")
-    ws.row_dimensions[2].height = 22
+    def _c(r, c, txt, bold=False, bg: RGBColor = None, fg: RGBColor = _DARK):
+        cell = tbl.cell(r, c)
+        cell.text = _safe_str(txt)
+        p = cell.text_frame.paragraphs[0]
+        if p.runs:
+            run = p.runs[0]
+            run.font.size      = Pt(9)
+            run.font.bold      = bold
+            run.font.color.rgb = fg
+        if bg:
+            cell.fill.solid()
+            cell.fill.fore_color.rgb = bg
 
-    # ── Dados (linha 3 em diante) ─────────────────────────────────────────
-    for ri, (_, row) in enumerate(df.iterrows(), 3):
-        fill = FILL_EVEN if ri % 2 == 0 else FILL_ODD
-        for ci, col in enumerate(df.columns, 1):
-            raw = row[col]
-            # Converte qualquer tipo para str, tratando NaN/None
-            try:
-                val = "" if (
-                    raw is None or
-                    (not isinstance(raw, str) and pd.isna(raw))
-                ) else str(raw)
-            except Exception:
-                val = "" if raw is None else str(raw)
-            c = ws.cell(row=ri, column=ci, value=val)
-            c.font      = F_CELL
-            c.fill      = fill
-            c.border    = B_CELL
-            c.alignment = Alignment(horizontal="left", vertical="center")
-        ws.row_dimensions[ri].height = 18
+    for ci, hdr in enumerate(["Categoria", "Qtd", "%"]):
+        _c(0, ci, hdr, bold=True, bg=_DARK, fg=_WHITE)
 
-    # ── Cabeçalho congelado ───────────────────────────────────────────────
-    ws.freeze_panes = "A3"
+    for ri, (_, row) in enumerate(freq_df.head(rows_n - 1).iterrows(), start=1):
+        bg = _LIGHT if ri % 2 == 0 else None
+        _c(ri, 0, _safe_str(row.get("Categoria", "")), bg=bg)
+        _c(ri, 1, _safe_qty(row.get("Quantidade", "")), bg=bg)
+        _c(ri, 2, _safe_pct(row.get("Percentual", "")), bg=bg)
 
-    # ── Auto-fit de largura (mín 10, máx 55) ─────────────────────────────
-    for ci, col in enumerate(df.columns, 1):
-        try:
-            ml = max(
-                len(str(col)),
-                int(df[col].fillna("").astype(str).str.len().max() or 0),
-            )
-        except Exception:
-            ml = len(str(col))
-        ws.column_dimensions[get_column_letter(ci)].width = min(55, max(10, int(ml * 1.12) + 2))
 
-    # ── Auto-filtro no cabeçalho ──────────────────────────────────────────
-    ws.auto_filter.ref = f"A2:{last_col}2"
+# ── Análise textual ───────────────────────────────────────────────────────────
 
-    # ── Formatação condicional: células vazias → amarelo suave ────────────
-    ws.conditional_formatting.add(
-        f"A3:{last_col}{n_rows + 2}",
-        CellIsRule(operator="equal", formula=['""'], fill=FILL_EMPTY),
-    )
+def _col_analysis_text(df: pd.DataFrame, col: str, kpi: dict,
+                        freq: pd.DataFrame) -> str:
+    top1     = _safe_str(freq.iloc[0]["Categoria"])  if len(freq) >= 1 else "—"
+    top1_pct = freq.iloc[0]["Percentual"]             if len(freq) >= 1 else 0.0
+    lines = [
+        f"Coluna: {col}",
+        f"Total: {kpi['n']:,}  |  Únicos: {kpi['unique']:,}  |  Sem valor: {kpi['pct_null']:.1f}%",
+        "",
+        f"Categoria dominante: {top1}  ({_safe_pct(top1_pct)})",
+        f"Top 3 acumulam: {kpi['pct_top3']:.1f}% dos registros",
+        "",
+    ]
+    col_up = col.upper().replace(" ", "_")
+    hints = {
+        "REDE":             "Distribuição entre VIVO-SMP (dados) e VIVO-STFC (voz).",
+        "UF":               "Ranking por estado — participação regional no total de rotas.",
+        "CLUSTER":          "Frequência por grupo de roteamento. Verificar % vazio.",
+        "TIPO_DE_ROTA":     "Mix entre INTERNA e ITX-SIP_AS.",
+        "CENTRAL":          "Top 10 centrais com maior concentração de rotas — Pareto.",
+        "ROTULOS_DE_LINHA": "Rótulos únicos. Verificar possíveis duplicidades.",
+        "OPERADORA":        "Participação por operadora. Cross com UF e Tipo de Rota.",
+        "DENOMINACAO":      "Padrões e termos recorrentes. Identificar duplicidades.",
+    }
+    for key, msg in hints.items():
+        if key in col_up or col_up in key:
+            lines.append(msg)
+            break
+    return "\n".join(lines)
 
-    # ── Configuração de impressão ─────────────────────────────────────────
-    ws.print_area            = f"A1:{last_col}{n_rows + 2}"
-    ws.page_setup.orientation = "landscape"
-    ws.page_setup.fitToPage   = True
-    ws.page_setup.fitToWidth  = 1
 
-    buf = _io.BytesIO()
-    wb.save(buf)
+# ── API pública ───────────────────────────────────────────────────────────────
+
+def build_column_pptx(df: pd.DataFrame, col_name: str) -> bytes:
+    """4 slides: KPIs | Gráfico | Tabela | Concentração Top3."""
+    prs     = _new_prs()
+    freq    = _freq(df, col_name)
+    kpi     = _kpis(df, col_name)
+    ts      = datetime.now().strftime("%d/%m/%Y %H:%M")
+    use_pie = kpi["unique"] <= 6
+
+    # Slide 1 — KPIs + análise
+    sl = _blank_slide(prs)
+    _slide_header(sl, f"Dashboard — {col_name}",
+                  f"Gerado em {ts}  ·  {kpi['n']:,} registros")
+    _add_kpi_boxes(sl, kpi, y_start=Inches(1.35))
+    _slide_footer(sl, col_name)
+    _add_text(sl, _col_analysis_text(df, col_name, kpi, freq),
+              Inches(0.4), Inches(2.55), Inches(12.5), Inches(4.3),
+              font_size=11, color=_DARK)
+
+    # Slide 2 — Gráfico principal
+    sl2 = _blank_slide(prs)
+    _slide_header(sl2, f"{col_name} — Distribuição", "Frequência por categoria")
+    _slide_footer(sl2, col_name)
+    if use_pie and len(freq) >= 2:
+        _add_pie_chart(sl2, freq,
+                       Inches(2.5), Inches(1.25), Inches(8.0), Inches(5.9),
+                       title=f"Distribuição — {col_name}")
+    else:
+        _add_bar_chart(sl2, freq,
+                       Inches(0.4), Inches(1.25), Inches(12.4), Inches(5.9),
+                       title=f"Top {min(len(freq), _TOP_N)} — {col_name}")
+
+    # Slide 3 — Tabela
+    sl3 = _blank_slide(prs)
+    _slide_header(sl3, f"{col_name} — Tabela de Frequências",
+                  "Categoria  |  Quantidade  |  %")
+    _slide_footer(sl3, col_name)
+    _add_freq_table(sl3, freq,
+                    Inches(0.5), Inches(1.25), Inches(12.3), Inches(5.9))
+
+    # Slide 4 — Concentração
+    sl4 = _blank_slide(prs)
+    _slide_header(sl4, f"{col_name} — Concentração Top 3 vs. Demais",
+                  "Análise de dominância")
+    _slide_footer(sl4, col_name)
+    top3 = freq.head(3).copy()
+    rest = int(freq.iloc[3:]["Quantidade"].sum()) if len(freq) > 3 else 0
+    if rest > 0:
+        top3 = pd.concat([top3, pd.DataFrame([{
+            "Categoria": "Demais",
+            "Quantidade": rest,
+            "Percentual": round(rest / kpi["n"] * 100, 1),
+        }])], ignore_index=True)
+    if len(top3) >= 2:
+        _add_pie_chart(sl4, top3,
+                       Inches(2.5), Inches(1.25), Inches(8.0), Inches(5.9),
+                       title=f"Concentração — {col_name}")
+
+    buf = io.BytesIO()
+    prs.save(buf)
     return buf.getvalue()
 
 
-# ─── Estado inicial ────────────────────────────────────────────────────────────
+def build_general_pptx(df: pd.DataFrame) -> bytes:
+    """9+ slides: Capa | Resumo | por coluna | Conclusões."""
+    prs   = _new_prs()
+    ts    = datetime.now().strftime("%d/%m/%Y %H:%M")
+    total = max(int(len(df)), 1)
 
-def _init_state() -> None:
-    defaults = {
-        "tabela_final":    None,
-        "analytics_cache": None,
-        "selected_col":    None,
-        "excel_filters":   {c: [] for c in BUSINESS_COLS},
-        "sci_df":    None, "sci_filename":  "", "sci_sheet":  None,
-        "por_df":    None, "por_filename":  "", "por_sheet":  None,
-        "arq3_df":   None, "arq3_filename": "", "arq3_sheet": None,
-        "wizard_cfg": {},
-    }
-    for k, v in defaults.items():
-        if k not in st.session_state:
-            st.session_state[k] = v
+    # Slide 0 — Capa
+    sl = _blank_slide(prs)
+    _add_rect(sl, Inches(0), Inches(0), _SLIDE_W, _SLIDE_H, _DARK)
+    _add_rect(sl, Inches(0), Inches(3.45), _SLIDE_W, Emu(54000), _ACCENT)
+    _add_text(sl, "VIVOHUB",
+              Inches(1), Inches(1.2), Inches(11), Inches(0.7),
+              font_size=14, color=_SLATE, align=PP_ALIGN.CENTER)
+    _add_text(sl, "Dashboard Geral de Rotas",
+              Inches(1), Inches(1.85), Inches(11), Inches(1.1),
+              font_size=36, bold=True, color=_WHITE, align=PP_ALIGN.CENTER)
+    _add_text(sl, f"Data Merger v2  ·  {ts}  ·  {total:,} rotas",
+              Inches(1), Inches(2.9), Inches(11), Inches(0.45),
+              font_size=13, color=RGBColor(0x94, 0xA3, 0xB8), align=PP_ALIGN.CENTER)
 
-_init_state()
+    # Slide 1 — Resumo executivo
+    sl = _blank_slide(prs)
+    _slide_header(sl, "Resumo Executivo",
+                  f"{total:,} rotas consolidadas  ·  {ts}")
+    _slide_footer(sl)
 
-# ─── Carga automática do banco ────────────────────────────────────────────────
-if _ss("tabela_final") is None:
-    try:
-        with session_scope() as s:
-            df_db = TabelaFinalRepository(s).load()
-        if not df_db.empty:
-            st.session_state["tabela_final"]    = df_db
-            st.session_state["analytics_cache"] = precompute_all(df_db)
-    except Exception as e:
-        log.warning("Carga automática: %s", e)
+    from app.core.hash_utils import BUSINESS_COLS
+    non_empty = lambda c: int((df[c].fillna("").astype(str).str.strip() != "").sum()) \
+                          if c in df.columns else 0
+    pct_fill  = lambda c: round(non_empty(c) / total * 100, 1)
 
-# ═══════════════════════════════════════════════════════════════════════════════
-#  SIDEBAR
-# ═══════════════════════════════════════════════════════════════════════════════
-with st.sidebar:
-    # Marca — inline styles garantem cor no fundo escuro
-    st.markdown(
-        '<div style="padding:18px 14px 14px;border-bottom:1px solid #1E293B;'
-        'margin-bottom:14px;">'
-        '<span style="display:block;font-size:16px;font-weight:700;'
-        'color:#F1F5F9;letter-spacing:-.02em;line-height:1.2;">VIVOHUB</span>'
-        '<span style="display:block;font-size:9px;font-weight:700;'
-        'color:#334155;letter-spacing:.12em;text-transform:uppercase;'
-        'margin-top:4px;">Data Merger v2</span>'
-        '</div>',
-        unsafe_allow_html=True,
-    )
+    cols_present = [c for c in BUSINESS_COLS if c in df.columns]
+    avg_fill = round(sum(pct_fill(c) for c in cols_present) / max(len(cols_present), 1), 1)
 
-    page = st.radio(
-        "",
-        ["1. Carregar Arquivos", "2. Gerar Tabela Final", "3. Tabela Final"],
-        key="nav",
-        label_visibility="collapsed",
-    )
+    kpi_cards = [
+        ("Total de Rotas",   f"{total:,}"),
+        ("UFs distintas",    str(df["UF"].nunique())        if "UF"        in df.columns else "—"),
+        ("Operadoras",       str(df["OPERADORA"].nunique()) if "OPERADORA" in df.columns else "—"),
+        ("Centrais",         str(df["Central"].nunique())   if "Central"   in df.columns else "—"),
+        ("Colunas",          "8"),
+        ("% Preenchimento",  f"{avg_fill:.1f}%"),
+    ]
+    bw, gap, x0 = Inches(2.0), Inches(0.12), Inches(0.3)
+    for i, (lbl, val) in enumerate(kpi_cards):
+        x = x0 + i * (bw + gap)
+        _add_rect(sl, x, Inches(1.38), bw, Inches(0.88), _LIGHT,
+                  line=RGBColor(0xE2, 0xE8, 0xF0))
+        _add_rect(sl, x, Inches(1.38), Emu(30000), Inches(0.88), _ACCENT)
+        _add_text(sl, lbl, x + Inches(0.06), Inches(1.43), bw, Inches(0.28),
+                  font_size=8, color=_MUTED)
+        _add_text(sl, val, x + Inches(0.06), Inches(1.65), bw, Inches(0.5),
+                  font_size=18, bold=True, color=_DARK)
 
-    st.markdown("<hr>", unsafe_allow_html=True)
+    _add_text(sl, "Preenchimento por coluna",
+              Inches(0.4), Inches(2.44), Inches(12), Inches(0.38),
+              font_size=11, bold=True, color=_DARK)
 
-    # Status dots
-    def _dot(label: str, key: str):
-        ok  = st.session_state.get(key) is not None
-        dot = "#22C55E" if ok else "#1E293B"
-        clr = "#CBD5E1" if ok else "#475569"
-        st.markdown(
-            f'<div style="display:flex;align-items:center;gap:8px;padding:3px 0;">'
-            f'<span style="width:6px;height:6px;border-radius:50%;background:{dot};'
-            f'flex-shrink:0;display:inline-block;"></span>'
-            f'<span style="font-size:11px;font-weight:500;color:{clr};">'
-            f'{label}</span></div>',
-            unsafe_allow_html=True,
-        )
+    # IMPORTANTE: Percentual como float (não str) para _safe_pct funcionar
+    fill_data = pd.DataFrame([
+        {"Categoria":  c,
+         "Quantidade": non_empty(c),      # int
+         "Percentual": pct_fill(c)}       # float — _safe_pct converte corretamente
+        for c in BUSINESS_COLS if c in df.columns
+    ])
+    _add_freq_table(sl, fill_data,
+                    Inches(0.4), Inches(2.9), Inches(12.2), Inches(4.2))
 
-    _dot("Science",   "sci_df")
-    _dot("Portal",    "por_df")
-    _dot("Arquivo 3", "arq3_df")
-    _dot("Resultado", "tabela_final")
+    # Slides por coluna
+    col_order = ["UF", "OPERADORA", "Tipo de Rota", "Central",
+                 "CLUSTER", "Rótulos de Linha", "REDE", "Denominação"]
+    for col in col_order:
+        if col not in df.columns:
+            continue
+        freq    = _freq(df, col)
+        kpi     = _kpis(df, col)
+        use_pie = kpi["unique"] <= 6
 
-    tf_sb = _ss("tabela_final")
-    if tf_sb is not None:
-        n_sb = len(tf_sb)
-        st.markdown(
-            f'<div style="margin-top:12px;padding:10px 12px;background:#060D1A;'
-            f'border-left:2px solid #1B5FBF;">'
-            f'<span style="display:block;font-size:9px;font-weight:700;'
-            f'letter-spacing:.1em;text-transform:uppercase;color:#334155;'
-            f'margin-bottom:3px;">Rotas no banco</span>'
-            f'<span style="display:block;font-size:22px;font-weight:700;'
-            f'color:#F1F5F9;line-height:1.1;">{n_sb:,}</span>'
-            f'</div>',
-            unsafe_allow_html=True,
-        )
+        sl = _blank_slide(prs)
+        _slide_header(sl, f"Análise — {col}",
+                      f"{kpi['unique']} valores únicos  ·  {kpi['pct_null']:.1f}% sem valor")
+        _slide_footer(sl, col)
+        _add_kpi_boxes(sl, kpi, y_start=Inches(1.2))
 
-    st.markdown("<hr>", unsafe_allow_html=True)
-    st.markdown(
-        f'<span style="font-size:10px;color:#334155;">{Path(_DB).name}</span>',
-        unsafe_allow_html=True,
-    )
-    if st.button("Reiniciar sessão", key="btn_reset"):
-        for k in list(st.session_state.keys()):
-            del st.session_state[k]
-        st.rerun()
-
-# ─── Roteamento ───────────────────────────────────────────────────────────────
-p = page.split(". ", 1)[-1]
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-#  PÁGINA 1 — CARREGAR ARQUIVOS
-# ═══════════════════════════════════════════════════════════════════════════════
-if p == "Carregar Arquivos":
-    _page_header("Carregar Arquivos",
-                 "Importação — Science · Portal de Cadastros · Arquivo 3")
-
-    st.markdown(
-        '<p style="font-size:12px;color:#6B7280;margin:0 0 18px;">'
-        'Faça o upload dos arquivos de origem. O processamento é 100% local.</p>',
-        unsafe_allow_html=True,
-    )
-
-    def _handle_upload(uploaded_file, prefix: str, label: str):
-        if uploaded_file is None:
-            return
-        ext = uploaded_file.name.split(".")[-1].lower()
-        raw = uploaded_file.read()
-        sheet = None
-        if ext in ("xlsx", "xls"):
-            sheets = list_sheets(_io.BytesIO(raw))
-            if len(sheets) > 1:
-                sheet = st.selectbox(f"Planilha — {label}", sheets,
-                                     key=f"sheet_{prefix}")
-            elif sheets:
-                sheet = sheets[0]
-        try:
-            df = read_file(_io.BytesIO(raw), filename=uploaded_file.name, sheet=sheet)
-            df, _ = apply_column_normalization(df)
-            df = strip_whitespace(df)
-            df = infer_and_coerce_types(df)
-            st.session_state[f"{prefix}_df"]       = df
-            st.session_state[f"{prefix}_filename"] = uploaded_file.name
-            st.session_state[f"{prefix}_sheet"]    = sheet
-        except Exception as e:
-            _alert(f"Erro ao ler {uploaded_file.name}: {e}", "error")
-            log.error("Upload %s: %s", prefix, e, exc_info=True)
-
-    c1, c2, c3 = st.columns(3, gap="medium")
-    for col, prefix, label in [
-        (c1, "sci",  "Science"),
-        (c2, "por",  "Portal de Cadastros"),
-        (c3, "arq3", "Arquivo 3 — Referência"),
-    ]:
-        with col:
-            _label(label)
-            f = st.file_uploader(
-                label, type=["xlsx", "xls", "csv", "parquet"],
-                key=f"up_{prefix}", label_visibility="collapsed",
-            )
-            _handle_upload(f, prefix, label)
-            dfx = _ss(f"{prefix}_df")
-            if dfx is not None:
-                fn = _ss(f"{prefix}_filename") or "—"
-                st.markdown(
-                    f'<div style="display:flex;align-items:center;gap:8px;'
-                    f'padding:7px 0;border-bottom:1px solid #E2E8F0;margin-top:6px;">'
-                    f'<span style="width:6px;height:6px;border-radius:50%;'
-                    f'background:#16A34A;flex-shrink:0;display:inline-block;"></span>'
-                    f'<span style="font-size:12px;font-weight:600;color:#1C2536;">{fn}</span>'
-                    f'<span style="font-size:11px;color:#9CA3AF;margin-left:4px;">'
-                    f'{len(dfx):,} linhas · {len(dfx.columns)} cols</span>'
-                    f'</div>',
-                    unsafe_allow_html=True,
-                )
-
-    _divider()
-
-    for prefix, label in [("sci","Science"), ("por","Portal"), ("arq3","Arquivo 3")]:
-        dfx = _ss(f"{prefix}_df")
-        if dfx is not None:
-            with st.expander(f"Prévia — {label}  ({len(dfx):,} linhas)"):
-                st.dataframe(dfx.head(15), use_container_width=True, hide_index=True)
-
-    if _ss("sci_df") is not None and _ss("por_df") is not None:
-        _alert("Science e Portal carregados. "
-               "Prossiga para <strong>Gerar Tabela Final</strong>.", "ok")
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-#  PÁGINA 2 — GERAR TABELA FINAL
-# ═══════════════════════════════════════════════════════════════════════════════
-elif p == "Gerar Tabela Final":
-    _page_header("Gerar Tabela Final",
-                 "Pipeline · Consolidação · Deduplicação · Persistência")
-
-    sci_df  = _ss("sci_df")
-    por_df  = _ss("por_df")
-    arq3_df = _ss("arq3_df")
-    cfg     = _ss("wizard_cfg") or {}
-
-    if sci_df is None or por_df is None:
-        _alert("Carregue os arquivos Science e Portal na etapa anterior.", "warn")
-        st.stop()
-
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Science",   f"{len(sci_df):,}")
-    c2.metric("Portal",    f"{len(por_df):,}")
-    c3.metric("Arquivo 3", f"{len(arq3_df):,}" if arq3_df is not None else "—")
-
-    _divider()
-
-    col_run, col_clr = st.columns([5, 1])
-    with col_clr:
-        if st.button("Limpar", key="btn_clr"):
-            for k in ("sci_df", "por_df", "arq3_df", "wizard_cfg"):
-                st.session_state.pop(k, None)
-            st.rerun()
-    with col_run:
-        run = st.button("▶  Gerar Tabela Final", type="primary",
-                        key="btn_merge", use_container_width=True)
-
-    if run:
-        with st.spinner("Executando pipeline de consolidação..."):
-            try:
-                merged_df, report = build_merged_df(
-                    science_df=sci_df.copy(),
-                    portal_df=por_df.copy(),
-                    ref_df=arq3_df.copy() if arq3_df is not None else None,
-                    uf_map={}, join_keys_sci=[], join_keys_por=[], config=cfg,
-                )
-                biz_cols  = [c for c in BUSINESS_COLS if c in merged_df.columns]
-                result_df = merged_df[biz_cols].copy()
-
-                with session_scope() as s:
-                    repo = TabelaFinalRepository(s)
-                    inserted, skipped = repo.upsert(result_df)
-                    final_df = repo.load()
-
-                st.session_state["tabela_final"]    = final_df
-                st.session_state["analytics_cache"] = precompute_all(final_df)
-                st.session_state["selected_col"]    = None
-                st.session_state["excel_filters"]   = {c: [] for c in BUSINESS_COLS}
-
-                if inserted > 0 and skipped == 0:
-                    _alert(f"<strong>{inserted:,} rotas novas adicionadas.</strong> "
-                           f"Total: {len(final_df):,} rotas.", "ok")
-                elif inserted > 0:
-                    _alert(f"<strong>{inserted:,} rotas novas adicionadas.</strong> "
-                           f"{skipped:,} já existiam e foram ignoradas. "
-                           f"Total: {len(final_df):,} rotas.", "ok")
-                else:
-                    _alert(f"Nenhuma rota nova. {skipped:,} já existiam. "
-                           f"Total: {len(final_df):,} rotas.", "info")
-
-                log.info("Pipeline OK: inserted=%d skipped=%d total=%d",
-                         inserted, skipped, len(final_df))
-
-            except Exception as e:
-                _alert(f"Erro no pipeline: {e}", "error")
-                log.error("Pipeline: %s", e, exc_info=True)
-                import traceback
-                st.code(traceback.format_exc())
-                st.stop()
-
-    tf = _ss("tabela_final")
-    if tf is not None and not tf.empty:
-        _divider()
-        _alert(f"Tabela Final disponível — <strong>{len(tf):,} rotas</strong>. "
-               f"Acesse <strong>Tabela Final</strong> na sidebar.", "info")
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-#  PÁGINA 3 — TABELA FINAL
-#  Ordem: Filtros → Tabela → Dashboard → Exportações
-# ═══════════════════════════════════════════════════════════════════════════════
-elif p == "Tabela Final":
-    _page_header("Tabela Final",
-                 "Filtros · Visualização · Dashboard · Exportação")
-
-    tf = _ss("tabela_final")
-    if tf is None or tf.empty:
-        _alert("Nenhuma rota disponível. Gere a Tabela Final primeiro.", "warn")
-        st.stop()
-
-    cache   = _ss("analytics_cache") or {}
-    sel_col = _ss("selected_col")
-    ts_str  = datetime.now().strftime("%Y-%m-%d_%H%M")
-
-    # ══════════════════════════════════════════════════════════════════════
-    #  1. FILTROS ESTILO EXCEL
-    # ══════════════════════════════════════════════════════════════════════
-    tf_filtered = _render_excel_filters(tf)
-
-    _divider()
-
-    # ══════════════════════════════════════════════════════════════════════
-    #  2. SELETOR DE COLUNA PARA DASHBOARD
-    # ══════════════════════════════════════════════════════════════════════
-    _section_title("Dashboard por coluna", icon="📊")
-    col_btns = st.columns(len(BUSINESS_COLS))
-    for i, col in enumerate(BUSINESS_COLS):
-        with col_btns[i]:
-            if st.button(
-                col,
-                key=f"col_btn_{col}",
-                use_container_width=True,
-                type="primary" if sel_col == col else "secondary",
-            ):
-                st.session_state["selected_col"] = col
-                st.rerun()
-
-    _divider()
-
-    # ══════════════════════════════════════════════════════════════════════
-    #  3. TABELA INTERATIVA (dados filtrados)
-    # ══════════════════════════════════════════════════════════════════════
-    render_interactive_table(
-        tf_filtered,
-        selected_col=sel_col,
-        height=440,
-        component_key="main_table",
-    )
-
-    # ══════════════════════════════════════════════════════════════════════
-    #  4. DASHBOARD DA COLUNA (abaixo da tabela)
-    # ══════════════════════════════════════════════════════════════════════
-    if sel_col:
-        _divider()
-        # Passa cache=None para recalcular com dados filtrados
-        render_column_dashboard(tf_filtered, sel_col, cache=None)
-
-    # ══════════════════════════════════════════════════════════════════════
-    #  5. EXPORTAÇÕES — SEMPRE O ÚLTIMO ELEMENTO
-    # ══════════════════════════════════════════════════════════════════════
-    _divider()
-
-    st.markdown(
-        '<div style="background:#F8F9FA;border-top:2px solid #E2E8F0;'
-        'border-radius:0 0 6px 6px;padding:14px 0 6px;">'
-        '<span style="font-size:9px;font-weight:700;letter-spacing:.1em;'
-        'text-transform:uppercase;color:#6B7280;">Exportar</span>'
-        '</div>',
-        unsafe_allow_html=True,
-    )
-
-    # Exporta os dados filtrados (o que está na tela)
-    df_exp = tf_filtered
-    n_exp  = len(df_exp)
-    suf    = f" ({n_exp:,} linhas)" if n_exp < len(tf) else ""
-
-    ex1, ex2, ex3, ex4 = st.columns(4, gap="small")
-
-    # CSV ─────────────────────────────────────────────────────────────────
-    with ex1:
-        try:
-            csv_bytes = df_exp.to_csv(index=False).encode("utf-8-sig")
-            st.download_button(
-                f"⬇  Exportar CSV{suf}",
-                data=csv_bytes,
-                file_name=f"tabela_final_{ts_str}.csv",
-                mime="text/csv",
-                key="btn_csv",
-                use_container_width=True,
-            )
-        except Exception as e:
-            _alert(f"CSV: {e}", "error")
-            log.error("CSV: %s", e)
-
-    # Excel profissional ───────────────────────────────────────────────────
-    with ex2:
-        try:
-            xlsx_bytes = _make_excel_professional(df_exp)
-            st.download_button(
-                f"⬇  Exportar Excel{suf}",
-                data=xlsx_bytes,
-                file_name=f"tabela_final_{ts_str}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                key="btn_xlsx",
-                use_container_width=True,
-            )
-        except Exception as e:
-            _alert(f"Excel: {e}", "error")
-            log.error("Excel: %s", e, exc_info=True)
-
-    # PPTX Geral ───────────────────────────────────────────────────────────
-    with ex3:
-        try:
-            pptx_gen = build_general_pptx(df_exp)
-            st.download_button(
-                "⬇  Dashboard Geral (PPTX)",
-                data=pptx_gen,
-                file_name=f"dashboard_geral_{ts_str}.pptx",
-                mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
-                key="btn_pptx_geral",
-                use_container_width=True,
-            )
-        except Exception as e:
-            _alert(f"PPTX geral: {e}", "error")
-            log.error("PPTX geral: %s", e, exc_info=True)
-
-    # PPTX Coluna selecionada ──────────────────────────────────────────────
-    with ex4:
-        if sel_col:
-            try:
-                pptx_col = build_column_pptx(df_exp, sel_col)
-                st.download_button(
-                    f"⬇  Dashboard {sel_col} (PPTX)",
-                    data=pptx_col,
-                    file_name=f"dashboard_{sel_col}_{ts_str}.pptx",
-                    mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
-                    key="btn_pptx_col",
-                    use_container_width=True,
-                )
-            except Exception as e:
-                _alert(f"PPTX coluna: {e}", "error")
-                log.error("PPTX col: %s", e, exc_info=True)
+        if use_pie and len(freq) >= 2:
+            _add_pie_chart(sl, freq,
+                           Inches(0.4), Inches(2.35), Inches(6.0), Inches(4.8),
+                           title="Distribuição")
+            tbl_x, tbl_w = Inches(6.65), Inches(6.5)
         else:
-            st.markdown(
-                '<div style="font-size:11px;color:#9CA3AF;'
-                'padding-top:28px;text-align:center;line-height:1.5;">'
-                'Selecione uma coluna acima<br>para exportar o dashboard específico.</div>',
-                unsafe_allow_html=True,
-            )
+            _add_bar_chart(sl, freq.head(12),
+                           Inches(0.4), Inches(2.35), Inches(7.5), Inches(4.8),
+                           title=f"Top {min(12, len(freq))}")
+            tbl_x, tbl_w = Inches(8.1), Inches(5.0)
 
-    st.markdown("<div style='height:36px;'></div>", unsafe_allow_html=True)
+        _add_freq_table(sl, freq.head(14), tbl_x, Inches(2.35), tbl_w, Inches(4.8))
 
+    # Slide final — Conclusões
+    sl = _blank_slide(prs)
+    _slide_header(sl, "Conclusões e Próximos Passos",
+                  "Baseado nos dados processados")
+    _slide_footer(sl)
 
-# ─── Rodapé ───────────────────────────────────────────────────────────────────
-st.markdown(
-    '<div style="border-top:1px solid #E2E8F0;margin-top:40px;padding-top:12px;'
-    'text-align:center;font-size:10px;color:#9CA3AF;letter-spacing:.04em;">'
-    'VIVOHUB · Data Merger v2 · Processamento 100% local</div>',
-    unsafe_allow_html=True,
-)
+    uf_top = _safe_str(df["UF"].value_counts().index[0]) \
+             if "UF" in df.columns and len(df) > 0 else "—"
+    op_top = _safe_str(df["OPERADORA"].value_counts().index[0]) \
+             if "OPERADORA" in df.columns and len(df) > 0 else "—"
+
+    _add_text(sl, "\n".join([
+        f"• Total de rotas consolidadas: {total:,}",
+        f"• UF com maior concentração:   {uf_top}",
+        f"• Operadora dominante:          {op_top}",
+        "",
+        "Próximos Passos:",
+        "• Validar rotas com UF em branco",
+        "• Conferir rotas com CLUSTER vazio",
+        "• Revisar Denominações duplicadas",
+        "• Exportar para validação com equipe de campo",
+    ]), Inches(0.6), Inches(1.35), Inches(12.0), Inches(5.6),
+        font_size=13, color=_DARK)
+
+    buf = io.BytesIO()
+    prs.save(buf)
+    return buf.getvalue()
