@@ -1,72 +1,35 @@
-Crie um carrossel para Instagram extremamente profissional, com estética premium, minimalista e moderna, alinhado à identidade visual da empresa de tradução simultânea “MS Tradução Simultânea”.
-
-**Use exatamente esta paleta de cores, inspirada na logo:**
-- Teal principal (# valores aproximados, tom azul-esverdeado)
-- Teal claro (variações mais suaves da mesma tonalidade)
-- Branco puro como fundo base
-- Cinza grafite suave para texto secundário
-Nada de cores adicionais. O visual deve manter a elegância, clareza e coerência da logo.
-
-**Direção de Arte:**
-- Visual limpo, sofisticado, corporativo e tecnológico.
-- Muito espaço em branco, foco nas mensagens.
-- Tipografia forte, moderna e de alta legibilidade.
-- Usar blocos de teal apenas como destaques — jamais saturar.
-- Elementos minimalistas que remetem a “som”, “ondas sonoras”, “interpretação”, “comunicação” — sempre discretos.
-- Layout consistente entre os slides, harmônico e premium.
-- Inspiração estética: Apple + TED + consultoria de comunicação.
-
-**Tom da Marca:**
-Profissional, humano, sensorial.
-Frases curtas, claras, impactantes e emocionais.
-A narrativa deve reforçar que a tradução perfeita é invisível.
-
-**Conteúdo (copiar exatamente a copy abaixo):**
-
-Slide 1 —
-Título grande:
-“O som do sucesso de um evento?”
-Design limpo, centro da tela, muito espaço negativo.
-
-Slide 2 —
-“É o silêncio.”
-Em destaque, minimalista, forte.
-
-Slide 3 —
-“Silêncio de quem entendeu tudo…
-na primeira vez.”
-
-Slide 4 —
-“Sem esforço.
-Sem demora.
-Sem ruído.”
-Frases alinhadas verticalmente.
-
-Slide 5 —
-“Porque a tradução perfeita é aquela que
-ninguém percebe que existe.”
-
-Slide 6 —
-“Se o público não pensa na tradução,
-significa que está pensando na mensagem.”
-
-Slide 7 —
-“E quando a mensagem flui,
-a conexão acontece.”
-
-Slide 8 —
-“Não vendemos só tradução.
-Vendemos uma experiência sem ruídos.”
-
-Slide 9 —
-Assinatura da marca:
-“MS Tradução Simultânea
-Quando tudo funciona… o silêncio fala.”
-
-Inserir a logo da MS Tradução Simultânea de forma elegante, discreta e proporcional.
-
-**Regras:**
-- O carrossel deve parecer criado por uma agência de branding premium.
-- Nada poluído, nada infantil, nada chamativo demais.
-- Sofisticação acima de tudo.
-- Coerência total com a paleta teal + branco + cinza.
+Feche os olhos por um segundo.
+Imagine um evento acontecendo diante de você.
+As luzes.
+As pessoas.
+As ideias.
+A energia do momento.
+Agora imagine que o palestrante muda de idioma.
+E você… continua entendendo tudo.
+Naturalmente.
+Imediatamente.
+Sem precisar pensar.
+Sem precisar se esforçar.
+É como se a língua deixasse de ser um obstáculo,
+e virasse só… som.
+Som que vira sentido.
+Sentido que vira conexão.
+E aí acontece algo curioso:
+você não percebe a tradução.
+Você só percebe a mensagem.
+E, nesse instante, nasce o silêncio mais bonito que existe:
+o silêncio de quem entendeu tudo na primeira vez.
+o silêncio de um evento que flui sem ruídos.
+o silêncio de uma experiência tão perfeita que desaparece.
+Esse é o tipo de silêncio que buscamos criar.
+Uma tradução que não aparece, porque funciona.
+Que não chama atenção, porque está sincronizada.
+Que não distrai, porque entrega fluidez.
+A verdade é simples:
+a tradução perfeita é invisível.
+a experiência perfeita é silenciosa.
+E é exatamente isso que entregamos.
+MS Tradução Simultânea
+Quando tudo funciona… o silêncio fala.
+Se você organiza eventos e quer que seu público viva essa sensação, me chama.
+Vamos tirar o ruído da comunicação e deixar só o essencial: a conexão.
