@@ -87,16 +87,6 @@ body{{
 }}
 #count{{font-size:11px;color:var(--muted);font-weight:500;flex-shrink:0;}}
 #hint {{font-size:11px;color:var(--accent);font-weight:500;}}
-#toolbar-exports{{display:flex;gap:6px;flex-shrink:0;}}
-.exp-btn{{
-  font-size:10px;font-weight:700;letter-spacing:.04em;
-  padding:4px 12px;border-radius:3px;cursor:pointer;
-  font-family:inherit;border:1px solid var(--border);
-  background:var(--surface);color:#374151;
-  transition:background .12s,border-color .12s,color .12s;
-  white-space:nowrap;
-}}
-.exp-btn:hover{{background:var(--row-hover);border-color:var(--accent);color:var(--accent);}}
 
 /* ── WRAPPER ──────────────────────────────────────────────────────── */
 #wrap{{flex:1;overflow:auto;position:relative;}}
@@ -249,6 +239,23 @@ td.col-sel{{background:#EFF6FF!important;}}
 .pb:hover:not(:disabled){{border-color:var(--accent);color:var(--accent);}}
 .pb.on{{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:700;}}
 .pb:disabled{{opacity:.35;cursor:default;}}
+
+/* ── BARRA DE EXPORT ──────────────────────────────────────────────── */
+#export-bar{{
+  display:flex;align-items:center;gap:8px;
+  padding:7px 12px;background:var(--surface);
+  border-top:1px solid var(--border);flex-shrink:0;
+}}
+#export-label{{font-size:9px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-right:4px;}}
+.exp-btn{{
+  font-size:11px;font-weight:600;
+  padding:5px 16px;border-radius:3px;cursor:pointer;
+  font-family:inherit;border:1px solid var(--border);
+  background:var(--surface);color:#374151;
+  transition:background .12s,border-color .12s,color .12s;
+  white-space:nowrap;
+}}
+.exp-btn:hover{{background:var(--row-hover);border-color:var(--accent);color:var(--accent);}}
 </style>
 </head>
 <body>
@@ -284,10 +291,6 @@ td.col-sel{{background:#EFF6FF!important;}}
 <div id="toolbar">
   <span id="count"></span>
   <span id="hint">Clique no nome da coluna para ver o dashboard. Use o botao de filtro para filtrar valores.</span>
-  <div id="toolbar-exports">
-    <button class="exp-btn" id="btn-csv">Exportar CSV</button>
-    <button class="exp-btn" id="btn-xlsx">Exportar Excel</button>
-  </div>
 </div>
 <div id="active-filters"></div>
 <div id="wrap">
@@ -296,6 +299,11 @@ td.col-sel{{background:#EFF6FF!important;}}
 <div id="pagination">
   <span id="pag-info"></span>
   <div id="pag-ctrl"></div>
+</div>
+<div id="export-bar">
+  <span id="export-label">Exportar filtrado:</span>
+  <button class="exp-btn" id="btn-csv">Baixar CSV</button>
+  <button class="exp-btn" id="btn-xlsx">Baixar Excel</button>
 </div>
 
 <!-- Dropdown flutuante (único, reutilizado por todas as colunas) -->
@@ -614,16 +622,27 @@ function esc(s) {{
 
 /* ── Export dos dados FILTRADOS ─────────────────────────────────────── */
 function downloadBlob(blob, filename) {{
-  // URL.createObjectURL nao funciona dentro de iframe (components.html).
-  // Lemos o blob como base64 e usamos data URI — funciona em qualquer contexto.
+  // Injeta o link de download no documento PAI (Streamlit)
+  // para contornar restricoes de download dentro de iframe.
   const reader = new FileReader();
   reader.onload = function() {{
-    const a      = document.createElement('a');
-    a.href       = reader.result;
-    a.download   = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    try {{
+      const a      = window.parent.document.createElement('a');
+      a.href       = reader.result;
+      a.download   = filename;
+      a.style.display = 'none';
+      window.parent.document.body.appendChild(a);
+      a.click();
+      setTimeout(function() {{ window.parent.document.body.removeChild(a); }}, 500);
+    }} catch(e) {{
+      // Fallback: tenta no proprio iframe
+      const a = document.createElement('a');
+      a.href  = reader.result;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }}
   }};
   reader.readAsDataURL(blob);
 }}
@@ -688,4 +707,4 @@ render();
 </body>
 </html>"""
 
-    components.html(html, height=height + 10, scrolling=False)
+    components.html(html, height=height + 56, scrolling=False)
