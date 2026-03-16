@@ -1,6 +1,1 @@
-Microsoft Windows [versão 10.0.22631.5335]
-(c) Microsoft Corporation. Todos os direitos reservados.
-
-C:\Users\40418843\Desktop\novo-modelo-controle-de-rotas-cadastradas>New-Item -ItemType Directory -Force -Path ".streamlit"; Set-Content -Path ".streamlit\config.toml" -Value "[server]`nmaxUploadSize = 2048`n`n[theme]`nbase = `"light`"`nbackgroundColor = `"#F8F9FA`"`nsecondaryBackgroundColor = `"#FFFFFF`"`ntextColor = `"#111827`"`nprimaryColor = `"#1B5FBF`"`nfont = `"sans serif`""
-'New-Item' não é reconhecido como um comando interno
-ou externo, um programa operável ou um arquivo em lotes.
+mkdir .streamlit && echo [server] > .streamlit\config.toml && echo maxUploadSize = 2048 >> .streamlit\config.toml && echo. >> .streamlit\config.toml && echo [theme] >> .streamlit\config.toml && echo base = "light" >> .streamlit\config.toml && echo backgroundColor = "#F8F9FA" >> .streamlit\config.toml && echo secondaryBackgroundColor = "#FFFFFF" >> .streamlit\config.toml && echo textColor = "#111827" >> .streamlit\config.toml && echo primaryColor = "#1B5FBF" >> .streamlit\config.toml && echo font = "sans serif" >> .streamlit\config.toml
