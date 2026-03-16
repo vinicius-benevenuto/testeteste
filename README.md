@@ -1,850 +1,380 @@
 """
-app.py — ITX Analisys 1.0
-==========================
-Arquitetura:
-  - Pagina 1: Upload dos 3 arquivos fonte
-  - Pagina 2: Gerar Tabela (pipeline + persistencia SQLite)
-  - Pagina 3: Tabela — filtros estilo Excel (multiselect com busca+checkboxes),
-              visualizacao, dashboard por coluna, exportacoes
-              Todos os exports usam df_filtrado — garantia de consistencia.
+ui/interactive_table.py — filtros estilo Excel + export filtrado
 """
 from __future__ import annotations
-
-import io as _io
-import os
-from datetime import datetime
-from pathlib import Path
-
+import json
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
-st.set_page_config(
-    page_title="ITX Analisys",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
+_PAGE_SIZE = 500
 
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except ImportError:
-    pass
+def _df_to_json(df: pd.DataFrame) -> str:
+    safe = df.copy()
+    for c in safe.columns:
+        safe[c] = safe[c].astype(str).replace({"nan": "", "None": ""})
+    return json.dumps(safe.to_dict(orient="records"), ensure_ascii=False)
 
-from app.db.session import init_db, session_scope
-from app.db.repository import Repository
-from app.db.tf_repository import TabelaFinalRepository
+def _cols_to_json(df: pd.DataFrame) -> str:
+    widths = {
+        "rotulos de linha": 200, "denominacao": 180,
+        "central": 145, "cluster": 120, "operadora": 130,
+        "tipo de rota": 125, "uf": 70, "rede": 100,
+    }
+    out = []
+    for c in df.columns:
+        key = (c.lower()
+               .replace("\u00f3","o").replace("\u00e7","c")
+               .replace("\u00e3","a").replace("\u00e9","e")
+               .replace("\u00f5","o").replace("\u00ea","e"))
+        out.append({"key": c, "label": c, "width": widths.get(key, 115)})
+    return json.dumps(out, ensure_ascii=False)
 
-_DB = os.environ.get("DATABASE_PATH", str(Path("data") / "app.db"))
-init_db(_DB)
+def render_interactive_table(
+    df: pd.DataFrame,
+    selected_col: str | None,
+    height: int = 560,
+    component_key: str = "itable",
+) -> None:
+    data_json = _df_to_json(df)
+    cols_json = _cols_to_json(df)
+    sel_js    = json.dumps(selected_col or "")
 
-
-def _auto_seeds():
-    try:
-        with session_scope() as s:
-            repo = Repository(s)
-            if repo.cnl_count() == 0:
-                p = Path("seeds") / "cnl.sql"
-                if p.exists() and p.stat().st_size:
-                    repo.load_cnl_seeds(str(p))
-            if repo.cn_to_uf_count() == 0:
-                p = Path("seeds") / "cn_to_uf.csv"
-                if p.exists() and p.stat().st_size:
-                    repo.load_cn_to_uf_csv(str(p))
-    except Exception:
-        pass
-
-
-_auto_seeds()
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  CSS GLOBAL
-# ══════════════════════════════════════════════════════════════════════════════
-st.markdown("""
+    html = f"""<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
 <style>
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap');
-
-html,body,.stApp,[data-testid="stAppViewContainer"],[data-testid="stMain"],.main,.block-container{
-  background-color:#F8F9FA!important;
-  font-family:'IBM Plex Sans','Segoe UI',Arial,sans-serif!important;
-}
-.main .block-container{padding-top:0!important;padding-bottom:2rem!important;max-width:100%!important;}
-body,.main{color:#1C2536;}
-h1,h2,h3,h4,h5,h6{color:#1C2536;}
-.main p,[data-testid="stMarkdownContainer"] p{color:#374151;}
-
-/* SIDEBAR */
-[data-testid="stSidebar"]>div:first-child,
-[data-testid="stSidebarUserContent"]{background-color:#0F172A!important;}
-[data-testid="stSidebarUserContent"] p,
-[data-testid="stSidebarUserContent"] span,
-[data-testid="stSidebarUserContent"] label{color:#CBD5E1;font-family:'IBM Plex Sans',sans-serif;}
-[data-testid="stSidebar"] hr{border-color:#1E293B!important;margin:8px 0!important;}
-
-/* NAV BUTTONS */
-[data-testid="stSidebarUserContent"] [data-testid="baseButton-secondary"]{
-  background:transparent!important;border:none!important;
-  border-left:2px solid transparent!important;border-radius:0!important;
-  color:#94A3B8!important;font-size:12px!important;font-weight:500!important;
-  text-align:left!important;justify-content:flex-start!important;
-  padding:7px 12px!important;width:100%!important;margin:1px 0!important;
-  letter-spacing:normal!important;text-transform:none!important;
-}
-[data-testid="stSidebarUserContent"] [data-testid="baseButton-secondary"]:hover{
-  background:rgba(255,255,255,.06)!important;color:#F1F5F9!important;
-  border-left:2px solid #475569!important;
-}
-[data-testid="stSidebarUserContent"] button{
-  background:transparent!important;border:1px solid #1E293B!important;
-  color:#475569!important;font-size:10px!important;font-weight:500!important;
-  width:100%!important;padding:5px 10px!important;border-radius:3px!important;
-  text-transform:none!important;letter-spacing:normal!important;
-}
-[data-testid="stSidebarUserContent"] button:hover{border-color:#334155!important;color:#94A3B8!important;}
-
-/* COLAPSO SIDEBAR */
-[data-testid="stSidebarCollapseButton"]{visibility:visible!important;display:flex!important;}
-[data-testid="stSidebarCollapseButton"] button{
-  display:flex!important;align-items:center!important;justify-content:center!important;
-  visibility:visible!important;font-size:0!important;background:transparent!important;
-  border:none!important;border-radius:4px!important;width:32px!important;height:32px!important;
-  cursor:pointer!important;padding:0!important;
-}
-[data-testid="stSidebarCollapseButton"] button:hover{background:rgba(255,255,255,.1)!important;}
-[data-testid="stSidebarCollapseButton"] svg{display:block!important;visibility:visible!important;fill:#64748B!important;width:18px!important;height:18px!important;}
-[data-testid="stSidebarCollapseButton"] button:hover svg{fill:#94A3B8!important;}
-[data-testid="collapsedControl"]{display:flex!important;visibility:visible!important;}
-[data-testid="collapsedControl"] button{display:flex!important;visibility:visible!important;cursor:pointer!important;font-size:0!important;}
-[data-testid="collapsedControl"] svg{display:block!important;visibility:visible!important;}
-
-/* METRICAS */
-[data-testid="metric-container"]{
-  background:#FFFFFF!important;border:1px solid #E2E8F0!important;
-  border-left:3px solid #1B5FBF!important;border-radius:0 3px 3px 0!important;padding:10px 14px!important;
-}
-[data-testid="metric-container"]*{background:transparent!important;}
-[data-testid="stMetricLabel"]>div{font-size:9px!important;font-weight:700!important;letter-spacing:.08em!important;text-transform:uppercase!important;color:#6B7280!important;}
-[data-testid="stMetricValue"]>div{font-size:22px!important;font-weight:700!important;color:#1C2536!important;}
-
-/* BOTOES */
-[data-testid="baseButton-primary"]{background-color:#1B5FBF!important;border:none!important;border-radius:3px!important;color:#FFFFFF!important;font-size:11px!important;font-weight:700!important;letter-spacing:.04em!important;text-transform:uppercase!important;}
-[data-testid="baseButton-primary"]:hover{background-color:#1549A0!important;}
-[data-testid="baseButton-secondary"]{background:#FFFFFF!important;border:1px solid #D1D5DB!important;border-radius:3px!important;color:#374151!important;font-size:11px!important;font-weight:500!important;}
-[data-testid="baseButton-secondary"]:hover{border-color:#1B5FBF!important;color:#1B5FBF!important;background:#EFF6FF!important;}
-[data-testid="stDownloadButton"] button{background:#FFFFFF!important;border:1px solid #D1D5DB!important;border-radius:3px!important;color:#374151!important;font-size:11px!important;font-weight:600!important;padding:7px 12px!important;}
-[data-testid="stDownloadButton"] button:hover{border-color:#1B5FBF!important;color:#1B5FBF!important;background:#EFF6FF!important;}
-
-/* MULTISELECT */
-[data-testid="stMultiSelect"] label{font-size:9px!important;font-weight:700!important;letter-spacing:.08em!important;text-transform:uppercase!important;color:#6B7280!important;margin-bottom:2px!important;}
-[data-baseweb="select"]>div{border-color:#E2E8F0!important;border-radius:3px!important;min-height:34px!important;background:#FFFFFF!important;font-size:12px!important;}
-[data-baseweb="select"]>div:focus-within{border-color:#1B5FBF!important;box-shadow:0 0 0 2px rgba(27,95,191,.15)!important;}
-[data-baseweb="tag"]{background:#EFF6FF!important;border-radius:2px!important;}
-[data-baseweb="tag"] span{color:#1B5FBF!important;font-size:10px!important;}
-[data-testid="stMultiSelect"] input{font-size:11px!important;}
-
-/* EXPANDER */
-[data-testid="stExpander"]{background:#FFFFFF!important;border:1px solid #E2E8F0!important;border-radius:4px!important;margin-bottom:8px!important;}
-[data-testid="stExpander"] summary{background:#F8F9FA!important;color:#374151!important;font-size:12px!important;font-weight:600!important;padding:10px 14px!important;border-radius:4px!important;}
-[data-testid="stExpander"] summary:hover{background:#EFF6FF!important;color:#1B5FBF!important;}
-[data-testid="stExpanderDetails"]{padding:12px 14px!important;}
-
-/* INPUTS */
-input,[data-baseweb="input"] input{background:#FFFFFF!important;color:#1C2536!important;border-color:#D1D5DB!important;border-radius:3px!important;font-size:12px!important;}
-[data-testid="stTextInput"] label,[data-testid="stFileUploader"] label{color:#374151!important;font-size:11px!important;font-weight:600!important;}
-
-/* ALERTAS */
-[data-testid="stAlert"]{border-radius:0 3px 3px 0!important;border-left-width:3px!important;font-size:12px!important;}
-[data-testid="stAlert"] p{color:inherit!important;}
-
-/* FILE UPLOADER */
-[data-testid="stFileUploader"] section{background:#FFFFFF!important;border:1.5px dashed #D1D5DB!important;border-radius:4px!important;}
-[data-testid="stFileUploader"] section:hover{border-color:#1B5FBF!important;background:#F0F7FF!important;}
-
-/* DATAFRAME */
-[data-testid="stDataFrame"]{border:1px solid #E2E8F0!important;border-radius:4px!important;}
-
-/* CHROME */
-#MainMenu,footer{visibility:hidden;}
-[data-testid="stToolbar"]{display:none!important;}
-header{background:transparent!important;}
-header [data-testid="stHeader"] a,
-header [class*="viewerBadge"],
-header [class*="reportStatus"]{display:none!important;}
-
-/* OCULTA APENAS O DROPZONE DO components.html — nao afeta o iframe */
-[data-testid="stComponentContainer"] [data-testid="stFileUploaderDropzone"]{display:none!important;}
-[data-testid="stComponentContainer"] [data-testid="stFileUploaderDropzoneInstructions"]{display:none!important;}
-[data-testid="stComponentContainer"] [data-testid="stFileUploaderDropzoneInput"]{display:none!important;}
-[data-testid="stComponentContainer"]{padding:0!important;border:none!important;background:transparent!important;}
-[data-testid="stComponentContainer"] iframe{display:block!important;border:none!important;}
-
-*:focus-visible{outline:2px solid #1B5FBF!important;outline-offset:2px!important;}
+:root{{
+  --bg:#F8F9FA;--surface:#FFFFFF;--border:#D1D5DB;--blt:#E9ECEF;
+  --hdr:#0F172A;--hdr-h:#1E293B;--hdr-sel:#1B5FBF;
+  --txt:#111827;--muted:#6B7280;--accent:#1B5FBF;
+  --row-alt:#F9FAFB;--row-h:#EFF6FF;
+}}
+*{{box-sizing:border-box;margin:0;padding:0;}}
+body{{font-family:'Segoe UI',Arial,sans-serif;font-size:12px;
+  background:var(--bg);color:var(--txt);
+  display:flex;flex-direction:column;height:{height}px;overflow:hidden;}}
+#bar{{display:flex;align-items:center;justify-content:space-between;
+  padding:5px 12px;background:var(--surface);
+  border-bottom:1px solid var(--border);flex-shrink:0;gap:8px;}}
+#count{{font-size:11px;color:var(--muted);font-weight:600;flex-shrink:0;}}
+#hint{{font-size:11px;color:var(--accent);flex:1;}}
+#xbtns{{display:flex;gap:6px;flex-shrink:0;}}
+.xbtn{{font-size:11px;font-weight:600;padding:4px 12px;border-radius:3px;cursor:pointer;
+  font-family:inherit;border:1px solid var(--border);background:var(--surface);
+  color:#374151;transition:all .12s;white-space:nowrap;}}
+.xbtn:hover{{border-color:var(--accent);color:var(--accent);background:var(--row-h);}}
+#chips{{display:flex;align-items:center;flex-wrap:wrap;gap:4px;
+  padding:4px 12px;background:var(--surface);
+  border-bottom:1px solid var(--blt);flex-shrink:0;}}
+#chips:empty{{display:none;padding:0;}}
+.chip{{display:inline-flex;align-items:center;gap:4px;background:#EFF6FF;
+  border:1px solid #BFDBFE;border-radius:2px;padding:2px 7px;
+  font-size:10px;color:#1B5FBF;font-weight:600;}}
+.chip-x{{cursor:pointer;font-size:13px;line-height:1;margin-left:2px;}}
+.chip-x:hover{{color:#DC2626;}}
+#wrap{{flex:1;overflow:auto;}}
+table{{border-collapse:collapse;table-layout:fixed;width:max-content;min-width:100%;}}
+thead tr{{position:sticky;top:0;z-index:20;}}
+th{{background:var(--hdr);border-right:1px solid #1E293B;
+  border-bottom:2px solid #1B5FBF;padding:0;white-space:nowrap;user-select:none;}}
+th.col-num{{width:40px;min-width:40px;}}
+th.col-sel{{background:var(--hdr-sel)!important;}}
+.th-wrap{{display:flex;align-items:stretch;height:34px;}}
+.th-name{{flex:1;display:flex;align-items:center;padding:0 8px;gap:5px;
+  cursor:pointer;min-width:0;border:none;background:transparent;}}
+.th-name:hover{{background:var(--hdr-h);}}
+.th-lbl{{font-size:10px;font-weight:700;color:#FFF;letter-spacing:.05em;
+  text-transform:uppercase;overflow:hidden;text-overflow:ellipsis;}}
+.sort{{opacity:.25;flex-shrink:0;}}
+.sort.on{{opacity:1;}}
+.th-flt{{display:flex;align-items:center;justify-content:center;
+  width:22px;min-width:22px;cursor:pointer;
+  border:none;border-left:1px solid rgba(255,255,255,.07);
+  background:transparent;font-size:9px;color:rgba(255,255,255,.4);transition:all .15s;}}
+.th-flt:hover{{background:rgba(255,255,255,.12);color:#fff;}}
+.th-flt.on{{color:#60A5FA;background:rgba(27,95,191,.3);}}
+.fdd{{position:fixed;z-index:9999;background:#FFF;border:1px solid #D1D5DB;
+  border-radius:4px;box-shadow:0 4px 20px rgba(0,0,0,.15);
+  min-width:210px;max-width:280px;display:none;overflow:hidden;}}
+.fdd.open{{display:block;}}
+.fdd-head{{display:flex;align-items:center;justify-content:space-between;
+  padding:8px 10px;border-bottom:1px solid #E9ECEF;background:#F8F9FA;}}
+.fdd-title{{font-size:11px;font-weight:700;color:#0F172A;
+  letter-spacing:.05em;text-transform:uppercase;}}
+.fdd-acts{{display:flex;gap:8px;}}
+.fdd-act{{font-size:10px;font-weight:700;color:#1B5FBF;
+  background:none;border:none;cursor:pointer;font-family:inherit;padding:0;}}
+.fdd-act:hover{{text-decoration:underline;}}
+.fdd-search{{padding:6px 10px;border-bottom:1px solid #E9ECEF;}}
+.fdd-search input{{width:100%;padding:4px 8px;font-size:11px;
+  border:1px solid #D1D5DB;border-radius:3px;font-family:inherit;outline:none;color:#1C2536;}}
+.fdd-search input:focus{{border-color:#1B5FBF;}}
+.fdd-list{{max-height:200px;overflow-y:auto;padding:4px 0;}}
+.fdd-item{{display:flex;align-items:center;gap:7px;padding:5px 10px;
+  cursor:pointer;font-size:12px;color:#374151;}}
+.fdd-item:hover{{background:#EFF6FF;}}
+.fdd-item input[type=checkbox]{{width:13px;height:13px;accent-color:#1B5FBF;
+  cursor:pointer;flex-shrink:0;}}
+.fdd-item label{{cursor:pointer;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}}
+.fdd-foot{{padding:7px 10px;border-top:1px solid #E9ECEF;display:flex;justify-content:flex-end;}}
+.fdd-ok{{font-size:11px;font-weight:700;background:#1B5FBF;color:#fff;
+  border:none;border-radius:3px;padding:4px 16px;cursor:pointer;font-family:inherit;}}
+.fdd-ok:hover{{background:#1549A0;}}
+tbody tr:nth-child(even){{background:var(--row-alt);}}
+tbody tr:nth-child(odd){{background:var(--surface);}}
+tbody tr:hover{{background:var(--row-h)!important;}}
+td{{border-bottom:1px solid var(--blt);border-right:1px solid var(--blt);
+  padding:5px 9px;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}}
+td.col-num{{text-align:center;font-size:10px;color:var(--muted);}}
+td.col-sel{{background:#EFF6FF!important;}}
+.smp{{color:#1B5FBF;font-weight:700;font-family:'Courier New',monospace;}}
+.stfc{{color:#6D28D9;font-weight:700;font-family:'Courier New',monospace;}}
+#pag{{display:flex;align-items:center;justify-content:space-between;
+  padding:4px 12px;background:var(--surface);border-top:1px solid var(--border);flex-shrink:0;}}
+#pag-info{{font-size:11px;color:var(--muted);}}
+#pag-btns{{display:flex;gap:2px;}}
+.pb{{min-width:26px;height:24px;padding:0 5px;border:1px solid var(--border);
+  background:var(--surface);color:var(--muted);font-size:11px;
+  cursor:pointer;font-family:inherit;}}
+.pb:hover:not(:disabled){{border-color:var(--accent);color:var(--accent);}}
+.pb.on{{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:700;}}
+.pb:disabled{{opacity:.35;cursor:default;}}
 </style>
-""", unsafe_allow_html=True)
+</head>
+<body>
 
-# ── Imports internos ──────────────────────────────────────────────────────────
-from app.core.merge import build_merged_df
-from app.core.normalize import apply_column_normalization, infer_and_coerce_types, strip_whitespace
-from app.core.hash_utils import BUSINESS_COLS
-from app.core.analytics import precompute_all
-from app.io.readers import list_sheets, read_file
-from app.ui.interactive_table import render_interactive_table
-from app.ui.dashboard import render_column_dashboard
-from app.export.pptx_builder import build_column_pptx, build_general_pptx
-from app.utils.logging_utils import get_logger
+<div id="bar">
+  <span id="count"></span>
+  <span id="hint">Clique no icone de cada coluna para filtrar</span>
+  <div id="xbtns">
+    <button class="xbtn" id="btn-csv">Exportar CSV</button>
+    <button class="xbtn" id="btn-xls">Exportar Excel</button>
+  </div>
+</div>
+<div id="chips"></div>
+<div id="wrap">
+  <table><thead id="thead"></thead><tbody id="tbody"></tbody></table>
+</div>
+<div id="pag">
+  <span id="pag-info"></span>
+  <div id="pag-btns"></div>
+</div>
+<div class="fdd" id="fdd">
+  <div class="fdd-head">
+    <span class="fdd-title" id="fdd-col"></span>
+    <div class="fdd-acts">
+      <button class="fdd-act" id="fdd-all">Selecionar tudo</button>
+      <button class="fdd-act" id="fdd-none">Limpar</button>
+    </div>
+  </div>
+  <div class="fdd-search"><input type="text" id="fdd-search" placeholder="Pesquisar..."></div>
+  <div class="fdd-list" id="fdd-list"></div>
+  <div class="fdd-foot"><button class="fdd-ok" id="fdd-ok">Aplicar</button></div>
+</div>
 
-log = get_logger(__name__)
+<script>
+const ROWS={data_json};
+const COLS={cols_json};
+const PS={_PAGE_SIZE};
+let selCol={sel_js};
+let sortCol=null,sortDir='asc',page=0;
+const filters={{}};
+COLS.forEach(c=>{{filters[c.key]=null;}});
+const uniques={{}};
+COLS.forEach(c=>{{
+  uniques[c.key]=[...new Set(ROWS.map(r=>String(r[c.key]??'')))].sort();
+}});
 
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  HELPERS DE UI
-# ══════════════════════════════════════════════════════════════════════════════
-
-def _ss(k, default=None):
-    return st.session_state.get(k, default)
-
-
-def _alert(text: str, kind: str = "info"):
-    pal = {
-        "info":  ("#EFF6FF", "#1B5FBF", "#1E3A5F"),
-        "ok":    ("#F0FDF4", "#16A34A", "#14532D"),
-        "warn":  ("#FFFBEB", "#D97706", "#78350F"),
-        "error": ("#FEF2F2", "#DC2626", "#7F1D1D"),
-    }
-    bg, bd, fg = pal.get(kind, pal["info"])
-    st.markdown(
-        f'<div style="background:{bg};border-left:3px solid {bd};padding:10px 14px;'
-        f'margin:8px 0;font-size:12px;color:{fg};border-radius:0 3px 3px 0;">{text}</div>',
-        unsafe_allow_html=True,
-    )
-
-
-def _divider():
-    st.markdown('<div style="height:1px;background:#E2E8F0;margin:16px 0;"></div>', unsafe_allow_html=True)
-
-
-def _label(text: str):
-    st.markdown(
-        f'<div style="font-size:9px;font-weight:700;letter-spacing:.1em;'
-        f'text-transform:uppercase;color:#9CA3AF;margin:12px 0 6px;">{text}</div>',
-        unsafe_allow_html=True,
-    )
-
-
-def _page_header(title: str, subtitle: str = ""):
-    st.markdown(
-        f'<div style="background:#0F172A;border-bottom:2px solid #1B5FBF;'
-        f'padding:16px 24px 14px;margin-bottom:22px;">'
-        f'<span style="display:block;font-size:18px;font-weight:700;color:#F1F5F9;'
-        f'line-height:1.3;margin-bottom:4px;">{title}</span>'
-        f'<span style="display:block;font-size:10px;font-weight:600;color:#475569;'
-        f'letter-spacing:.08em;text-transform:uppercase;">{subtitle}</span>'
-        f'</div>',
-        unsafe_allow_html=True,
-    )
-
-
-def _section_title(text: str):
-    st.markdown(
-        f'<div style="background:#0F172A;border-left:4px solid #1B5FBF;'
-        f'padding:10px 16px;margin:16px 0 12px;">'
-        f'<span style="display:block;font-size:13px;font-weight:700;color:#F1F5F9;">{text}</span>'
-        f'</div>',
-        unsafe_allow_html=True,
-    )
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  FILTROS — dropdown por coluna com st.popover + checkboxes
-#  Identico ao filtro do Excel: clica na coluna, abre dropdown,
-#  desmarca o que nao quer ver. Barra de busca + "Selecionar tudo" / "Limpar".
-# ══════════════════════════════════════════════════════════════════════════════
-
-def _apply_filters(df: pd.DataFrame, selected: dict) -> pd.DataFrame:
-    """Mantém apenas linhas cujo valor está em selected[col]. Ignora colunas sem filtro ativo."""
-    for col, vals in selected.items():
-        if col not in df.columns:
-            continue
-        all_vals = set(df[col].fillna("").astype(str).unique())
-        sel_vals = set(vals)
-        if sel_vals and sel_vals != all_vals:
-            mapped = ["" if v == "(Sem valor)" else v for v in sel_vals]
-            df = df[df[col].fillna("").astype(str).isin(mapped)]
-    return df
-
-
-def _render_filters(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Linha de botoes — um por coluna — que abrem um popover com:
-      • barra de busca  
-      • checkboxes de todos os valores (todos marcados por padrao)  
-      • botoes Selecionar tudo / Limpar  
-    Exatamente o comportamento do AutoFiltro do Excel.
-    """
-    KEY = "flt_selected"
-    if KEY not in st.session_state:
-        # Inicializa com TODOS os valores marcados (= sem filtro)
-        st.session_state[KEY] = {}
-
-    sel: dict = st.session_state[KEY]
-
-    # Garante que colunas novas sejam inicializadas
-    for col in BUSINESS_COLS:
-        if col not in sel:
-            sel[col] = None  # None = tudo marcado (sem filtro)
-
-    _section_title("Filtros")
-
-    # CSS para deixar os botoes de filtro com visual profissional
-    st.markdown("""
-<style>
-div[data-testid="stColumns"] > div {padding-left:3px!important;padding-right:3px!important;}
-.flt-hint{font-size:10px;color:#6B7280;margin-bottom:8px;padding:0 2px;}
-</style>""", unsafe_allow_html=True)
-
-    st.markdown(
-        '<p class="flt-hint">Clique em cada coluna para filtrar os valores. '
-        'Desmarque o que nao quer ver.</p>',
-        unsafe_allow_html=True,
-    )
-
-    cols_ui = st.columns(len(BUSINESS_COLS), gap="small")
-
-    for i, col in enumerate(BUSINESS_COLS):
-        with cols_ui[i]:
-            # Calcula valores disponiveis com os outros filtros ativos
-            others = {k: v for k, v in sel.items() if k != col and v is not None}
-            ctx    = _apply_filters(df, others)
-            raw    = sorted(ctx[col].fillna("").astype(str).unique().tolist())
-            opts   = (["(Sem valor)"] if "" in raw else []) + [v for v in raw if v]
-
-            # Selecao atual: None = tudo; lista = apenas os marcados
-            curr = sel[col] if sel[col] is not None else opts
-            curr = [v for v in curr if v in opts]  # remove invalidos
-            if not curr:
-                curr = opts  # fallback: tudo marcado
-
-            n_excl = len(opts) - len(curr)
-            is_active = n_excl > 0
-
-            # Botao que indica o estado do filtro
-            label = f"**{col}**" if is_active else col
-            badge = f" ({n_excl} excl.)" if is_active else ""
-
-            with st.popover(
-                label + badge,
-                use_container_width=True,
-            ):
-                st.markdown(
-                    f'<div style="font-size:11px;font-weight:700;color:#0F172A;'
-                    f'margin-bottom:8px;">{col}</div>',
-                    unsafe_allow_html=True,
-                )
-
-                # Botoes Selecionar tudo / Limpar
-                bc1, bc2 = st.columns(2)
-                with bc1:
-                    if st.button("Selecionar tudo", key=f"flt_all_{col}",
-                                 use_container_width=True):
-                        sel[col] = None
-                        for k in list(st.session_state.keys()):
-                            if k.startswith("exp_"):
-                                st.session_state[k] = None
-                        st.rerun()
-                with bc2:
-                    if st.button("Limpar", key=f"flt_clr_{col}",
-                                 use_container_width=True):
-                        sel[col] = []
-                        for k in list(st.session_state.keys()):
-                            if k.startswith("exp_"):
-                                st.session_state[k] = None
-                        st.rerun()
-
-                st.divider()
-
-                # Multiselect com busca + checkboxes
-                new_sel = st.multiselect(
-                    "Valores",
-                    options=opts,
-                    default=curr,
-                    key=f"flt_ms_{col}",
-                    placeholder="Pesquisar...",
-                    label_visibility="collapsed",
-                )
-
-                # Atualiza: None se tudo marcado, lista se filtro ativo
-                sel[col] = None if set(new_sel) == set(opts) else new_sel
-
-    # Aplica todos os filtros e conta ativos
-    df_f     = _apply_filters(df, sel)
-    n_active = sum(1 for v in sel.values() if v is not None)
-
-    show, total = len(df_f), len(df)
-    pct = round(show / total * 100, 1) if total else 0.0
-
-    c1, c2 = st.columns([8, 2])
-    with c1:
-        color = "#DC2626" if show == 0 else ("#16A34A" if show < total else "#6B7280")
-        st.markdown(
-            f'<div style="font-size:11px;color:{color};padding:4px 0;">'
-            f'<strong style="color:#1C2536">{show:,}</strong> de '
-            f'<strong style="color:#1C2536">{total:,}</strong> rotas ({pct:.1f}%)'
-            + (f'&nbsp;·&nbsp;<span style="color:#1B5FBF;font-weight:600;">'
-               f'{n_active} filtro(s) ativo(s)</span>' if n_active else '')
-            + '</div>',
-            unsafe_allow_html=True,
-        )
-    with c2:
-        if n_active and st.button("Limpar todos", key="btn_clr_all",
-                                   use_container_width=True):
-            st.session_state[KEY] = {c: None for c in BUSINESS_COLS}
-            for k in list(st.session_state.keys()):
-                if k.startswith("exp_"):
-                    st.session_state[k] = None
-            st.rerun()
-
-    # Invalida cache exports se filtros mudaram
-    fhash = str({k: tuple(sorted(v)) if v else [] for k, v in sel.items()})
-    if st.session_state.get("_fhash") != fhash:
-        st.session_state["_fhash"] = fhash
-        for k in list(st.session_state.keys()):
-            if k.startswith("exp_"):
-                st.session_state[k] = None
-
-    return df_f
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  EXCEL PROFISSIONAL
-# ══════════════════════════════════════════════════════════════════════════════
-
-def _make_excel(df: pd.DataFrame) -> bytes:
-    from openpyxl import Workbook
-    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
-    from openpyxl.utils import get_column_letter
-    from openpyxl.formatting.rule import CellIsRule
-
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Tabela"
-
-    F_TITLE  = Font(name="Calibri", size=13, bold=True,  color="0F172A")
-    F_HEADER = Font(name="Calibri", size=10, bold=True,  color="FFFFFF")
-    F_CELL   = Font(name="Calibri", size=10, bold=False, color="111827")
-    FILL_T   = PatternFill("solid", fgColor="EFF6FF")
-    FILL_H   = PatternFill("solid", fgColor="0F172A")
-    FILL_E   = PatternFill("solid", fgColor="F1F5F9")
-    FILL_O   = PatternFill("solid", fgColor="FFFFFF")
-    FILL_MT  = PatternFill("solid", fgColor="FFFBEB")
-    TH  = Side(style="thin",   color="D1D5DB")
-    ACC = Side(style="medium", color="1B5FBF")
-    B_T = Border(top=ACC, bottom=ACC, left=ACC, right=ACC)
-    B_H = Border(top=ACC, bottom=ACC, left=TH,  right=TH)
-    B_C = Border(top=TH,  bottom=TH,  left=TH,  right=TH)
-
-    n_cols = len(df.columns)
-    n_rows = len(df)
-    last   = get_column_letter(n_cols)
-
-    ws.merge_cells(f"A1:{last}1")
-    tc = ws["A1"]
-    tc.value = (f"ITX Analisys — Tabela de Rotas  "
-                f"{datetime.now().strftime('%d/%m/%Y %H:%M')}  "
-                f"{n_rows:,} rotas")
-    tc.font = F_TITLE; tc.fill = FILL_T; tc.border = B_T
-    tc.alignment = Alignment(horizontal="center", vertical="center")
-    ws.row_dimensions[1].height = 28
-
-    for ci, col in enumerate(df.columns, 1):
-        c = ws.cell(row=2, column=ci, value=col)
-        c.font = F_HEADER; c.fill = FILL_H; c.border = B_H
-        c.alignment = Alignment(horizontal="center", vertical="center")
-    ws.row_dimensions[2].height = 22
-
-    for ri, (_, row) in enumerate(df.iterrows(), 3):
-        fill = FILL_E if ri % 2 == 0 else FILL_O
-        for ci, col in enumerate(df.columns, 1):
-            raw = row[col]
-            try:
-                val = "" if (raw is None or (not isinstance(raw, str) and pd.isna(raw))) else str(raw)
-            except Exception:
-                val = "" if raw is None else str(raw)
-            c = ws.cell(row=ri, column=ci, value=val)
-            c.font = F_CELL; c.fill = fill; c.border = B_C
-            c.alignment = Alignment(horizontal="left", vertical="center")
-        ws.row_dimensions[ri].height = 18
-
-    ws.freeze_panes = "A3"
-    for ci, col in enumerate(df.columns, 1):
-        try:
-            ml = max(len(str(col)), int(df[col].fillna("").astype(str).str.len().max() or 0))
-        except Exception:
-            ml = len(str(col))
-        ws.column_dimensions[get_column_letter(ci)].width = min(55, max(10, int(ml * 1.12) + 2))
-    ws.auto_filter.ref = f"A2:{last}2"
-    ws.conditional_formatting.add(
-        f"A3:{last}{n_rows + 2}",
-        CellIsRule(operator="equal", formula=['""'], fill=FILL_MT),
-    )
-    ws.print_area = f"A1:{last}{n_rows + 2}"
-    ws.page_setup.orientation = "landscape"
-    ws.page_setup.fitToPage   = True
-    ws.page_setup.fitToWidth  = 1
-
-    buf = _io.BytesIO()
-    wb.save(buf)
-    return buf.getvalue()
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  ESTADO INICIAL
-# ══════════════════════════════════════════════════════════════════════════════
-
-def _init_state():
-    defaults = {
-        "tabela_final": None, "analytics_cache": None,
-        "selected_col": None,
-        "flt_selected": {c: None for c in BUSINESS_COLS},
-        "_fhash": "",
-        "sci_df": None,  "sci_filename": "",  "sci_sheet": None,
-        "por_df": None,  "por_filename": "",  "por_sheet": None,
-        "arq3_df": None, "arq3_filename": "", "arq3_sheet": None,
-        "wizard_cfg": {},
-        "nav_page": "Carregar Arquivos",
-    }
-    for k, v in defaults.items():
-        if k not in st.session_state:
-            st.session_state[k] = v
-
-
-_init_state()
-
-# Carga automatica do banco
-if _ss("tabela_final") is None:
-    try:
-        with session_scope() as s:
-            df_db = TabelaFinalRepository(s).load()
-        if not df_db.empty:
-            st.session_state["tabela_final"]    = df_db
-            st.session_state["analytics_cache"] = precompute_all(df_db)
-    except Exception as e:
-        log.warning("Carga automatica: %s", e)
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  SIDEBAR
-# ══════════════════════════════════════════════════════════════════════════════
-with st.sidebar:
-    st.markdown(
-        '<div style="padding:18px 14px 14px;border-bottom:1px solid #1E293B;margin-bottom:14px;">'
-        '<span style="display:block;font-size:16px;font-weight:700;color:#F1F5F9;'
-        'letter-spacing:-.02em;line-height:1.2;">ITX Analisys</span>'
-        '<span style="display:block;font-size:9px;font-weight:700;color:#334155;'
-        'letter-spacing:.12em;text-transform:uppercase;margin-top:4px;">1.0</span>'
-        '</div>',
-        unsafe_allow_html=True,
-    )
-
-    _PAGES = ["Carregar Arquivos", "Gerar Tabela", "Tabela"]
-    _cur   = st.session_state["nav_page"]
-
-    for _pg in _PAGES:
-        if st.button(_pg, key=f"nav_{_pg}", use_container_width=True):
-            st.session_state["nav_page"] = _pg
-            st.rerun()
-
-    # Destaca pagina ativa via JS
-    _safe = _cur.replace("'", "\\'")
-    st.markdown(f"""<script>
-(function(){{
-  var cur='{_safe}';
-  var btns=window.parent.document.querySelectorAll(
-    '[data-testid="stSidebarUserContent"] [data-testid="baseButton-secondary"] p');
-  btns.forEach(function(p){{
-    var btn=p.closest('button');if(!btn)return;
-    if(p.textContent.trim()===cur){{
-      btn.style.setProperty('color','#F1F5F9','important');
-      btn.style.setProperty('background','rgba(27,95,191,.18)','important');
-      btn.style.setProperty('border-left','2px solid #1B5FBF','important');
-    }}
+function getFiltered(){{
+  let rows=ROWS;
+  COLS.forEach(c=>{{
+    const s=filters[c.key];
+    if(s!==null)rows=rows.filter(r=>s.has(String(r[c.key]??'')));
   }});
-}})();
-</script>""", unsafe_allow_html=True)
+  if(sortCol){{
+    rows=[...rows].sort((a,b)=>{{
+      const av=String(a[sortCol]||''),bv=String(b[sortCol]||'');
+      return sortDir==='asc'?av.localeCompare(bv,'pt'):bv.localeCompare(av,'pt');
+    }});
+  }}
+  return rows;
+}}
 
-    page = _cur
+function renderHead(){{
+  const tr=document.createElement('tr');
+  const thN=document.createElement('th');thN.className='col-num';
+  thN.innerHTML='<div class="th-wrap" style="justify-content:center;align-items:center;"><span style="font-size:10px;color:rgba(255,255,255,.2)">#</span></div>';
+  tr.appendChild(thN);
+  COLS.forEach(col=>{{
+    const th=document.createElement('th');
+    th.style.width=col.width+'px';
+    const isActive=col.key===selCol,hasFlt=filters[col.key]!==null;
+    if(isActive)th.classList.add('col-sel');
+    const ico=col.key===sortCol
+      ?(sortDir==='asc'
+        ?'<svg class="sort on" width="8" height="9" viewBox="0 0 8 9" fill="none"><path d="M4 1v7M1 3l3-3 3 3" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/></svg>'
+        :'<svg class="sort on" width="8" height="9" viewBox="0 0 8 9" fill="none"><path d="M4 8V1M1 6l3 3 3-3" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/></svg>')
+      :'<svg class="sort" width="8" height="9" viewBox="0 0 8 9" fill="none"><path d="M4 1v7M1 3l3-3 3 3M1 6l3 3 3-3" stroke="rgba(255,255,255,.3)" stroke-width="1.5" stroke-linecap="round"/></svg>';
+    th.innerHTML='<div class="th-wrap">'
+      +'<div class="th-name" data-col="'+col.key+'">'
+      +'<span class="th-lbl">'+col.label+'</span>'+ico+'</div>'
+      +'<div class="th-flt'+(hasFlt?' on':'')+'" data-col="'+col.key+'">'+
+      (hasFlt?'&#9660;':'&#9661;')+'</div></div>';
+    th.querySelector('.th-name').addEventListener('click',()=>{{
+      if(col.key===sortCol)sortDir=sortDir==='asc'?'desc':'asc';
+      else{{sortCol=col.key;sortDir='asc';}}
+      selCol=col.key;
+      window.parent.postMessage({{type:'col_click',col:col.key}},'*');
+      page=0;render();
+    }});
+    th.querySelector('.th-flt').addEventListener('click',e=>{{
+      e.stopPropagation();openFilter(col.key,e.currentTarget);
+    }});
+    tr.appendChild(th);
+  }});
+  const thead=document.getElementById('thead');thead.innerHTML='';thead.appendChild(tr);
+}}
 
-    tf_sb = _ss("tabela_final")
-    if tf_sb is not None:
-        st.markdown(
-            f'<div style="margin-top:12px;padding:10px 12px;background:#060D1A;border-left:2px solid #1B5FBF;">'
-            f'<span style="display:block;font-size:9px;font-weight:700;letter-spacing:.1em;'
-            f'text-transform:uppercase;color:#334155;margin-bottom:3px;">Quantidade de Rotas</span>'
-            f'<span style="display:block;font-size:22px;font-weight:700;color:#F1F5F9;'
-            f'line-height:1.1;">{len(tf_sb):,}</span></div>',
-            unsafe_allow_html=True,
-        )
+function renderBody(){{
+  const data=getFiltered(),total=data.length;
+  const slice=data.slice(page*PS,(page+1)*PS);
+  document.getElementById('count').textContent=total.toLocaleString('pt-BR')+' registros';
+  const tbody=document.getElementById('tbody');tbody.innerHTML='';
+  slice.forEach((row,i)=>{{
+    const tr=document.createElement('tr');
+    const tdN=document.createElement('td');tdN.className='col-num';tdN.textContent=page*PS+i+1;
+    tr.appendChild(tdN);
+    COLS.forEach(col=>{{
+      const td=document.createElement('td');
+      if(col.key===selCol)td.classList.add('col-sel');
+      const v=String(row[col.key]??'');
+      if(col.key.toLowerCase()==='rede'){{
+        td.innerHTML='<span class="'+(v==='VIVO-SMP'?'smp':'stfc')+'">'+v+'</span>';
+      }}else{{td.textContent=v;}}
+      tr.appendChild(td);
+    }});
+    tbody.appendChild(tr);
+  }});
+  renderPag(total);renderChips();
+}}
 
-    st.markdown("<hr>", unsafe_allow_html=True)
-    st.markdown(
-        f'<span style="font-size:10px;color:#334155;">{Path(_DB).name}</span>',
-        unsafe_allow_html=True,
-    )
-    if st.button("Reiniciar sessao", key="btn_reset"):
-        for k in list(st.session_state.keys()):
-            del st.session_state[k]
-        st.rerun()
+function renderChips(){{
+  const bar=document.getElementById('chips');bar.innerHTML='';
+  COLS.forEach(col=>{{
+    const sel=filters[col.key];if(sel===null)return;
+    const excl=uniques[col.key].filter(v=>!sel.has(v));
+    if(!excl.length)return;
+    const chip=document.createElement('span');chip.className='chip';
+    const prev=excl.slice(0,2).join(', ')+(excl.length>2?' +'+(excl.length-2):'');
+    chip.innerHTML=col.label+': <em style="font-weight:400;font-style:normal">'+prev+'</em>'
+      +'<span class="chip-x" data-col="'+col.key+'">&times;</span>';
+    chip.querySelector('.chip-x').addEventListener('click',e=>{{
+      filters[e.target.dataset.col]=null;page=0;render();
+    }});
+    bar.appendChild(chip);
+  }});
+}}
 
-p = page
+function renderPag(total){{
+  const tp=Math.max(1,Math.ceil(total/PS));
+  const s=total===0?0:page*PS+1,e=Math.min((page+1)*PS,total);
+  document.getElementById('pag-info').textContent=s+'\u2013'+e+' de '+total.toLocaleString('pt-BR');
+  const btns=document.getElementById('pag-btns');btns.innerHTML='';
+  const b=(lbl,cb,dis,on)=>{{
+    const el=document.createElement('button');
+    el.className='pb'+(on?' on':'');el.textContent=lbl;el.disabled=dis;el.onclick=cb;
+    btns.appendChild(el);
+  }};
+  b('|<',()=>{{page=0;render();}},page===0);
+  b('<', ()=>{{page--;render();}},page===0);
+  const lo=Math.max(0,Math.min(page-2,tp-5)),hi=Math.min(tp-1,lo+4);
+  for(let i=lo;i<=hi;i++){{const pi=i;b(String(i+1),()=>{{page=pi;render();}},false,i===page);}}
+  b('>', ()=>{{page++;render();}},page>=tp-1);
+  b('>|',()=>{{page=tp-1;render();}},page>=tp-1);
+}}
 
+let fddCol=null,fddTmp=new Set();
+function openFilter(colKey,anchor){{
+  const fdd=document.getElementById('fdd');
+  if(fddCol===colKey&&fdd.classList.contains('open')){{closeFilter();return;}}
+  fddCol=colKey;
+  document.getElementById('fdd-col').textContent=colKey;
+  document.getElementById('fdd-search').value='';
+  fddTmp=filters[colKey]!==null?new Set(filters[colKey]):new Set(uniques[colKey]);
+  buildList('');fdd.classList.add('open');
+  const rect=anchor.getBoundingClientRect();
+  fdd.style.top=(rect.bottom+2)+'px';
+  fdd.style.left=Math.min(rect.left,window.innerWidth-290)+'px';
+}}
+function buildList(search){{
+  const list=document.getElementById('fdd-list');list.innerHTML='';
+  const vals=uniques[fddCol]||[],lower=search.toLowerCase();
+  const shown=search?vals.filter(v=>v.toLowerCase().includes(lower)):vals;
+  shown.forEach(v=>{{
+    const lbl=v===''?'(Sem valor)':v;
+    const item=document.createElement('div');item.className='fdd-item';
+    const chk=document.createElement('input');chk.type='checkbox';chk.checked=fddTmp.has(v);
+    chk.addEventListener('change',()=>{{chk.checked?fddTmp.add(v):fddTmp.delete(v);}});
+    const lb=document.createElement('label');lb.textContent=lbl;
+    lb.addEventListener('click',()=>{{chk.checked=!chk.checked;chk.checked?fddTmp.add(v):fddTmp.delete(v);}});
+    item.appendChild(chk);item.appendChild(lb);list.appendChild(item);
+  }});
+}}
+function closeFilter(){{document.getElementById('fdd').classList.remove('open');fddCol=null;}}
+function applyFilter(){{
+  if(!fddCol)return;
+  const all=new Set(uniques[fddCol]);
+  filters[fddCol]=(fddTmp.size===0||[...all].every(v=>fddTmp.has(v)))?null:new Set(fddTmp);
+  closeFilter();page=0;render();
+}}
+document.getElementById('fdd-ok').addEventListener('click',applyFilter);
+document.getElementById('fdd-all').addEventListener('click',()=>{{fddTmp=new Set(uniques[fddCol]);buildList(document.getElementById('fdd-search').value);}});
+document.getElementById('fdd-none').addEventListener('click',()=>{{fddTmp=new Set();buildList(document.getElementById('fdd-search').value);}});
+document.getElementById('fdd-search').addEventListener('input',e=>buildList(e.target.value));
+document.addEventListener('click',e=>{{
+  const fdd=document.getElementById('fdd');
+  if(fdd.classList.contains('open')&&!fdd.contains(e.target)&&!e.target.closest('.th-flt'))closeFilter();
+}});
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  PAGINA 1 — CARREGAR ARQUIVOS
-# ══════════════════════════════════════════════════════════════════════════════
-if p == "Carregar Arquivos":
-    _page_header("Carregar Arquivos", "Importacao dos arquivos fonte")
-    st.markdown(
-        '<p style="font-size:12px;color:#6B7280;margin:0 0 18px;">'
-        'Faca o upload dos tres arquivos abaixo.</p>',
-        unsafe_allow_html=True,
-    )
+function dlFile(blob,name){{
+  try{{
+    const url=(window.parent.URL||URL).createObjectURL(blob);
+    const doc=window.parent.document;
+    const a=doc.createElement('a');a.href=url;a.download=name;a.style.display='none';
+    doc.body.appendChild(a);a.click();
+    setTimeout(()=>{{doc.body.removeChild(a);(window.parent.URL||URL).revokeObjectURL(url);}},1000);
+  }}catch(e){{
+    const url=URL.createObjectURL(blob);const a=document.createElement('a');
+    a.href=url;a.download=name;document.body.appendChild(a);a.click();
+    setTimeout(()=>{{document.body.removeChild(a);URL.revokeObjectURL(url);}},1000);
+  }}
+}}
+document.getElementById('btn-csv').addEventListener('click',()=>{{
+  const rows=getFiltered(),cols=COLS.map(c=>c.key);
+  const lines=[cols.join(';')];
+  rows.forEach(r=>lines.push(cols.map(k=>{{
+    const v=String(r[k]??'').replace(/"/g,'""');
+    return(v.includes(';')||v.includes('"')||v.includes('\n'))?'"'+v+'"':v;
+  }}).join(';')));
+  const ts=new Date().toISOString().slice(0,10);
+  dlFile(new Blob(['\uFEFF'+lines.join('\r\n')],{{type:'text/csv;charset=utf-8'}}),'tabela_'+ts+'.csv');
+}});
+document.getElementById('btn-xls').addEventListener('click',()=>{{
+  const rows=getFiltered(),cols=COLS.map(c=>c.key);
+  const enc=v=>String(v??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const toRow=(arr,i)=>'<Row ss:Index="'+(i+1)+'">'+arr.map(v=>'<Cell><Data ss:Type="String">'+enc(v)+'</Data></Cell>').join('')+'</Row>';
+  const ws=[toRow(cols,0),...rows.map((r,i)=>toRow(cols.map(k=>r[k]),i+1))].join('');
+  const xml='<?xml version="1.0" encoding="UTF-8"?><?mso-application progid="Excel.Sheet"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Worksheet ss:Name="Tabela"><Table>'+ws+'</Table></Worksheet></Workbook>';
+  const ts=new Date().toISOString().slice(0,10);
+  dlFile(new Blob([xml],{{type:'application/vnd.ms-excel'}}),'tabela_'+ts+'.xls');
+}});
 
-    def _handle_upload(uploaded_file, prefix: str, label: str):
-        if uploaded_file is None:
-            return
-        ext = uploaded_file.name.split(".")[-1].lower()
-        raw = uploaded_file.read()
-        sheet = None
-        if ext in ("xlsx", "xls"):
-            sheets = list_sheets(_io.BytesIO(raw))
-            if len(sheets) > 1:
-                sheet = st.selectbox(f"Planilha — {label}", sheets, key=f"sheet_{prefix}")
-            elif sheets:
-                sheet = sheets[0]
-        try:
-            df = read_file(_io.BytesIO(raw), filename=uploaded_file.name, sheet=sheet)
-            df, _ = apply_column_normalization(df)
-            df = strip_whitespace(df)
-            df = infer_and_coerce_types(df)
-            st.session_state[f"{prefix}_df"]       = df
-            st.session_state[f"{prefix}_filename"] = uploaded_file.name
-            st.session_state[f"{prefix}_sheet"]    = sheet
-        except Exception as e:
-            _alert(f"Erro ao ler {uploaded_file.name}: {e}", "error")
-            log.error("Upload %s: %s", prefix, e, exc_info=True)
+function render(){{renderHead();renderBody();}}
+render();
+</script>
+</body>
+</html>"""
 
-    c1, c2, c3 = st.columns(3, gap="medium")
-    for col, prefix, label in [
-        (c1, "sci",  "Science"),
-        (c2, "por",  "Portal de Cadastros"),
-        (c3, "arq3", "Arquivo 3 — Referencia"),
-    ]:
-        with col:
-            _label(label)
-            f = st.file_uploader(
-                label, type=["xlsx", "xls", "csv", "parquet"],
-                key=f"up_{prefix}", label_visibility="collapsed",
-            )
-            _handle_upload(f, prefix, label)
-            dfx = _ss(f"{prefix}_df")
-            if dfx is not None:
-                fn = _ss(f"{prefix}_filename") or "—"
-                st.markdown(
-                    f'<div style="display:flex;align-items:center;gap:8px;padding:7px 0;'
-                    f'border-bottom:1px solid #E2E8F0;margin-top:6px;">'
-                    f'<span style="width:6px;height:6px;border-radius:50%;background:#16A34A;'
-                    f'flex-shrink:0;display:inline-block;"></span>'
-                    f'<span style="font-size:12px;font-weight:600;color:#1C2536;">{fn}</span>'
-                    f'<span style="font-size:11px;color:#9CA3AF;margin-left:4px;">'
-                    f'{len(dfx):,} linhas</span></div>',
-                    unsafe_allow_html=True,
-                )
-
-    _divider()
-    for prefix, label in [("sci", "Science"), ("por", "Portal"), ("arq3", "Arquivo 3")]:
-        dfx = _ss(f"{prefix}_df")
-        if dfx is not None:
-            with st.expander(f"Previa — {label}  ({len(dfx):,} linhas)"):
-                st.dataframe(dfx.head(15), use_container_width=True, hide_index=True)
-
-    if _ss("sci_df") is not None and _ss("por_df") is not None:
-        _alert("Science e Portal carregados. Prossiga para <strong>Gerar Tabela</strong>.", "ok")
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  PAGINA 2 — GERAR TABELA
-# ══════════════════════════════════════════════════════════════════════════════
-elif p == "Gerar Tabela":
-    _page_header("Gerar Tabela", "Pipeline de consolidacao e persistencia")
-
-    sci_df  = _ss("sci_df")
-    por_df  = _ss("por_df")
-    arq3_df = _ss("arq3_df")
-
-    if sci_df is None or por_df is None:
-        _alert("Carregue os arquivos Science e Portal na etapa anterior.", "warn")
-        st.stop()
-
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Science",   f"{len(sci_df):,}")
-    c2.metric("Portal",    f"{len(por_df):,}")
-    c3.metric("Arquivo 3", f"{len(arq3_df):,}" if arq3_df is not None else "—")
-
-    _divider()
-    col_run, col_clr = st.columns([5, 1])
-    with col_clr:
-        if st.button("Limpar", key="btn_clr"):
-            for k in ("sci_df", "por_df", "arq3_df", "wizard_cfg"):
-                st.session_state.pop(k, None)
-            st.rerun()
-    with col_run:
-        run = st.button("Gerar Tabela", type="primary", key="btn_merge", use_container_width=True)
-
-    if run:
-        with st.spinner("Executando pipeline..."):
-            try:
-                merged_df, _ = build_merged_df(
-                    science_df=sci_df.copy(), portal_df=por_df.copy(),
-                    ref_df=arq3_df.copy() if arq3_df is not None else None,
-                    uf_map={}, join_keys_sci=[], join_keys_por=[],
-                    config=_ss("wizard_cfg") or {},
-                )
-                biz_cols  = [c for c in BUSINESS_COLS if c in merged_df.columns]
-                result_df = merged_df[biz_cols].copy()
-                with session_scope() as s:
-                    repo = TabelaFinalRepository(s)
-                    inserted, skipped = repo.upsert(result_df)
-                    final_df = repo.load()
-                st.session_state["tabela_final"]    = final_df
-                st.session_state["analytics_cache"] = precompute_all(final_df)
-                st.session_state["selected_col"] = None
-                st.session_state["flt_selected"] = {c: None for c in BUSINESS_COLS}
-                if inserted > 0:
-                    _alert(f"<strong>{inserted:,} rotas adicionadas.</strong> "
-                           f"{skipped:,} ja existiam. Total: {len(final_df):,}.", "ok")
-                else:
-                    _alert(f"Nenhuma rota nova. {skipped:,} ja existiam. Total: {len(final_df):,}.", "info")
-            except Exception as e:
-                _alert(f"Erro: {e}", "error")
-                log.error("Pipeline: %s", e, exc_info=True)
-                import traceback; st.code(traceback.format_exc())
-                st.stop()
-
-    tf = _ss("tabela_final")
-    if tf is not None and not tf.empty:
-        _divider()
-        _alert(f"Tabela disponivel — <strong>{len(tf):,} rotas</strong>. Acesse <strong>Tabela</strong>.", "info")
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  PAGINA 3 — TABELA
-#  Fluxo: Filtros -> Tabela -> Dashboard -> Exports (todos no mesmo lugar)
-# ══════════════════════════════════════════════════════════════════════════════
-elif p == "Tabela":
-    _page_header("Tabela", "Filtros · Visualizacao · Dashboard · Exportacao")
-
-    tf = _ss("tabela_final")
-    if tf is None or tf.empty:
-        _alert("Nenhuma rota disponivel. Gere a Tabela primeiro.", "warn")
-        st.stop()
-
-    sel_col = _ss("selected_col")
-    cache   = _ss("analytics_cache") or {}
-    ts_str  = datetime.now().strftime("%Y-%m-%d_%H%M")
-
-    # ── 1. SELETOR DE COLUNA PARA DASHBOARD ──────────────────────────────────
-    _section_title("Dashboard por coluna")
-    col_btns = st.columns(len(BUSINESS_COLS))
-    for i, col in enumerate(BUSINESS_COLS):
-        with col_btns[i]:
-            if st.button(col, key=f"cb_{col}", use_container_width=True,
-                         type="primary" if sel_col == col else "secondary"):
-                st.session_state["selected_col"] = col
-                st.rerun()
-
-    _divider()
-
-    # ── 2. TABELA com filtros e exports CSV/Excel embutidos ───────────────────
-    render_interactive_table(tf, selected_col=sel_col, height=520, component_key="tbl")
-
-    # ── 3. DASHBOARD ─────────────────────────────────────────────────────────
-    if sel_col:
-        _divider()
-        render_column_dashboard(tf, sel_col, cache=cache)
-
-    # ── 4. EXPORTACOES PPTX ──────────────────────────────────────────────────
-    _divider()
-    _section_title("Exportar PPTX")
-
-    st.markdown(
-        '<p style="font-size:11px;color:#6B7280;margin:0 0 12px;">'
-        'Os exports CSV e Excel filtrados estao na barra da tabela acima. '
-        'Os PPTX abaixo usam todos os dados.</p>',
-        unsafe_allow_html=True,
-    )
-
-    e1, e2 = st.columns(2, gap="small")
-
-    with e1:
-        k_pg = "exp_pptx_g"
-        if not st.session_state.get(k_pg):
-            if st.button("Gerar PPTX Geral", key="btn_gen_pg", use_container_width=True):
-                with st.spinner("Gerando PPTX..."):
-                    try:
-                        st.session_state[k_pg] = build_general_pptx(tf)
-                    except Exception as e:
-                        _alert(f"PPTX: {e}", "error")
-                        log.error("PPTX geral: %s", e, exc_info=True)
-                st.rerun()
-        else:
-            st.download_button(
-                "Baixar PPTX Geral",
-                data=st.session_state[k_pg],
-                file_name=f"dashboard_geral_{ts_str}.pptx",
-                mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
-                key="btn_dl_pg",
-                use_container_width=True,
-            )
-            if st.button("Regerar", key="btn_rg_pg", use_container_width=True):
-                st.session_state[k_pg] = None
-                st.rerun()
-
-    with e2:
-        if not sel_col:
-            st.markdown(
-                '<div style="font-size:11px;color:#9CA3AF;padding-top:10px;text-align:center;">'
-                'Selecione uma coluna acima para exportar o dashboard.</div>',
-                unsafe_allow_html=True,
-            )
-        else:
-            k_pc = f"exp_pptx_c_{sel_col}"
-            if not st.session_state.get(k_pc):
-                if st.button(f"Gerar PPTX {sel_col}", key="btn_gen_pc", use_container_width=True):
-                    with st.spinner(f"Gerando PPTX {sel_col}..."):
-                        try:
-                            st.session_state[k_pc] = build_column_pptx(tf, sel_col)
-                        except Exception as e:
-                            _alert(f"PPTX coluna: {e}", "error")
-                            log.error("PPTX col: %s", e, exc_info=True)
-                    st.rerun()
-            else:
-                st.download_button(
-                    f"Baixar PPTX {sel_col}",
-                    data=st.session_state[k_pc],
-                    file_name=f"dashboard_{sel_col}_{ts_str}.pptx",
-                    mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
-                    key="btn_dl_pc",
-                    use_container_width=True,
-                )
-                if st.button("Regerar", key="btn_rg_pc", use_container_width=True):
-                    st.session_state[k_pc] = None
-                    st.rerun()
-
-    st.markdown("<div style='height:40px;'></div>", unsafe_allow_html=True)
-
-
-# ── RODAPE ────────────────────────────────────────────────────────────────────
-st.markdown(
-    '<div style="border-top:1px solid #E2E8F0;margin-top:40px;padding-top:12px;'
-    'text-align:center;font-size:10px;color:#9CA3AF;letter-spacing:.04em;">'
-    'ITX Analisys · 1.0</div>',
-    unsafe_allow_html=True,
-)
+    components.html(html, height=height + 10, scrolling=False)
