@@ -762,80 +762,34 @@ elif p == "Tabela":
 
     _divider()
 
-    # ── 2. FILTROS (multiselect com busca + checkboxes — nativo Streamlit) ────
-    df_f = _render_filters(tf)
+    # ── 2. TABELA com filtros e exports CSV/Excel embutidos ───────────────────
+    render_interactive_table(tf, selected_col=sel_col, height=520, component_key="tbl")
 
-    _divider()
-
-    # ── 3. TABELA ─────────────────────────────────────────────────────────────
-    render_interactive_table(df_f, selected_col=sel_col, height=500, component_key="tbl")
-
-    # ── 4. DASHBOARD ─────────────────────────────────────────────────────────
+    # ── 3. DASHBOARD ─────────────────────────────────────────────────────────
     if sel_col:
         _divider()
-        render_column_dashboard(df_f, sel_col, cache=None)
+        render_column_dashboard(tf, sel_col, cache=cache)
 
-    # ── 5. EXPORTACOES ────────────────────────────────────────────────────────
+    # ── 4. EXPORTACOES PPTX ──────────────────────────────────────────────────
     _divider()
-    _section_title("Exportar")
+    _section_title("Exportar PPTX")
 
-    n_exp = len(df_f)
-    suf   = f" — {n_exp:,} linhas filtradas" if n_exp < len(tf) else f" — {n_exp:,} linhas"
     st.markdown(
-        f'<p style="font-size:11px;color:#6B7280;margin:0 0 12px;">'
-        f'Todos os exports abaixo usam os dados com os filtros aplicados{suf}.</p>',
+        '<p style="font-size:11px;color:#6B7280;margin:0 0 12px;">'
+        'Os exports CSV e Excel filtrados estao na barra da tabela acima. '
+        'Os PPTX abaixo usam todos os dados.</p>',
         unsafe_allow_html=True,
     )
 
-    e1, e2, e3, e4 = st.columns(4, gap="small")
+    e1, e2 = st.columns(2, gap="small")
 
-    # CSV — leve, gerado direto
     with e1:
-        try:
-            st.download_button(
-                "Exportar CSV",
-                data=df_f.to_csv(index=False).encode("utf-8-sig"),
-                file_name=f"tabela_{ts_str}.csv",
-                mime="text/csv",
-                key="btn_csv",
-                use_container_width=True,
-            )
-        except Exception as e:
-            _alert(f"CSV: {e}", "error")
-
-    # Excel — sob demanda (pesado), cacheado em session_state
-    with e2:
-        k_xl = "exp_xlsx"
-        if not st.session_state.get(k_xl):
-            if st.button("Gerar Excel", key="btn_gen_xl", use_container_width=True):
-                with st.spinner("Gerando Excel..."):
-                    try:
-                        st.session_state[k_xl] = _make_excel(df_f)
-                    except Exception as e:
-                        _alert(f"Excel: {e}", "error")
-                        log.error("Excel: %s", e, exc_info=True)
-                st.rerun()
-        else:
-            st.download_button(
-                "Baixar Excel",
-                data=st.session_state[k_xl],
-                file_name=f"tabela_{ts_str}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                key="btn_dl_xl",
-                use_container_width=True,
-            )
-            if st.button("Regerar", key="btn_rg_xl", use_container_width=True):
-                st.session_state[k_xl] = None
-                st.rerun()
-
-    # PPTX Geral — sob demanda
-    with e3:
         k_pg = "exp_pptx_g"
         if not st.session_state.get(k_pg):
             if st.button("Gerar PPTX Geral", key="btn_gen_pg", use_container_width=True):
                 with st.spinner("Gerando PPTX..."):
                     try:
-                        st.session_state[k_pg] = build_general_pptx(df_f)
+                        st.session_state[k_pg] = build_general_pptx(tf)
                     except Exception as e:
                         _alert(f"PPTX: {e}", "error")
                         log.error("PPTX geral: %s", e, exc_info=True)
@@ -853,8 +807,7 @@ elif p == "Tabela":
                 st.session_state[k_pg] = None
                 st.rerun()
 
-    # PPTX Coluna — sob demanda
-    with e4:
+    with e2:
         if not sel_col:
             st.markdown(
                 '<div style="font-size:11px;color:#9CA3AF;padding-top:10px;text-align:center;">'
@@ -867,7 +820,7 @@ elif p == "Tabela":
                 if st.button(f"Gerar PPTX {sel_col}", key="btn_gen_pc", use_container_width=True):
                     with st.spinner(f"Gerando PPTX {sel_col}..."):
                         try:
-                            st.session_state[k_pc] = build_column_pptx(df_f, sel_col)
+                            st.session_state[k_pc] = build_column_pptx(tf, sel_col)
                         except Exception as e:
                             _alert(f"PPTX coluna: {e}", "error")
                             log.error("PPTX col: %s", e, exc_info=True)
