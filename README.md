@@ -170,12 +170,12 @@ header [data-testid="stHeader"] a,
 header [class*="viewerBadge"],
 header [class*="reportStatus"]{display:none!important;}
 
-/* OCULTA DROPZONE DO components.html */
-[data-testid="stComponentContainer"] section{display:none!important;}
+/* OCULTA APENAS O DROPZONE DO components.html — nao afeta o iframe */
 [data-testid="stComponentContainer"] [data-testid="stFileUploaderDropzone"]{display:none!important;}
-[data-testid="stComponentContainer"] iframe{display:block!important;}
-[data-testid="stComponentContainer"]{padding:0!important;border:none!important;background:transparent!important;overflow:hidden!important;}
-[data-testid="stFileUploader"] section{display:flex!important;}
+[data-testid="stComponentContainer"] [data-testid="stFileUploaderDropzoneInstructions"]{display:none!important;}
+[data-testid="stComponentContainer"] [data-testid="stFileUploaderDropzoneInput"]{display:none!important;}
+[data-testid="stComponentContainer"]{padding:0!important;border:none!important;background:transparent!important;}
+[data-testid="stComponentContainer"] iframe{display:block!important;border:none!important;}
 
 *:focus-visible{outline:2px solid #1B5FBF!important;outline-offset:2px!important;}
 </style>
