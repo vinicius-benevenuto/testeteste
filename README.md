@@ -1,0 +1,1 @@
+New-Item -ItemType Directory -Force -Path ".streamlit"; Set-Content -Path ".streamlit\config.toml" -Value "[server]`nmaxUploadSize = 2048`n`n[theme]`nbase = `"light`"`nbackgroundColor = `"#F8F9FA`"`nsecondaryBackgroundColor = `"#FFFFFF`"`ntextColor = `"#111827`"`nprimaryColor = `"#1B5FBF`"`nfont = `"sans serif`""
