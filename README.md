@@ -1,1 +1,1 @@
-mkdir .streamlit && echo [server] > .streamlit\config.toml && echo maxUploadSize = 2048 >> .streamlit\config.toml && echo. >> .streamlit\config.toml && echo [theme] >> .streamlit\config.toml && echo base = "light" >> .streamlit\config.toml && echo backgroundColor = "#F8F9FA" >> .streamlit\config.toml && echo secondaryBackgroundColor = "#FFFFFF" >> .streamlit\config.toml && echo textColor = "#111827" >> .streamlit\config.toml && echo primaryColor = "#1B5FBF" >> .streamlit\config.toml && echo font = "sans serif" >> .streamlit\config.toml
+
