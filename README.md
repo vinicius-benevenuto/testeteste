@@ -950,20 +950,14 @@ elif p == "Tabela":
 
     _divider()
 
-    # ── Filtros Streamlit — controlam o que vai para a tabela E para o export
-    _section_title("Filtros")
-    tf_filtered = _render_excel_filters(tf)
-
-    _divider()
-
     st.markdown(
         '<p style="font-size:11px;color:#6B7280;margin:0 0 6px;">'
-        'Os filtros acima tambem se aplicam ao export. '
-        'Use o simbolo nas colunas da tabela para filtros rapidos de visualizacao.</p>',
+        'Use o filtro nas colunas da tabela para filtrar. '
+        'Os botoes "Exportar CSV" e "Exportar Excel" na barra da tabela exportam apenas os dados filtrados.</p>',
         unsafe_allow_html=True,
     )
     render_interactive_table(
-        tf_filtered,
+        tf,
         selected_col=sel_col,
         height=480,
         component_key="main_table",
@@ -971,34 +965,18 @@ elif p == "Tabela":
 
     if sel_col:
         _divider()
-        render_column_dashboard(tf_filtered, sel_col, cache=None)
+        render_column_dashboard(tf, sel_col, cache=cache)
 
     _divider()
-    n_exp = len(tf_filtered)
-    suf   = f" ({n_exp:,} linhas)" if n_exp < len(tf) else ""
     st.markdown(
-        f'<span style="font-size:9px;font-weight:700;letter-spacing:.1em;'
-        f'text-transform:uppercase;color:#6B7280;display:block;'
-        f'padding:10px 0 8px;">Exportar{suf}</span>',
+        '<span style="font-size:9px;font-weight:700;letter-spacing:.1em;'
+        'text-transform:uppercase;color:#6B7280;display:block;'
+        'padding:10px 0 8px;">Exportar dashboard (PPTX)</span>',
         unsafe_allow_html=True,
     )
 
-    df_exp = tf_filtered
-    ex1, ex2, ex3, ex4 = st.columns(4, gap="small")
-
-    with ex1:
-        try:
-            csv_bytes = df_exp.to_csv(index=False).encode("utf-8-sig")
-            st.download_button(
-                "Exportar CSV",
-                data=csv_bytes,
-                file_name=f"tabela_{ts_str}.csv",
-                mime="text/csv",
-                key="btn_csv",
-                use_container_width=True,
-            )
-        except Exception as e:
-            _alert(f"CSV: {e}", "error")
+    df_exp = tf
+    ex2, ex3, ex4 = st.columns(3, gap="small")
 
     with ex2:
         _xls_key = "export_xlsx_data"
