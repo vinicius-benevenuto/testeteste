@@ -254,64 +254,130 @@ def _section_title(text: str):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  FILTROS — comportamento identico ao Excel:
-#   • Tudo marcado por padrao (mostra tudo)
-#   • Usuario desmarca o que NAO quer ver
-#   • Barra de busca + checkboxes nativos do st.multiselect
-#   • Incremental: cada coluna mostra apenas valores possiveis apos os outros filtros
+#  FILTROS — dropdown por coluna com st.popover + checkboxes
+#  Identico ao filtro do Excel: clica na coluna, abre dropdown,
+#  desmarca o que nao quer ver. Barra de busca + "Selecionar tudo" / "Limpar".
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _apply_filters(df: pd.DataFrame, excluded: dict) -> pd.DataFrame:
-    """Exclui linhas cujo valor de coluna esta em excluded[col]."""
-    for col, vals in excluded.items():
-        if vals and col in df.columns:
-            mapped = ["" if v == "(Sem valor)" else v for v in vals]
-            df = df[~df[col].fillna("").astype(str).isin(mapped)]
+def _apply_filters(df: pd.DataFrame, selected: dict) -> pd.DataFrame:
+    """Mantém apenas linhas cujo valor está em selected[col]. Ignora colunas sem filtro ativo."""
+    for col, vals in selected.items():
+        if col not in df.columns:
+            continue
+        all_vals = set(df[col].fillna("").astype(str).unique())
+        sel_vals = set(vals)
+        if sel_vals and sel_vals != all_vals:
+            mapped = ["" if v == "(Sem valor)" else v for v in sel_vals]
+            df = df[df[col].fillna("").astype(str).isin(mapped)]
     return df
 
 
 def _render_filters(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Filtros estilo Excel:
-      - Cada multiselect mostra TODOS os valores da coluna, todos pre-selecionados.
-      - Remover um valor do multiselect = EXCLUIR aquelas linhas (igual desmarcar no Excel).
-      - 'Limpar' = restaura tudo marcado (sem filtro).
+    Linha de botoes — um por coluna — que abrem um popover com:
+      • barra de busca  
+      • checkboxes de todos os valores (todos marcados por padrao)  
+      • botoes Selecionar tudo / Limpar  
+    Exatamente o comportamento do AutoFiltro do Excel.
     """
-    # Estado: guarda os valores DESMARCADOS (excluidos) por coluna
-    if "excluded" not in st.session_state:
-        st.session_state["excluded"] = {c: [] for c in BUSINESS_COLS}
-    excl: dict = st.session_state["excluded"]
+    KEY = "flt_selected"
+    if KEY not in st.session_state:
+        # Inicializa com TODOS os valores marcados (= sem filtro)
+        st.session_state[KEY] = {}
+
+    sel: dict = st.session_state[KEY]
+
+    # Garante que colunas novas sejam inicializadas
+    for col in BUSINESS_COLS:
+        if col not in sel:
+            sel[col] = None  # None = tudo marcado (sem filtro)
 
     _section_title("Filtros")
 
-    for row_start in (0, 4):
-        cols_ui = st.columns(4, gap="small")
-        for i, col in enumerate(BUSINESS_COLS[row_start:row_start + 4]):
-            with cols_ui[i]:
-                # Contexto incremental: df sem as exclusoes das OUTRAS colunas
-                others_excl = {k: v for k, v in excl.items() if k != col and v}
-                ctx  = _apply_filters(df, others_excl)
-                raw  = sorted(ctx[col].fillna("").astype(str).unique().tolist())
-                opts = (["(Sem valor)"] if "" in raw else []) + [v for v in raw if v]
+    # CSS para deixar os botoes de filtro com visual profissional
+    st.markdown("""
+<style>
+div[data-testid="stColumns"] > div {padding-left:3px!important;padding-right:3px!important;}
+.flt-hint{font-size:10px;color:#6B7280;margin-bottom:8px;padding:0 2px;}
+</style>""", unsafe_allow_html=True)
 
-                # Valores atualmente selecionados = todos MENOS os excluidos
-                curr_excl    = set(excl.get(col, []))
-                curr_sel     = [v for v in opts if v not in curr_excl]
+    st.markdown(
+        '<p class="flt-hint">Clique em cada coluna para filtrar os valores. '
+        'Desmarque o que nao quer ver.</p>',
+        unsafe_allow_html=True,
+    )
 
-                selected = st.multiselect(
-                    col,
-                    options=opts,
-                    default=curr_sel,      # todos marcados por padrao
-                    key=f"flt_{col}",
-                    placeholder="Todos",
-                    label_visibility="visible",
+    cols_ui = st.columns(len(BUSINESS_COLS), gap="small")
+
+    for i, col in enumerate(BUSINESS_COLS):
+        with cols_ui[i]:
+            # Calcula valores disponiveis com os outros filtros ativos
+            others = {k: v for k, v in sel.items() if k != col and v is not None}
+            ctx    = _apply_filters(df, others)
+            raw    = sorted(ctx[col].fillna("").astype(str).unique().tolist())
+            opts   = (["(Sem valor)"] if "" in raw else []) + [v for v in raw if v]
+
+            # Selecao atual: None = tudo; lista = apenas os marcados
+            curr = sel[col] if sel[col] is not None else opts
+            curr = [v for v in curr if v in opts]  # remove invalidos
+            if not curr:
+                curr = opts  # fallback: tudo marcado
+
+            n_excl = len(opts) - len(curr)
+            is_active = n_excl > 0
+
+            # Botao que indica o estado do filtro
+            label = f"**{col}**" if is_active else col
+            badge = f" ({n_excl} excl.)" if is_active else ""
+
+            with st.popover(
+                label + badge,
+                use_container_width=True,
+            ):
+                st.markdown(
+                    f'<div style="font-size:11px;font-weight:700;color:#0F172A;'
+                    f'margin-bottom:8px;">{col}</div>',
+                    unsafe_allow_html=True,
                 )
 
-                # O que foi desmarcado = esta em opts mas nao em selected
-                excl[col] = [v for v in opts if v not in selected]
+                # Botoes Selecionar tudo / Limpar
+                bc1, bc2 = st.columns(2)
+                with bc1:
+                    if st.button("Selecionar tudo", key=f"flt_all_{col}",
+                                 use_container_width=True):
+                        sel[col] = None
+                        for k in list(st.session_state.keys()):
+                            if k.startswith("exp_"):
+                                st.session_state[k] = None
+                        st.rerun()
+                with bc2:
+                    if st.button("Limpar", key=f"flt_clr_{col}",
+                                 use_container_width=True):
+                        sel[col] = []
+                        for k in list(st.session_state.keys()):
+                            if k.startswith("exp_"):
+                                st.session_state[k] = None
+                        st.rerun()
 
-    df_f     = _apply_filters(df, excl)
-    n_active = sum(1 for v in excl.values() if v)
+                st.divider()
+
+                # Multiselect com busca + checkboxes
+                new_sel = st.multiselect(
+                    "Valores",
+                    options=opts,
+                    default=curr,
+                    key=f"flt_ms_{col}",
+                    placeholder="Pesquisar...",
+                    label_visibility="collapsed",
+                )
+
+                # Atualiza: None se tudo marcado, lista se filtro ativo
+                sel[col] = None if set(new_sel) == set(opts) else new_sel
+
+    # Aplica todos os filtros e conta ativos
+    df_f     = _apply_filters(df, sel)
+    n_active = sum(1 for v in sel.values() if v is not None)
+
     show, total = len(df_f), len(df)
     pct = round(show / total * 100, 1) if total else 0.0
 
@@ -322,21 +388,22 @@ def _render_filters(df: pd.DataFrame) -> pd.DataFrame:
             f'<div style="font-size:11px;color:{color};padding:4px 0;">'
             f'<strong style="color:#1C2536">{show:,}</strong> de '
             f'<strong style="color:#1C2536">{total:,}</strong> rotas ({pct:.1f}%)'
-            + (f' &nbsp;·&nbsp; <span style="color:#1B5FBF;font-weight:600;">'
-               f'{n_active} coluna(s) com filtro ativo</span>' if n_active else '')
+            + (f'&nbsp;·&nbsp;<span style="color:#1B5FBF;font-weight:600;">'
+               f'{n_active} filtro(s) ativo(s)</span>' if n_active else '')
             + '</div>',
             unsafe_allow_html=True,
         )
     with c2:
-        if n_active and st.button("Limpar", key="btn_clr_flt", use_container_width=True):
-            st.session_state["excluded"] = {c: [] for c in BUSINESS_COLS}
+        if n_active and st.button("Limpar todos", key="btn_clr_all",
+                                   use_container_width=True):
+            st.session_state[KEY] = {c: None for c in BUSINESS_COLS}
             for k in list(st.session_state.keys()):
                 if k.startswith("exp_"):
                     st.session_state[k] = None
             st.rerun()
 
-    # Invalida cache de exports se exclusoes mudaram
-    fhash = str(sorted((k, tuple(v)) for k, v in excl.items() if v))
+    # Invalida cache exports se filtros mudaram
+    fhash = str({k: tuple(sorted(v)) if v else [] for k, v in sel.items()})
     if st.session_state.get("_fhash") != fhash:
         st.session_state["_fhash"] = fhash
         for k in list(st.session_state.keys()):
@@ -436,7 +503,7 @@ def _init_state():
     defaults = {
         "tabela_final": None, "analytics_cache": None,
         "selected_col": None,
-        "excluded": {c: [] for c in BUSINESS_COLS},
+        "flt_selected": {c: None for c in BUSINESS_COLS},
         "_fhash": "",
         "sci_df": None,  "sci_filename": "",  "sci_sheet": None,
         "por_df": None,  "por_filename": "",  "por_sheet": None,
@@ -648,8 +715,8 @@ elif p == "Gerar Tabela":
                     final_df = repo.load()
                 st.session_state["tabela_final"]    = final_df
                 st.session_state["analytics_cache"] = precompute_all(final_df)
-                st.session_state["selected_col"]    = None
-                st.session_state["excluded"]         = {c: [] for c in BUSINESS_COLS}
+                st.session_state["selected_col"] = None
+                st.session_state["flt_selected"] = {c: None for c in BUSINESS_COLS}
                 if inserted > 0:
                     _alert(f"<strong>{inserted:,} rotas adicionadas.</strong> "
                            f"{skipped:,} ja existiam. Total: {len(final_df):,}.", "ok")
