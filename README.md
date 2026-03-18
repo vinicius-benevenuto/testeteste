@@ -334,5 +334,12 @@ render();
 </body>
 </html>"""
 
-    components.html(html, height=height + 10, scrolling=False)
-
+    import html as _html_mod
+    srcdoc = _html_mod.escape(html, quote=True)
+    st.markdown(
+        f'<iframe srcdoc="{srcdoc}" '
+        f'width="100%" height="{height + 10}" '
+        f'style="border:none;display:block;" '
+        f'frameborder="0" scrolling="no"></iframe>',
+        unsafe_allow_html=True,
+    )
