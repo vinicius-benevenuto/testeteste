@@ -1,102 +1,216 @@
-'''URL de Acesso ao IPAN: http://10.113.144.242/administration/users/
-   LOGIN: 40418843 SENHA DE REDE: 230581Bs.@'''
- 
-# Objetivo Principal: Reservar Redes no IPAN
- 
-# Importação de Bibliotecas
+"""
+IPAM - Reserva Automática de Redes
+===================================
+Objetivo: Reservar redes no phpIPAM via API REST.
+URL de Acesso: http://10.113.144.242/administration/users/
+"""
+
+import os
+import logging
 import requests
-import json
-import pandas as pd
- 
-# URL Base da API + Endpoint de Autenticação
-link_autenticacao = "http://10.113.144.242/api/ctp/user/"
- 
-'''O IPAN exige autenticação via usuário e senha para gerar o token de
-acesso. Este token deve ser incluído no cabeçalho de todas as
-requisições subsequentes para identificação e autorização. Devido ao seu
-tempo de expiração, o processo de login deve ser repetido
-periodicamente, conforme a necessidade de uso da API.'''
- 
-resposta_json = requests.post(link_autenticacao, auth=("40418843","230581Bs.@"))
- 
-resposta = resposta_json.json()
- 
-'''Após converter o JSON em um dicionário utilizando o método .json(), acesso o valor do token pela
-chave e o armazeno na variável token_de_acesso.'''
-token_de_acesso = resposta['data']['token']
+from requests.exceptions import RequestException
 
-cabecalho = {
-    "token":token_de_acesso
-}
-
-mask_alvo = "28"
-cn_usuario = "CN 01"
-
-# 1. Mapeamento de qual POOL corresponde a qual máscara (conforme sua explicação)
-
-if mask_alvo == "24":
-    nome_pool_alvo = "POOL 1"
-elif mask_alvo == "28":
-    nome_pool_alvo = "POOL 3"
-elif mask_alvo == "29":
-    nome_pool_alvo = "POOL 4"
-else:
-    nome_pool_alvo = "POOL 5"
-
-# 2. Busca o CN
-
-url_subnets = "http://10.113.144.242/api/ctp/sections/186/subnets/"
-res = requests.get(url_subnets, headers=cabecalho).json()
-id_pasta_cn = next(item['id'] for item in res['data'] if item['description'] == cn_usuario)
-
-print(id_pasta_cn)
-
-# 3. Busca a pasta POOL específica para aquela máscara
-
-url_pool = f"http://10.113.144.242/api/ctp/subnets/{id_pasta_cn}/slaves/"
-res_pool = requests.get(url_pool, headers=cabecalho).json()
-
-# Agora ele busca o POOL certo (ex: POOL 4 se a máscara for 29)
-
-id_pasta_pool = next(
-    (item['id'] for item in res_pool.get('data', []) 
-     if nome_pool_alvo in item.get('description', '').upper()), 
-    None
+# ---------------------------------------------------------------------------
+# Configuração de logging
+# ---------------------------------------------------------------------------
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
 )
+logger = logging.getLogger(__name__)
 
-print(id_pasta_pool)
+# ---------------------------------------------------------------------------
+# Configurações gerais (use variáveis de ambiente em produção)
+# ---------------------------------------------------------------------------
+IPAM_USER = os.getenv("IPAM_USER", "40418843")
+IPAM_PASS = os.getenv("IPAM_PASS", "230581Bs.@")
 
-if not id_pasta_pool:
-    print(f"Erro: Pasta {nome_pool_alvo} não encontrada para o CN {cn_usuario}.")
-else:
-    # 4. Entra na pasta POOL correta e busca a rede pai (master)
-    url_masks = f"http://10.113.144.242/api/ctp/subnets/{id_pasta_cn}/slaves/{id_pasta_pool}"
-    res_masks = requests.get(url_masks, headers=cabecalho).json()
+BASE_URL         = "http://10.113.144.242"
+URL_AUTH         = f"{BASE_URL}/api/ctp/user/"
+URL_SUBNETS_CN   = f"{BASE_URL}/api/ctp/sections/186/subnets/"
 
-    id_rede_pai = next(
-        (item['id'] for item in res_masks.get('data', []) 
-         if item.get('mask') == mask_alvo),
-        None
+# Mapeamento máscara → nome do POOL
+MASK_POOL_MAP: dict[str, str] = {
+    "24": "POOL 1",
+    "28": "POOL 3",
+    "29": "POOL 4",
+}
+DEFAULT_POOL = "POOL 5"
+
+# ---------------------------------------------------------------------------
+# Cliente IPAM
+# ---------------------------------------------------------------------------
+class IPAMClient:
+    """Encapsula autenticação e chamadas à API do phpIPAM."""
+
+    def __init__(self, user: str, password: str) -> None:
+        self.user     = user
+        self.password = password
+        self.token: str | None = None
+        self.session  = requests.Session()
+
+    # ------------------------------------------------------------------
+    # Autenticação
+    # ------------------------------------------------------------------
+    def autenticar(self) -> None:
+        """
+        Realiza login na API e armazena o token de acesso.
+        O token expira periodicamente; chame este método novamente
+        quando necessário.
+        """
+        logger.info("Autenticando na API phpIPAM...")
+        try:
+            resposta = self.session.post(URL_AUTH, auth=(self.user, self.password))
+            resposta.raise_for_status()
+        except RequestException as exc:
+            raise RuntimeError(f"Falha na autenticação: {exc}") from exc
+
+        dados = resposta.json()
+        self.token = dados["data"]["token"]
+        self.session.headers.update({"token": self.token})
+        logger.info("Autenticação bem-sucedida.")
+
+    # ------------------------------------------------------------------
+    # Requisições genéricas
+    # ------------------------------------------------------------------
+    def _get(self, url: str) -> dict:
+        """GET com tratamento de erros centralizado."""
+        try:
+            resposta = self.session.get(url)
+            resposta.raise_for_status()
+        except RequestException as exc:
+            raise RuntimeError(f"Erro na requisição GET [{url}]: {exc}") from exc
+        return resposta.json()
+
+    def _post(self, url: str, payload: dict) -> requests.Response:
+        """POST com tratamento de erros centralizado."""
+        try:
+            resposta = self.session.post(url, json=payload)
+        except RequestException as exc:
+            raise RuntimeError(f"Erro na requisição POST [{url}]: {exc}") from exc
+        return resposta
+
+    # ------------------------------------------------------------------
+    # Lógica de negócio
+    # ------------------------------------------------------------------
+    def buscar_id_cn(self, nome_cn: str) -> int:
+        """Retorna o ID da pasta do CN dentro da seção 186."""
+        logger.info("Buscando CN '%s'...", nome_cn)
+        dados = self._get(URL_SUBNETS_CN)
+
+        for item in dados.get("data", []):
+            if item.get("description") == nome_cn:
+                logger.info("CN '%s' encontrado → ID: %s", nome_cn, item["id"])
+                return int(item["id"])
+
+        raise ValueError(f"CN '{nome_cn}' não encontrado na seção 186.")
+
+    def buscar_id_pool(self, id_cn: int, nome_pool: str) -> int:
+        """Retorna o ID da pasta POOL dentro do CN informado."""
+        logger.info("Buscando pool '%s' no CN ID %d...", nome_pool, id_cn)
+        url  = f"{BASE_URL}/api/ctp/subnets/{id_cn}/slaves/"
+        dados = self._get(url)
+
+        for item in dados.get("data", []):
+            descricao = item.get("description", "").upper()
+            if nome_pool.upper() in descricao:
+                logger.info("Pool '%s' encontrado → ID: %s", nome_pool, item["id"])
+                return int(item["id"])
+
+        raise ValueError(
+            f"Pool '{nome_pool}' não encontrado dentro do CN ID {id_cn}."
+        )
+
+    def buscar_rede_pai(self, id_cn: int, id_pool: int, mascara: str) -> int:
+        """Verifica e retorna o ID da rede pai com a máscara especificada."""
+        logger.info(
+            "Verificando rede pai com máscara /%s no pool ID %d...", mascara, id_pool
+        )
+        url   = f"{BASE_URL}/api/ctp/subnets/{id_cn}/slaves/{id_pool}"
+        dados = self._get(url)
+
+        for item in dados.get("data", []):
+            if item.get("mask") == mascara:
+                logger.info("Rede pai (/%s) encontrada → ID: %s", mascara, item["id"])
+                return int(item["id"])
+
+        raise ValueError(
+            f"Rede pai com máscara /{mascara} não encontrada no pool ID {id_pool}."
+        )
+
+    def reservar_rede(
+        self,
+        id_pool: int,
+        mascara: str,
+        descricao: str,
+    ) -> dict:
+        """
+        Reserva a primeira sub-rede disponível com a máscara informada
+        dentro do pool especificado.
+
+        Retorna os dados da rede criada.
+        """
+        url     = f"{BASE_URL}/api/ctp/subnets/{id_pool}/first_subnet/{mascara}/"
+        payload = {"description": descricao}
+
+        logger.info(
+            "Reservando rede /%s no pool ID %d com descrição '%s'...",
+            mascara, id_pool, descricao,
+        )
+        resposta = self._post(url, payload)
+
+        if resposta.status_code in (200, 201):
+            dados = resposta.json()
+            nova_rede = dados.get("data")
+            logger.info("Rede /%s reservada com sucesso: %s", mascara, nova_rede)
+            return nova_rede
+
+        raise RuntimeError(
+            f"Falha ao reservar subnet (HTTP {resposta.status_code}): {resposta.text}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Ponto de entrada
+# ---------------------------------------------------------------------------
+def main() -> None:
+    # --- Parâmetros da reserva -------------------------------------------
+    mask_alvo  = "28"
+    cn_usuario = "CN 01"
+    descricao_rede = "982 - VIVO2"
+    # -----------------------------------------------------------------------
+
+    nome_pool = MASK_POOL_MAP.get(mask_alvo, DEFAULT_POOL)
+    logger.info(
+        "Iniciando reserva | CN: %s | Máscara: /%s | Pool: %s",
+        cn_usuario, mask_alvo, nome_pool,
     )
 
-    if id_rede_pai:
-        print(f"Sucesso! Entrou na {nome_pool_alvo} e achou a Rede Pai ID: {id_rede_pai}")
-    else:
-        print(f"Erro: Não achou rede /{mask_alvo} dentro da {nome_pool_alvo}.")
+    cliente = IPAMClient(IPAM_USER, IPAM_PASS)
 
-url_reserva = f"http://10.113.144.242/api/ctp/subnets/{id_pasta_pool}/first_subnet/{mask_alvo}/"
+    try:
+        # 1. Autenticação
+        cliente.autenticar()
+
+        # 2. Localiza o CN
+        id_cn = cliente.buscar_id_cn(cn_usuario)
+
+        # 3. Localiza o POOL correto para a máscara
+        id_pool = cliente.buscar_id_pool(id_cn, nome_pool)
+
+        # 4. Confirma existência da rede pai (validação)
+        cliente.buscar_rede_pai(id_cn, id_pool, mask_alvo)
+
+        # 5. Efetua a reserva
+        nova_rede = cliente.reservar_rede(id_pool, mask_alvo, descricao_rede)
+
+        print("\n✅ Reserva concluída com sucesso!")
+        print(f"   Rede criada: {nova_rede}")
+
+    except (ValueError, RuntimeError) as exc:
+        logger.error("❌ %s", exc)
 
 
-dados_nova_rede = {
-    "description": f"982 - VIVO2"
-}
-
-resposta_reserva = requests.post(url_reserva, headers=cabecalho, json=dados_nova_rede)
-
-if resposta_reserva.status_code in [200, 201]:
-    res_final = resposta_reserva.json()
-    nova_rede_ip = res_final.get('data') 
-    print(f"Sucesso! Nova rede /{mask_para_criar} criada: {nova_rede_ip}")
-else:
-    print(f"Erro ao criar subnet: {resposta_reserva.status_code}")
-    print(f"Mensagem: {resposta_reserva.text}")
+if __name__ == "__main__":
+    main()
