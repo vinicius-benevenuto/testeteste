@@ -1,45 +1,72 @@
-import os
+"""
+VIVOHUB — Aplicação Flask para gestão de PTI (Plano Técnico de Interligação).
+
+Refatorado com foco em:
+  - Correção de bugs críticos (IPAMClient fora de loop, self. ausente, código órfão)
+  - Remoção de imports duplicados
+  - Bare except → except Exception
+  - Constantes IPAM no escopo de módulo
+  - _b_conc() adicionado ao build()
+  - import re movido para o topo
+  - Código comprimido expandido (PEP 8)
+  - Type hints aprimorados
+"""
+
+# =============================================================================
+# IMPORTS
+# =============================================================================
 import glob
 import json
-import sqlite3
-import click
-import tempfile
 import logging
-import time
-from pathlib import Path
-from functools import wraps
-from datetime import datetime, timedelta
-from dataclasses import dataclass, field, asdict
-from io import BytesIO
-from typing import Any, Optional
-from collections import defaultdict
 import os
-import logging
-import requests
-from requests.exceptions import RequestException
+import re
+import sqlite3
+import tempfile
+import time
+from collections import defaultdict
+from dataclasses import asdict, dataclass, field
+from datetime import datetime
+from functools import wraps
+from io import BytesIO
+from pathlib import Path
+from typing import Optional
 
+import click
+import requests
 from flask import (
-    Flask, render_template, request, redirect, url_for,
-    session, flash, g, abort, send_file, jsonify,
+    Flask,
+    abort,
+    flash,
+    g,
+    jsonify,
+    redirect,
+    render_template,
+    request,
+    send_file,
+    session,
+    url_for,
 )
-from werkzeug.security import generate_password_hash, check_password_hash
+from requests.exceptions import RequestException
+from werkzeug.security import check_password_hash, generate_password_hash
 
 # =============================================================================
 # IMPORTAÇÕES OPCIONAIS (graceful degradation)
 # =============================================================================
 try:
     from openpyxl import Workbook
-    from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
-    from openpyxl.utils import get_column_letter
     from openpyxl.drawing.image import Image as XLImage
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+    from openpyxl.utils import get_column_letter
+
     OPENPYXL_AVAILABLE = True
 except ImportError:
-    Workbook = None
-    XLImage = None
+    Workbook = None  # type: ignore[assignment]
+    XLImage = None  # type: ignore[assignment]
     OPENPYXL_AVAILABLE = False
 
 try:
     from PIL import Image as PILImage, ImageDraw, ImageFont
+
     PIL_AVAILABLE = True
 except ImportError:
     PIL_AVAILABLE = False
@@ -69,20 +96,19 @@ DEFAULT_SBC_DATA_DIR = r"C:/Users/40418843/Desktop/dados-sbcs"
 SBC_CACHE_TTL_SECONDS = 300
 
 # Mapeamento STATUS do XLSX → nível de saúde interno
-# O STATUS já vem classificado pela equipe de rede no XLSX
-SBC_STATUS_TO_HEALTH = {
-    "normal":   "disponivel",   # Verde — folga, ideal para uso
-    "atenção":  "moderado",     # Amarelo — aceitável com ressalvas
-    "atencao":  "moderado",     # (sem acento)
-    "crítico":  "critico",      # Vermelho — lotado, não recomendado
-    "critico":  "critico",      # (sem acento)
+SBC_STATUS_TO_HEALTH: dict[str, str] = {
+    "normal": "disponivel",
+    "atenção": "moderado",
+    "atencao": "moderado",
+    "crítico": "critico",
+    "critico": "critico",
 }
 
 # Score base por STATUS (0-100)
-SBC_STATUS_BASE_SCORE = {
+SBC_STATUS_BASE_SCORE: dict[str, int] = {
     "disponivel": 70,
-    "moderado":   45,
-    "critico":    15,
+    "moderado": 45,
+    "critico": 15,
 }
 
 # Whitelist de flags do escopo
@@ -111,6 +137,23 @@ JSON_FIELDS = (
 )
 
 # =============================================================================
+# CONSTANTES IPAM
+# Todas as configs de IPAM ficam aqui — jamais dentro de um método/loop.
+# As credenciais devem ser sempre providas via variáveis de ambiente.
+# =============================================================================
+IPAM_BASE_URL = os.getenv("IPAM_BASE_URL", "http://10.113.144.242")
+IPAM_USER = os.getenv("IPAM_USER", "")
+IPAM_PASS = os.getenv("IPAM_PASS", "")          # Nunca hardcode a senha aqui
+IPAM_SECTION_ID = 186
+
+IPAM_MASK_POOL_MAP: dict[str, str] = {
+    "24": "POOL 1",
+    "28": "POOL 3",
+    "29": "POOL 4",
+}
+IPAM_DEFAULT_POOL = "POOL 5"
+
+# =============================================================================
 # SEED DE CNs (Códigos Nacionais de telefonia)
 # =============================================================================
 _CN_SEED_RAW = """
@@ -120,7 +163,7 @@ _CN_SEED_RAW = """
 18 14 15 16 13 19 17 11 12 63
 """
 
-CN_METADATA = {
+CN_METADATA: dict[str, tuple[str, str]] = {
     "11": ("São Paulo", "SP"), "12": ("São José dos Campos", "SP"),
     "13": ("Santos", "SP"), "14": ("Bauru", "SP"),
     "15": ("Sorocaba", "SP"), "16": ("Ribeirão Preto", "SP"),
@@ -161,9 +204,9 @@ CN_METADATA = {
 }
 
 # =============================================================================
-# MAPEAMENTO UF → REGIONAL E VIZINHOS (para fallback inteligente de SBC)
+# MAPEAMENTO UF → REGIONAL E VIZINHOS
 # =============================================================================
-UF_TO_REGIONAL = {
+UF_TO_REGIONAL: dict[str, str] = {
     "AC": "NORTE", "AM": "NORTE", "AP": "NORTE", "PA": "NORTE",
     "RO": "NORTE", "RR": "NORTE", "TO": "NORTE",
     "AL": "NORDESTE", "BA": "NORDESTE", "CE": "NORDESTE",
@@ -175,7 +218,7 @@ UF_TO_REGIONAL = {
     "PR": "SUL", "RS": "SUL", "SC": "SUL",
 }
 
-UF_NEIGHBORS = {
+UF_NEIGHBORS: dict[str, list[str]] = {
     "AC": ["RO", "AM"],
     "AL": ["PE", "SE", "BA"],
     "AM": ["PA", "RR", "AC", "RO", "MT"],
@@ -211,18 +254,18 @@ UF_NEIGHBORS = {
 @dataclass
 class SBCMeasurement:
     """Uma única medição de um SBC (uma linha do XLSX)."""
-    semana: str        # Y2025_W22
-    dia: str           # 26/05/2025
-    cidade: str        # RECIFE
-    uf: str            # PE
-    regional: str      # NORDESTE
-    sbc: str           # PERCE_NGNTRO_SBC01
-    caps: int          # 277
-    status: str        # Atenção / Normal / Crítico
-    modelo: str        # ORACLE (coluna MOD/ FORNEC)
-    servico: str       # ITX
-    responsavel: str   # (pode ser vazio)
-    prazo: str         # (pode ser vazio)
+    semana: str
+    dia: str
+    cidade: str
+    uf: str
+    regional: str
+    sbc: str
+    caps: int
+    status: str
+    modelo: str
+    servico: str
+    responsavel: str
+    prazo: str
 
 
 @dataclass
@@ -231,18 +274,18 @@ class SBCAnalysisResult:
     nome: str
     cidade: str
     uf: str
-    regional: str   
+    regional: str
     modelo: str
     servicos: list
-    caps_avg: float        # média CAPS no período
-    caps_max: int          # CAPS máximo
-    caps_min: int          # CAPS mínimo
-    caps_ultimo: int       # CAPS do dia mais recente
-    caps_tendencia: str    # "estavel" | "subindo" | "descendo"
+    caps_avg: float
+    caps_max: int
+    caps_min: int
+    caps_ultimo: int
+    caps_tendencia: str
     total_medicoes: int
-    status_fonte: str        # pior status no período
-    saude: str             # disponivel | moderado | critico
-    score: int             # 0-100
+    status_fonte: str
+    saude: str
+    score: int
     recomendado: bool
     motivo: str
     responsavel: str
@@ -272,41 +315,179 @@ class SBCSuggestionResponse:
 
 
 # =============================================================================
+# IPAM CLIENT — classe de nível de módulo (não mais aninhada em método/loop)
+# =============================================================================
+class IPAMClient:
+    """
+    Encapsula autenticação e chamadas à API do phpIPAM.
+
+    As configurações de URL e credenciais são lidas das constantes de módulo
+    IPAM_BASE_URL, IPAM_USER e IPAM_PASS (oriundas de variáveis de ambiente).
+    """
+
+    def __init__(self, user: str, password: str, base_url: str = IPAM_BASE_URL) -> None:
+        self.user = user
+        self.password = password
+        self.base_url = base_url
+        self.token: Optional[str] = None
+        self.session = requests.Session()
+
+    # ------------------------------------------------------------------
+    # URLs derivadas
+    # ------------------------------------------------------------------
+    @property
+    def url_auth(self) -> str:
+        return f"{self.base_url}/api/ctp/user/"
+
+    @property
+    def url_subnets_section(self) -> str:
+        return f"{self.base_url}/api/ctp/sections/{IPAM_SECTION_ID}/subnets/"
+
+    # ------------------------------------------------------------------
+    # Autenticação
+    # ------------------------------------------------------------------
+    def autenticar(self) -> None:
+        """Realiza login na API e armazena o token de acesso."""
+        logger.info("Autenticando na API phpIPAM...")
+        try:
+            resposta = self.session.post(self.url_auth, auth=(self.user, self.password))
+            resposta.raise_for_status()
+        except RequestException as exc:
+            raise RuntimeError(f"Falha na autenticação: {exc}") from exc
+
+        dados = resposta.json()
+        self.token = dados["data"]["token"]
+        self.session.headers.update({"token": self.token})
+        logger.info("Autenticação bem-sucedida.")
+
+    # ------------------------------------------------------------------
+    # Requisições genéricas
+    # ------------------------------------------------------------------
+    def _get(self, url: str) -> dict:
+        """GET com tratamento de erros centralizado."""
+        try:
+            resposta = self.session.get(url)
+            resposta.raise_for_status()
+        except RequestException as exc:
+            raise RuntimeError(f"Erro na requisição GET [{url}]: {exc}") from exc
+        return resposta.json()
+
+    def _post(self, url: str, payload: dict) -> requests.Response:
+        """POST com tratamento de erros centralizado."""
+        try:
+            resposta = self.session.post(url, json=payload)
+        except RequestException as exc:
+            raise RuntimeError(f"Erro na requisição POST [{url}]: {exc}") from exc
+        return resposta
+
+    # ------------------------------------------------------------------
+    # Lógica de negócio
+    # ------------------------------------------------------------------
+    def buscar_id_cn(self, nome_cn: str) -> int:
+        """Retorna o ID da pasta do CN dentro da seção configurada."""
+        logger.info("Buscando CN '%s'...", nome_cn)
+        dados = self._get(self.url_subnets_section)
+        for item in dados.get("data", []):
+            if item.get("description") == nome_cn:
+                logger.info("CN '%s' encontrado → ID: %s", nome_cn, item["id"])
+                return int(item["id"])
+        raise ValueError(f"CN '{nome_cn}' não encontrado na seção {IPAM_SECTION_ID}.")
+
+    def buscar_id_pool(self, id_cn: int, nome_pool: str) -> int:
+        """Retorna o ID da pasta POOL dentro do CN informado."""
+        logger.info("Buscando pool '%s' no CN ID %d...", nome_pool, id_cn)
+        url = f"{self.base_url}/api/ctp/subnets/{id_cn}/slaves/"
+        dados = self._get(url)
+        for item in dados.get("data", []):
+            descricao = item.get("description", "").upper()
+            if nome_pool.upper() in descricao:
+                logger.info("Pool '%s' encontrado → ID: %s", nome_pool, item["id"])
+                return int(item["id"])
+        raise ValueError(f"Pool '{nome_pool}' não encontrado dentro do CN ID {id_cn}.")
+
+    def buscar_rede_pai(self, id_cn: int, id_pool: int, mascara: str) -> Optional[int]:
+        """
+        Tenta localizar a rede pai com a máscara especificada.
+
+        Retorna o ID se encontrada, ou None caso contrário.
+        Essa etapa é apenas validação informativa — não bloqueia a reserva.
+        """
+        logger.info(
+            "Verificando rede pai com máscara /%s no pool ID %d...", mascara, id_pool
+        )
+        url = f"{self.base_url}/api/ctp/subnets/{id_cn}/slaves/{id_pool}"
+        try:
+            dados = self._get(url)
+        except RuntimeError as exc:
+            logger.warning("Não foi possível verificar rede pai: %s", exc)
+            return None
+
+        for item in dados.get("data", []):
+            if item.get("mask") == mascara:
+                logger.info("Rede pai (/%s) encontrada → ID: %s", mascara, item["id"])
+                return int(item["id"])
+
+        logger.warning(
+            "Rede pai com máscara /%s não localizada no pool ID %d. "
+            "Prosseguindo com a reserva mesmo assim.",
+            mascara, id_pool,
+        )
+        return None
+
+    def reservar_rede(self, id_pool: int, mascara: str, descricao: str) -> dict:
+        """
+        Reserva a primeira sub-rede disponível com a máscara informada
+        dentro do pool especificado.
+
+        Retorna os dados da rede criada.
+        """
+        url = f"{self.base_url}/api/ctp/subnets/{id_pool}/first_subnet/{mascara}/"
+        payload = {"description": descricao}
+        logger.info(
+            "Reservando rede /%s no pool ID %d com descrição '%s'...",
+            mascara, id_pool, descricao,
+        )
+        resposta = self._post(url, payload)
+        if resposta.status_code in (200, 201):
+            dados = resposta.json()
+            nova_rede = dados.get("data")
+            logger.info("Rede /%s reservada com sucesso: %s", mascara, nova_rede)
+            return nova_rede
+        raise RuntimeError(
+            f"Falha ao reservar subnet (HTTP {resposta.status_code}): {resposta.text}"
+        )
+
+
+# =============================================================================
 # SBC — PROCESSADOR DE DADOS (XLSX)
 # =============================================================================
 class SBCDataProcessor:
     """
     Lê, limpa e cacheia dados de SBC a partir de planilhas XLSX.
+
     Estrutura esperada do XLSX:
       SEMANA | DIA | CIDADE | UF | REGIONAL | SBC | CAPS | STATUS |
       MOD/ FORNEC | SERVIÇO | RESPONSÁVEL | PRAZO
     """
 
-    COLUMN_MAP = {
-        # Período
+    COLUMN_MAP: dict[str, str] = {
         "SEMANA": "semana", "ANO SEMANA": "semana",
         "DIA": "dia",
-        # Localização
         "CIDADE": "cidade",
         "UF": "uf",
         "REGIONAL": "regional",
-        # SBC
         "SBC": "sbc",
         "CAPS": "caps",
-        # Status
         "ST": "status", "STATUS": "status",
-        # Equipamento
         "MOD/ FORNEC": "modelo", "MOD/FORNEC": "modelo",
         "MODELO": "modelo", "FORNECEDOR": "modelo",
         "MOD / FORNEC": "modelo", "FABRICANTE": "modelo",
-        # Serviço
         "SERVIÇO": "servico", "SERVICO": "servico",
-        # Responsável / Prazo
         "RESPONSÁVEL": "responsavel", "RESPONSAVEL": "responsavel",
         "PRAZO": "prazo",
     }
 
-    def __init__(self, data_dir: str, cache_ttl: int = SBC_CACHE_TTL_SECONDS):
+    def __init__(self, data_dir: str, cache_ttl: int = SBC_CACHE_TTL_SECONDS) -> None:
         self.data_dir = data_dir
         self.cache_ttl = cache_ttl
         self._cache_data: list[SBCMeasurement] = []
@@ -317,19 +498,21 @@ class SBCDataProcessor:
 
     def find_latest_file(self) -> Optional[str]:
         if not os.path.isdir(self.data_dir):
-            logger.warning(f"Diretório de SBC não encontrado: {self.data_dir}")
+            logger.warning("Diretório de SBC não encontrado: %s", self.data_dir)
             return None
-        data_files = []
+        data_files: list[str] = []
         for pattern in ("*.xlsx", "*.XLSX", "*.xls", "*.XLS"):
             data_files.extend(glob.glob(os.path.join(self.data_dir, pattern)))
         if not data_files:
-            logger.warning(f"Nenhum arquivo XLSX encontrado em: {self.data_dir}")
+            logger.warning("Nenhum arquivo XLSX encontrado em: %s", self.data_dir)
             return None
         data_files.sort(key=lambda f: os.path.getmtime(f), reverse=True)
         latest = data_files[0]
-        logger.info(f"Arquivo SBC mais recente: {os.path.basename(latest)} "
-                     f"({len(data_files)} arquivos no diretório)")
-        return latest   
+        logger.info(
+            "Arquivo SBC mais recente: %s (%d arquivos no diretório)",
+            os.path.basename(latest), len(data_files),
+        )
+        return latest
 
     def _normalize_column_name(self, raw_name: str) -> str:
         clean = raw_name.strip().upper()
@@ -342,58 +525,71 @@ class SBCDataProcessor:
         except (ValueError, TypeError):
             return default
 
-    def _read_file(self, filepath: str) -> tuple[list[SBCMeasurement], list[dict]]:
+    def _read_file(
+        self, filepath: str
+    ) -> tuple[list[SBCMeasurement], list[dict]]:
         ext = os.path.splitext(filepath)[1].lower()
         if ext in (".xlsx", ".xls"):
             return self._read_xlsx(filepath)
-        logger.warning(f"Formato não suportado: {ext}. Use XLSX.")
+        logger.warning("Formato não suportado: %s. Use XLSX.", ext)
         return [], []
 
-    def _read_xlsx(self, filepath: str) -> tuple[list[SBCMeasurement], list[dict]]:
-        measurements = []
-        aggregated = []
+    def _read_xlsx(
+        self, filepath: str
+    ) -> tuple[list[SBCMeasurement], list[dict]]:
+        measurements: list[SBCMeasurement] = []
+        aggregated: list[dict] = []
+
         if not OPENPYXL_AVAILABLE:
             logger.error("openpyxl não disponível — não é possível ler XLSX.")
             return [], []
+
         try:
             from openpyxl import load_workbook
+
             wb = load_workbook(filepath, read_only=True, data_only=True)
             ws = wb.active
             rows_iter = ws.iter_rows(values_only=True)
+
             try:
                 header_raw = next(rows_iter)
             except StopIteration:
-                logger.error(f"XLSX vazio: {filepath}")
+                logger.error("XLSX vazio: %s", filepath)
                 wb.close()
                 return [], []
-            headers = []
-            for cell_val in header_raw:
-                raw = str(cell_val).strip() if cell_val is not None else ""
-                headers.append(self._normalize_column_name(raw))
-            logger.info(f"Colunas detectadas: {headers}")
 
-            # Validação: verificar se todas as 12 colunas obrigatórias estão presentes
-            required = {"semana", "dia", "cidade", "uf", "regional", "sbc",
-                        "caps", "status", "modelo", "servico", "responsavel", "prazo"}
-            found = set(headers)
-            missing = required - found
+            headers = [
+                self._normalize_column_name(str(cell_val).strip() if cell_val is not None else "")
+                for cell_val in header_raw
+            ]
+            logger.info("Colunas detectadas: %s", headers)
+
+            required = {
+                "semana", "dia", "cidade", "uf", "regional", "sbc",
+                "caps", "status", "modelo", "servico", "responsavel", "prazo",
+            }
+            missing = required - set(headers)
             if missing:
-                logger.warning(f"Colunas ausentes no XLSX: {sorted(missing)}")
+                logger.warning("Colunas ausentes no XLSX: %s", sorted(missing))
 
             for row_num, row_values in enumerate(rows_iter, start=2):
-                normalized_row = {}
+                normalized_row: dict[str, str] = {}
                 for col_idx, cell_val in enumerate(row_values):
                     if col_idx < len(headers):
-                        val = str(cell_val).strip() if cell_val is not None else ""
-                        normalized_row[headers[col_idx]] = val
+                        normalized_row[headers[col_idx]] = (
+                            str(cell_val).strip() if cell_val is not None else ""
+                        )
+
                 sbc_name = normalized_row.get("sbc", "").strip()
                 uf = normalized_row.get("uf", "").strip().upper()
+
                 if sbc_name and uf:
-                    measurement = SBCMeasurement(
+                    measurements.append(SBCMeasurement(
                         semana=normalized_row.get("semana", ""),
                         dia=normalized_row.get("dia", ""),
                         cidade=normalized_row.get("cidade", "").strip().title(),
-                        uf=uf, sbc=sbc_name,
+                        uf=uf,
+                        sbc=sbc_name,
                         regional=normalized_row.get("regional", "").strip().upper(),
                         caps=self._parse_int(normalized_row.get("caps", "0")),
                         status=normalized_row.get("status", "Normal").strip(),
@@ -401,41 +597,56 @@ class SBCDataProcessor:
                         servico=normalized_row.get("servico", "").strip(),
                         responsavel=normalized_row.get("responsavel", "").strip(),
                         prazo=normalized_row.get("prazo", "").strip(),
-                    )
-                    measurements.append(measurement)
+                    ))
                 else:
                     aggregated.append({
-                        "row_num": row_num, "raw_data": normalized_row,
+                        "row_num": row_num,
+                        "raw_data": normalized_row,
                         "nota": "Linha sem SBC/UF identificado (dado agregado ou total)",
                     })
+
             wb.close()
-            logger.info(f"XLSX lido: {len(measurements)} medições, {len(aggregated)} agregadas")
+            logger.info(
+                "XLSX lido: %d medições, %d agregadas",
+                len(measurements), len(aggregated),
+            )
+
         except FileNotFoundError:
-            logger.error(f"XLSX não encontrado: {filepath}")
-        except Exception as e:
-            logger.error(f"Erro ao ler XLSX {filepath}: {e}")
+            logger.error("XLSX não encontrado: %s", filepath)
+        except Exception as exc:
+            logger.error("Erro ao ler XLSX %s: %s", filepath, exc)
+
         return measurements, aggregated
 
-    def get_data(self, force_reload: bool = False) -> tuple[list[SBCMeasurement], list[dict]]:
+    def get_data(
+        self, force_reload: bool = False
+    ) -> tuple[list[SBCMeasurement], list[dict]]:
         now = time.time()
         cache_expired = (now - self._cache_timestamp) > self.cache_ttl
+
         if force_reload or not self._cache_data or cache_expired:
             latest_file = self.find_latest_file()
             if not latest_file:
                 return [], []
+
             current_mtime = os.path.getmtime(latest_file)
-            if (latest_file == self._cache_file_path
-                    and current_mtime == self._cache_file_mtime
-                    and self._cache_data and not force_reload):
+            if (
+                latest_file == self._cache_file_path
+                and current_mtime == self._cache_file_mtime
+                and self._cache_data
+                and not force_reload
+            ):
                 self._cache_timestamp = now
                 return self._cache_data, self._cache_aggregated
-            logger.info(f"Carregando do disco: {os.path.basename(latest_file)}")
+
+            logger.info("Carregando do disco: %s", os.path.basename(latest_file))
             measurements, aggregated = self._read_file(latest_file)
             self._cache_data = measurements
             self._cache_aggregated = aggregated
             self._cache_timestamp = now
             self._cache_file_path = latest_file
             self._cache_file_mtime = current_mtime
+
         return self._cache_data, self._cache_aggregated
 
     def get_file_info(self) -> dict:
@@ -455,61 +666,37 @@ class SBCDataProcessor:
 # SBC — ANALISADOR INTELIGENTE
 # =============================================================================
 class SBCAnalyzer:
-    """
-    Motor de análise e recomendação de SBCs.
+    """Motor de análise e recomendação de SBCs."""
 
-    Lógica de saúde: STATUS do XLSX é a fonte primária (já classificado pela
-    equipe de rede). CAPS é métrica secundária para tendência e desempate.
-
-    Score (0-100):
-      base = 70 (Normal) | 45 (Atenção) | 15 (Crítico)
-      + bônus estabilidade CAPS (variação < 10% → +10)
-      + bônus medições (>= 5 dias → +5)
-      + bônus múltiplos serviços (+3)
-      - penalidade tendência CAPS subindo (-10)
-    """
-
-    def __init__(self, processor: SBCDataProcessor):
+    def __init__(self, processor: SBCDataProcessor) -> None:
         self.processor = processor
 
     def _classify_health(self, status: str) -> str:
-        """Converte STATUS do XLSX para nível de saúde interno.
-
-        Usa mapeamento direto primeiro, depois heurística por substring.
-        """
         key = status.strip().lower()
         result = SBC_STATUS_TO_HEALTH.get(key)
         if result:
             return result
-        # Heurística por substring para variações inesperadas
         if "crít" in key or "crit" in key:
             return "critico"
         if "aten" in key:
             return "moderado"
         if "norm" in key or "ok" in key or "disp" in key:
             return "disponivel"
-        return "moderado"  # default seguro
+        return "moderado"
 
     def _worst_status(self, statuses: list[str]) -> str:
-        """Retorna o pior STATUS entre as medições (case-insensitive).
-
-        Hierarquia: Normal (0) < Atenção (1) < Crítico (2).
-        Normaliza variações de casing/acento do XLSX.
-        """
-        severity_map = {
+        severity_map: dict[str, int] = {
             "normal": 0,
             "atenção": 1, "atencao": 1, "atencion": 1,
             "crítico": 2, "critico": 2,
         }
-        # Mapeia de volta para label canônico usado pelo _classify_health
         canonical = {0: "Normal", 1: "Atenção", 2: "Crítico"}
         worst_score = -1
+
         for s in statuses:
             key = s.strip().lower()
             s_score = severity_map.get(key, -1)
             if s_score < 0:
-                # Heurística: se contém "crít" ou "crit" → crítico;
-                #             se contém "aten" → atenção; senão → normal
                 if "crít" in key or "crit" in key:
                     s_score = 2
                 elif "aten" in key:
@@ -518,77 +705,86 @@ class SBCAnalyzer:
                     s_score = 0
             if s_score > worst_score:
                 worst_score = s_score
-        if worst_score < 0:
-            worst_score = 0
-        return canonical.get(worst_score, "Normal")
+
+        return canonical.get(max(worst_score, 0), "Normal")
 
     def _calc_tendencia(self, caps_values: list[int]) -> str:
-        """Analisa tendência de CAPS: estavel, subindo ou descendo."""
         if len(caps_values) < 2:
             return "estavel"
-        first_half = caps_values[:len(caps_values)//2]
-        second_half = caps_values[len(caps_values)//2:]
-        avg_first = sum(first_half) / len(first_half) if first_half else 0
-        avg_second = sum(second_half) / len(second_half) if second_half else 0
+        mid = len(caps_values) // 2
+        avg_first = sum(caps_values[:mid]) / mid if mid else 0
+        avg_second = sum(caps_values[mid:]) / len(caps_values[mid:]) if caps_values[mid:] else 0
         if avg_first == 0:
             return "estavel"
         variation = (avg_second - avg_first) / avg_first
         if variation > 0.10:
             return "subindo"
-        elif variation < -0.10:
+        if variation < -0.10:
             return "descendo"
         return "estavel"
 
-    def _calculate_score(self, saude: str, tendencia: str,
-                         caps_values: list[int], num_servicos: int,
-                         total_medicoes: int) -> int:
+    def _calculate_score(
+        self,
+        saude: str,
+        tendencia: str,
+        caps_values: list[int],
+        num_servicos: int,
+        total_medicoes: int,
+    ) -> int:
         base = SBC_STATUS_BASE_SCORE.get(saude, 45)
         bonus = 0
-        # Estabilidade: variação < 10% entre min e max
+
         if caps_values:
             mn, mx = min(caps_values), max(caps_values)
             avg = sum(caps_values) / len(caps_values)
             if avg > 0 and (mx - mn) / avg < 0.10:
                 bonus += 10
-        # Mais medições = mais confiança
+
         if total_medicoes >= 5:
             bonus += 5
-        # Múltiplos serviços = mais versatilidade
         if num_servicos > 1:
             bonus += 3
-        # Tendência de CAPS subindo = penalidade
-        penalty = 0
-        if tendencia == "subindo":
-            penalty += 10
+
+        penalty = 10 if tendencia == "subindo" else 0
         return max(0, min(100, int(base + bonus - penalty)))
 
     def _generate_reason(self, result: SBCAnalysisResult) -> str:
-        parts = []
         labels = {
             "disponivel": "capacidade disponível",
             "moderado": "ocupação moderada, monitorar",
             "critico": "capacidade crítica, evitar",
         }
-        parts.append(f"Status XLSX: {result.status_fonte} — {labels.get(result.saude, result.saude)}")
-        parts.append(f"CAPS avg {result.caps_avg} (mín {result.caps_min}, máx {result.caps_max}, último {result.caps_ultimo})")
+        parts = [
+            f"Status XLSX: {result.status_fonte} — {labels.get(result.saude, result.saude)}",
+            (
+                f"CAPS avg {result.caps_avg} "
+                f"(mín {result.caps_min}, máx {result.caps_max}, "
+                f"último {result.caps_ultimo})"
+            ),
+        ]
         if result.caps_tendencia and result.caps_tendencia != "estavel":
             icon = "📈" if result.caps_tendencia == "subindo" else "📉"
             parts.append(f"Tendência: {icon} {result.caps_tendencia}")
         else:
             parts.append("Tendência: → estável")
+
         if result.total_medicoes > 1:
             parts.append(f"{result.total_medicoes} medições")
         if len(result.servicos) > 1:
             parts.append(f"Serviços: {', '.join(result.servicos)}")
         if result.cidade:
             parts.append(f"Local: {result.cidade}/{result.uf}")
+
         return " | ".join(parts)
 
-    def _aggregate_sbc_measurements(self, measurements):
+    def _aggregate_sbc_measurements(
+        self, measurements: list[SBCMeasurement]
+    ) -> list[SBCAnalysisResult]:
         groups: dict[str, list[SBCMeasurement]] = defaultdict(list)
         for m in measurements:
             groups[m.sbc].append(m)
-        results = []
+
+        results: list[SBCAnalysisResult] = []
         for sbc_name, sbc_measurements in groups.items():
             caps_values = [m.caps for m in sbc_measurements]
             caps_avg = sum(caps_values) / len(caps_values) if caps_values else 0
@@ -596,47 +792,57 @@ class SBCAnalyzer:
             caps_min = min(caps_values) if caps_values else 0
             caps_ultimo = caps_values[-1] if caps_values else 0
             caps_tendencia = self._calc_tendencia(caps_values)
-            all_statuses = [m.status for m in sbc_measurements]
-            worst_status = self._worst_status(all_statuses)
+            worst_status = self._worst_status([m.status for m in sbc_measurements])
             saude = self._classify_health(worst_status)
-            servicos = list(dict.fromkeys(m.servico for m in sbc_measurements if m.servico))
-            modelo = sbc_measurements[0].modelo
-            cidade = sbc_measurements[0].cidade
-            regional = sbc_measurements[0].regional
-            uf = sbc_measurements[0].uf
-            semana = sbc_measurements[0].semana
-            responsavel = next((m.responsavel for m in sbc_measurements if m.responsavel), "")
+            servicos = list(dict.fromkeys(
+                m.servico for m in sbc_measurements if m.servico
+            ))
+            first = sbc_measurements[0]
+            responsavel = next(
+                (m.responsavel for m in sbc_measurements if m.responsavel), ""
+            )
             prazo = next((m.prazo for m in sbc_measurements if m.prazo), "")
             dias = [m.dia for m in sbc_measurements if m.dia]
-            dia_recente = dias[-1] if dias else ""
-            score = self._calculate_score(saude, caps_tendencia, caps_values,
-                                           len(servicos), len(sbc_measurements))
+
+            score = self._calculate_score(
+                saude, caps_tendencia, caps_values, len(servicos), len(sbc_measurements)
+            )
             result = SBCAnalysisResult(
-                nome=sbc_name, cidade=cidade, uf=uf, regional=regional,
-                modelo=modelo, servicos=servicos,
-                caps_avg=round(caps_avg, 1), caps_max=caps_max,
-                caps_min=caps_min, caps_ultimo=caps_ultimo,
+                nome=sbc_name,
+                cidade=first.cidade,
+                uf=first.uf,
+                regional=first.regional,
+                modelo=first.modelo,
+                servicos=servicos,
+                caps_avg=round(caps_avg, 1),
+                caps_max=caps_max,
+                caps_min=caps_min,
+                caps_ultimo=caps_ultimo,
                 caps_tendencia=caps_tendencia,
                 total_medicoes=len(sbc_measurements),
-                status_fonte=worst_status, saude=saude, score=score,
-                recomendado=False, motivo="",
-                responsavel=responsavel, prazo=prazo,
-                dia_mais_recente=dia_recente, semana=semana,
+                status_fonte=worst_status,
+                saude=saude,
+                score=score,
+                recomendado=False,
+                motivo="",
+                responsavel=responsavel,
+                prazo=prazo,
+                dia_mais_recente=dias[-1] if dias else "",
+                semana=first.semana,
             )
             results.append(result)
+
         results.sort(key=lambda r: r.score, reverse=True)
         for i, r in enumerate(results):
             r.recomendado = (i == 0)
             r.motivo = self._generate_reason(r)
+
         return results
 
     def _resolve_uf_from_cn(self, cn: str) -> Optional[tuple[str, str]]:
-        cn = str(cn).strip().zfill(2)
-        meta = CN_METADATA.get(cn)
-        return meta if meta else None
+        return CN_METADATA.get(str(cn).strip().zfill(2))
 
     def suggest_for_cn(self, cn: str) -> SBCSuggestionResponse:
-        """Sugere SBCs a partir de CN, resolvendo para UF e delegando."""
         cn = str(cn).strip().zfill(2)
         meta = self._resolve_uf_from_cn(cn)
         if not meta:
@@ -653,12 +859,6 @@ class SBCAnalyzer:
         return result
 
     def suggest_for_uf(self, uf: str) -> SBCSuggestionResponse:
-        """
-        Busca TODOS os SBCs pela UF — sempre retorna todos, inclusive críticos.
-
-        Ordenação: não-críticos primeiro (score desc), depois críticos (score desc).
-        O frontend se encarrega de renderizar críticos com destaque visual em vermelho.
-        """
         uf = uf.strip().upper()
         if len(uf) != 2:
             return SBCSuggestionResponse(
@@ -681,6 +881,7 @@ class SBCAnalyzer:
 
         measurements, _ = self.processor.get_data()
         file_info = self.processor.get_file_info()
+
         if not measurements:
             return SBCSuggestionResponse(
                 cn=cn_found, uf=uf, cidade=cidade, regional=regional,
@@ -691,26 +892,27 @@ class SBCAnalyzer:
                 mensagem="Nenhum dado de SBC disponível. Verifique o diretório de XLSX.",
             )
 
-        # --- Filtrar SBCs do UF ---
         uf_measurements = [m for m in measurements if m.uf == uf]
         fallback_usado = False
         fallback_origem = ""
 
-        # --- Fallback se não há SBCs para o UF ---
+        # Fallback: vizinhos
         if not uf_measurements:
-            neighbors = UF_NEIGHBORS.get(uf, [])
-            for neighbor_uf in neighbors:
+            for neighbor_uf in UF_NEIGHBORS.get(uf, []):
                 uf_measurements = [m for m in measurements if m.uf == neighbor_uf]
                 if uf_measurements:
                     fallback_usado = True
                     fallback_origem = f"UF vizinha: {neighbor_uf}"
                     break
+
+        # Fallback: regional
         if not uf_measurements and regional:
             regional_ufs = [u for u, r in UF_TO_REGIONAL.items() if r == regional]
             uf_measurements = [m for m in measurements if m.uf in regional_ufs]
             if uf_measurements:
                 fallback_usado = True
                 fallback_origem = f"Regional: {regional}"
+
         if not uf_measurements:
             return SBCSuggestionResponse(
                 cn=cn_found, uf=uf, cidade=cidade, regional=regional,
@@ -721,17 +923,17 @@ class SBCAnalyzer:
                 mensagem=f"Nenhum SBC encontrado para {uf}, vizinhos ou regional {regional}.",
             )
 
-        # --- Agregar e classificar TODOS os SBCs ---
         all_results = self._aggregate_sbc_measurements(uf_measurements)
-        nao_criticos = [r for r in all_results if r.saude != "critico"]
-        criticos = [r for r in all_results if r.saude == "critico"]
-
-        # Ordenar: não-críticos primeiro (score desc), depois críticos (score desc)
-        nao_criticos.sort(key=lambda r: r.score, reverse=True)
-        criticos.sort(key=lambda r: r.score, reverse=True)
-
-        # Marcar recomendado: melhor não-crítico, ou melhor crítico se todos são críticos
+        nao_criticos = sorted(
+            [r for r in all_results if r.saude != "critico"],
+            key=lambda r: r.score, reverse=True,
+        )
+        criticos = sorted(
+            [r for r in all_results if r.saude == "critico"],
+            key=lambda r: r.score, reverse=True,
+        )
         ordered = nao_criticos + criticos
+
         for i, r in enumerate(ordered):
             r.recomendado = (i == 0)
             r.motivo = self._generate_reason(r)
@@ -741,7 +943,6 @@ class SBCAnalyzer:
         n_crit = len(criticos)
         todos_crit = (n_disp == 0 and n_crit > 0)
 
-        # Montar mensagem descritiva
         msg_parts = [f"{len(ordered)} SBC(s) encontrado(s) para {uf} ({cidade})"]
         if n_disp > 0:
             msg_parts.append(f"{n_disp} disponível(is)")
@@ -769,20 +970,28 @@ class SBCAnalyzer:
         measurements, aggregated = self.processor.get_data()
         file_info = self.processor.get_file_info()
         if not measurements:
-            return {"file_info": file_info, "total_sbcs": 0, "por_regional": {},
-                    "por_saude": {}, "por_status_fonte": {}, "dados_agregados": len(aggregated)}
+            return {
+                "file_info": file_info, "total_sbcs": 0,
+                "por_regional": {}, "por_saude": {},
+                "por_status_fonte": {}, "dados_agregados": len(aggregated),
+            }
         all_results = self._aggregate_sbc_measurements(measurements)
-        por_regional = defaultdict(int)
-        por_saude = defaultdict(int)
-        por_status = defaultdict(int)
+        por_regional: dict[str, int] = defaultdict(int)
+        por_saude: dict[str, int] = defaultdict(int)
+        por_status: dict[str, int] = defaultdict(int)
+
         for r in all_results:
             por_regional[r.regional] += 1
             por_saude[r.saude] += 1
             por_status[r.status_fonte] += 1
+
         return {
-            "file_info": file_info, "total_sbcs": len(all_results),
-            "por_regional": dict(por_regional), "por_saude": dict(por_saude),
-            "por_status_fonte": dict(por_status), "dados_agregados": len(aggregated),
+            "file_info": file_info,
+            "total_sbcs": len(all_results),
+            "por_regional": dict(por_regional),
+            "por_saude": dict(por_saude),
+            "por_status_fonte": dict(por_status),
+            "dados_agregados": len(aggregated),
             "sbcs": [asdict(r) for r in all_results],
         }
 
@@ -807,13 +1016,16 @@ def create_app() -> Flask:
     app.config["DATABASE"] = os.path.join(app.instance_path, "vivohub.db")
     app.config["ADMIN_CODE"] = os.environ.get("ADMIN_CODE", DEFAULT_ADMIN_CODE)
     app.config["SBC_DATA_DIR"] = os.environ.get("SBC_DATA_DIR", DEFAULT_SBC_DATA_DIR)
+
     Path(app.instance_path).mkdir(parents=True, exist_ok=True)
     export_dir = os.path.join(app.instance_path, "exports")
     Path(export_dir).mkdir(parents=True, exist_ok=True)
     app.config["EXPORT_DIR"] = export_dir
+
     sbc_processor = SBCDataProcessor(app.config["SBC_DATA_DIR"])
     sbc_analyzer = SBCAnalyzer(sbc_processor)
     app.config["SBC_ANALYZER"] = sbc_analyzer
+
     _register_db_hooks(app)
     _register_security_headers(app)
     _register_context_processors(app)
@@ -835,7 +1047,7 @@ def get_db() -> sqlite3.Connection:
     return g.db
 
 
-def _register_db_hooks(app):
+def _register_db_hooks(app: Flask) -> None:
     @app.teardown_appcontext
     def close_db(exception=None):
         db = g.pop("db", None)
@@ -847,7 +1059,7 @@ def _register_db_hooks(app):
         _init_db()
 
 
-def _init_db():
+def _init_db() -> None:
     db = get_db()
     db.executescript("""
         CREATE TABLE IF NOT EXISTS users (
@@ -889,6 +1101,7 @@ def _init_db():
             FOREIGN KEY(form_id) REFERENCES atacado_forms(id)
         );
     """)
+
     for table, col, coldef in [
         ("atacado_forms", "owner_id", "INTEGER NOT NULL DEFAULT 0"),
         ("atacado_forms", "engenharia_params_json", "TEXT"),
@@ -900,19 +1113,21 @@ def _init_db():
         ("atacado_forms", "responsavel_engenharia", "TEXT"),
     ]:
         _ensure_column(db, table, col, coldef)
+
     db.commit()
     _seed_cns(db)
     _apply_cn_metadata(db)
 
 
-def _ensure_column(db, table, column, coldef):
+def _ensure_column(db: sqlite3.Connection, table: str, column: str, coldef: str) -> None:
     existing = {r["name"] for r in db.execute(f"PRAGMA table_info({table});").fetchall()}
     if column not in existing:
         db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {coldef};")
 
 
-def _parse_cn_seed(raw):
-    seen, result = set(), []
+def _parse_cn_seed(raw: str) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
     for tok in raw.split():
         code = tok.strip().zfill(2)
         if code.isdigit() and code not in seen:
@@ -921,7 +1136,7 @@ def _parse_cn_seed(raw):
     return result
 
 
-def _seed_cns(db):
+def _seed_cns(db: sqlite3.Connection) -> None:
     db.execute("""
         CREATE TABLE IF NOT EXISTS cns (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -931,23 +1146,29 @@ def _seed_cns(db):
     """)
     if db.execute("SELECT COUNT(*) AS c FROM cns").fetchone()["c"] == 0:
         codes = _parse_cn_seed(_CN_SEED_RAW)
-        db.executemany("INSERT OR IGNORE INTO cns (codigo, ativo) VALUES (?, 1)", [(c,) for c in codes])
+        db.executemany(
+            "INSERT OR IGNORE INTO cns (codigo, ativo) VALUES (?, 1)",
+            [(c,) for c in codes],
+        )
         db.commit()
 
 
-def _apply_cn_metadata(db):
+def _apply_cn_metadata(db: sqlite3.Connection) -> None:
     for code, (nome, uf) in CN_METADATA.items():
-        db.execute("""
+        db.execute(
+            """
             INSERT INTO cns (codigo, nome, uf, ativo) VALUES (?, ?, ?, 1)
             ON CONFLICT(codigo) DO UPDATE SET nome=excluded.nome, uf=excluded.uf, ativo=1
-        """, (code, nome, uf))
+            """,
+            (code, nome, uf),
+        )
     db.commit()
 
 
 # =============================================================================
 # SEGURANÇA
 # =============================================================================
-def _register_security_headers(app):
+def _register_security_headers(app: Flask) -> None:
     @app.after_request
     def add_headers(resp):
         resp.headers.setdefault("X-Content-Type-Options", "nosniff")
@@ -958,41 +1179,41 @@ def _register_security_headers(app):
 
 def login_required(view):
     @wraps(view)
-    def wrapped(*a, **kw):
+    def wrapped(*args, **kwargs):
         if "user_id" not in session:
             return redirect(url_for("login"))
-        return view(*a, **kw)
+        return view(*args, **kwargs)
     return wrapped
 
 
-def role_required(required_role):
+def role_required(required_role: str):
     def decorator(view):
         @wraps(view)
-        def wrapped(*a, **kw):
+        def wrapped(*args, **kwargs):
             if "user_id" not in session:
                 return redirect(url_for("login"))
             if session.get("role") != required_role:
                 flash("Acesso negado para esta área.", "danger")
                 return redirect(url_for(f"central_{session.get('role')}"))
-            return view(*a, **kw)
+            return view(*args, **kwargs)
         return wrapped
     return decorator
 
 
 def admin_required(view):
     @wraps(view)
-    def wrapped(*a, **kw):
+    def wrapped(*args, **kwargs):
         if not session.get("is_admin"):
             flash("Área restrita ao administrador.", "danger")
             return redirect(url_for("admin_login"))
-        return view(*a, **kw)
+        return view(*args, **kwargs)
     return wrapped
 
 
 # =============================================================================
 # HELPERS
 # =============================================================================
-def row_get(row, key, default=""):
+def row_get(row, key: str, default=""):
     try:
         v = row[key]
         return default if v is None else v
@@ -1000,14 +1221,14 @@ def row_get(row, key, default=""):
         return default
 
 
-def safe_filename(name):
+def safe_filename(name: str) -> str:
     name = (name or "").strip().replace(" ", "_")
     for ch in ("..", "/", "\\", ":", "*", "?", '"', "<", ">", "|"):
         name = name.replace(ch, "_")
     return name or "Operadora"
 
 
-def parse_db_datetime(value):
+def parse_db_datetime(value) -> Optional[datetime]:
     if not value:
         return None
     try:
@@ -1016,7 +1237,7 @@ def parse_db_datetime(value):
         return None
 
 
-def truncate_json_list(raw, default="[]"):
+def truncate_json_list(raw, default: str = "[]") -> str:
     if not raw:
         return default
     try:
@@ -1028,35 +1249,28 @@ def truncate_json_list(raw, default="[]"):
         return default
 
 
-def parse_bool_field(value):
+def parse_bool_field(value) -> int:
     return 1 if str(value).lower() in ("on", "1", "true", "sim") else 0
 
 
 # =============================================================================
 # PROCESSAMENTO DE FORMULÁRIO
 # =============================================================================
-def extract_scope_flags_from_request():
+def extract_scope_flags_from_request() -> str:
     """
     Extrai flags de escopo do request.
 
-    FIX CRÍTICO: O código original lia request.form.getlist("escopo_flags"),
-    mas os checkboxes no template NÃO têm name="escopo_flags" — apenas
-    data-flag. O JS atualiza o hidden input "escopo_flags_json" com um JSON
-    string. Esta função agora lê corretamente do hidden input como fallback.
+    Tentativa 1: checkboxes com name="escopo_flags".
+    Tentativa 2: hidden input "escopo_flags_json" atualizado pelo JavaScript.
     """
-    # Tentativa 1: checkboxes com name="escopo_flags" (caso existam no futuro)
     raw = request.form.getlist("escopo_flags") or []
 
-    # Tentativa 2 (PRINCIPAL): lê do hidden input "escopo_flags_json"
-    # que é atualizado pelo JavaScript no frontend
     if not raw:
         json_raw = request.form.get("escopo_flags_json", "[]")
         try:
             parsed = json.loads(json_raw) if isinstance(json_raw, str) else []
             if isinstance(parsed, list):
                 raw = [str(x).strip() for x in parsed if str(x).strip()]
-            else:
-                raw = []
         except (json.JSONDecodeError, TypeError):
             raw = []
 
@@ -1064,7 +1278,7 @@ def extract_scope_flags_from_request():
     return json.dumps(list(dict.fromkeys(valid)), ensure_ascii=False)
 
 
-def _parse_json_dict(raw):
+def _parse_json_dict(raw) -> str:
     if not raw:
         return "{}"
     try:
@@ -1076,22 +1290,26 @@ def _parse_json_dict(raw):
     return "{}"
 
 
-def extract_form_payload():
-    payload = {}
-    for field in TEXT_FIELDS:
-        payload[field] = (request.form.get(field) or "").strip()
-    for field in BOOLEAN_FIELDS:
-        payload[field] = parse_bool_field(request.form.get(field))
+def extract_form_payload() -> dict:
+    payload: dict = {}
+    for f in TEXT_FIELDS:
+        payload[f] = (request.form.get(f) or "").strip()
+    for f in BOOLEAN_FIELDS:
+        payload[f] = parse_bool_field(request.form.get(f))
     payload["escopo_flags_json"] = extract_scope_flags_from_request()
-    for field in JSON_FIELDS:
-        if field == "escopo_flags_json":
+    for f in JSON_FIELDS:
+        if f == "escopo_flags_json":
             continue
-        raw = request.form.get(field, "")
-        payload[field] = _parse_json_dict(raw) if field == "engenharia_params_json" else truncate_json_list(raw, "[]")
+        raw = request.form.get(f, "")
+        payload[f] = (
+            _parse_json_dict(raw)
+            if f == "engenharia_params_json"
+            else truncate_json_list(raw, "[]")
+        )
     return payload
 
 
-def validate_table_rows(payload):
+def validate_table_rows(payload: dict) -> bool:
     truncated = False
     for key in ("dados_vivo_json", "dados_operadora_json"):
         try:
@@ -1107,7 +1325,7 @@ def validate_table_rows(payload):
 # =============================================================================
 # CONTEXT PROCESSORS E TEMPLATE FILTERS
 # =============================================================================
-def _register_context_processors(app):
+def _register_context_processors(app: Flask) -> None:
     @app.context_processor
     def inject_cn_codes():
         db = get_db()
@@ -1117,13 +1335,16 @@ def _register_context_processors(app):
         ).fetchall()
         return {
             "CN_CODES": [r["codigo"] for r in rows],
-            "CN_FULL": [{"codigo": r["codigo"], "nome": r["nome"], "uf": r["uf"]} for r in rows],
+            "CN_FULL": [
+                {"codigo": r["codigo"], "nome": r["nome"], "uf": r["uf"]}
+                for r in rows
+            ],
         }
 
 
-def _register_template_filters(app):
+def _register_template_filters(app: Flask) -> None:
     @app.template_filter("date_br")
-    def date_br_filter(value):
+    def date_br_filter(value) -> str:
         if not value:
             return ""
         if hasattr(value, "strftime"):
@@ -1138,35 +1359,58 @@ def _register_template_filters(app):
 # =============================================================================
 # QUERIES
 # =============================================================================
-def build_list_query(base_sql, *, search_term=None, status_filter=None,
-                     owner_id=None, sort_key="-created_at"):
-    conditions, params = [], []
+def build_list_query(
+    base_sql: str,
+    *,
+    search_term: Optional[str] = None,
+    status_filter: Optional[str] = None,
+    owner_id: Optional[int] = None,
+    sort_key: str = "-created_at",
+) -> tuple[str, list]:
+    conditions: list[str] = []
+    params: list = []
+
     if owner_id is not None:
-        conditions.append("owner_id = ?"); params.append(owner_id)
+        conditions.append("owner_id = ?")
+        params.append(owner_id)
     if search_term:
-        conditions.append("nome_operadora LIKE ?"); params.append(f"%{search_term}%")
+        conditions.append("nome_operadora LIKE ?")
+        params.append(f"%{search_term}%")
     if status_filter:
-        conditions.append("LOWER(COALESCE(status, '')) = LOWER(?)"); params.append(status_filter)
+        conditions.append("LOWER(COALESCE(status, '')) = LOWER(?)")
+        params.append(status_filter)
+
     if conditions:
         base_sql += " WHERE " + " AND ".join(conditions)
+
     sort_map = {
-        "created_at": "created_at ASC", "-created_at": "created_at DESC",
+        "created_at": "created_at ASC",
+        "-created_at": "created_at DESC",
         "nome_operadora": "nome_operadora COLLATE NOCASE ASC",
         "-nome_operadora": "nome_operadora COLLATE NOCASE DESC",
-        "id": "id ASC", "-id": "id DESC",
+        "id": "id ASC",
+        "-id": "id DESC",
     }
     base_sql += f" ORDER BY {sort_map.get(sort_key, 'id DESC')}"
     return base_sql, params
 
 
-def get_status_counters(db, extra_where="", extra_params=()):
+def get_status_counters(
+    db: sqlite3.Connection,
+    extra_where: str = "",
+    extra_params: tuple = (),
+) -> dict[str, int]:
     connector = "AND" if "WHERE" in extra_where else "WHERE"
-    def _count(cond=""):
+
+    def _count(cond: str = "") -> int:
         sql = f"SELECT COUNT(*) AS c FROM atacado_forms {extra_where}"
-        if cond: sql += f" {connector} {cond}"
+        if cond:
+            sql += f" {connector} {cond}"
         return db.execute(sql, extra_params).fetchone()["c"]
+
     return {
-        "total": _count(), "rascunho": _count("LOWER(status) = 'rascunho'"),
+        "total": _count(),
+        "rascunho": _count("LOWER(status) = 'rascunho'"),
         "enviado": _count("LOWER(status) = 'enviado'"),
         "em_revisao": _count("LOWER(status) = 'em revisão'"),
         "aprovado": _count("LOWER(status) = 'aprovado'"),
@@ -1176,61 +1420,103 @@ def get_status_counters(db, extra_where="", extra_params=()):
 # =============================================================================
 # PROCESSAMENTO DE IMAGENS (Pillow)
 # =============================================================================
-def parse_xy_percent(raw, default):
-    if not raw: return default
+def parse_xy_percent(raw, default: tuple) -> tuple:
+    if not raw:
+        return default
     try:
         parts = [p.strip() for p in str(raw).split(",")]
-        if len(parts) != 2: return default
-        return (max(0.0, min(1.0, float(parts[0]))), max(0.0, min(1.0, float(parts[1]))))
-    except (ValueError, TypeError): return default
+        if len(parts) != 2:
+            return default
+        return (
+            max(0.0, min(1.0, float(parts[0]))),
+            max(0.0, min(1.0, float(parts[1]))),
+        )
+    except (ValueError, TypeError):
+        return default
 
 
-def fit_size_keep_aspect(ow, oh, mw, mh):
-    if ow <= 0 or oh <= 0: return mw, mh
+def fit_size_keep_aspect(ow: int, oh: int, mw: int, mh: int) -> tuple[int, int]:
+    if ow <= 0 or oh <= 0:
+        return mw, mh
     s = min(mw / ow, mh / oh)
     return int(ow * s), int(oh * s)
 
 
-def _find_system_font(size_px, preferred=None):
-    if not PIL_AVAILABLE: return None
+def _find_system_font(size_px: int, preferred: Optional[str] = None):
+    if not PIL_AVAILABLE:
+        return None
     if preferred:
-        try: return ImageFont.truetype(preferred, size_px)
-        except (OSError, IOError): pass
-    for p in ["C:\\Windows\\Fonts\\arial.ttf",
-              "/System/Library/Fonts/Supplemental/Arial.ttf",
-              "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"]:
-        try: return ImageFont.truetype(p, size_px)
-        except (OSError, IOError): continue
+        try:
+            return ImageFont.truetype(preferred, size_px)
+        except (OSError, IOError):
+            pass
+    for path in [
+        r"C:\Windows\Fonts\arial.ttf",
+        "/System/Library/Fonts/Supplemental/Arial.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    ]:
+        try:
+            return ImageFont.truetype(path, size_px)
+        except (OSError, IOError):
+            continue
     return ImageFont.load_default()
 
 
 def render_labels_on_image(
-    image_path, vivo_text, operator_text, *,
-    vivo_xy_pct=(0.18, 0.55), operator_xy_pct=(0.80, 0.55),
-    font_path=None, font_size_pct=0.06,
-    fill=(255,255,255,255), stroke_fill=(0,0,0,255),
-    stroke_width_pct=0.012, extra_labels=None,
+    image_path: str,
+    vivo_text: str,
+    operator_text: str,
+    *,
+    vivo_xy_pct: tuple = (0.18, 0.55),
+    operator_xy_pct: tuple = (0.80, 0.55),
+    font_path: Optional[str] = None,
+    font_size_pct: float = 0.06,
+    fill: tuple = (255, 255, 255, 255),
+    stroke_fill: tuple = (0, 0, 0, 255),
+    stroke_width_pct: float = 0.012,
+    extra_labels: Optional[list] = None,
 ) -> str:
     if not PIL_AVAILABLE:
         raise RuntimeError("Pillow não instalado.")
+
     img = PILImage.open(image_path).convert("RGBA")
     W, H = img.size
     draw = ImageDraw.Draw(img)
-    def _draw(text, xy, sz, *, lf=fill, ls=stroke_fill, lw=stroke_width_pct, anch="mm"):
-        if not text: return
+
+    def _draw(
+        text: str,
+        xy: tuple,
+        sz: float,
+        *,
+        lf=fill,
+        ls=stroke_fill,
+        lw: float = stroke_width_pct,
+        anch: str = "mm",
+    ) -> None:
+        if not text:
+            return
         x, y = int(W * xy[0]), int(H * xy[1])
         font = _find_system_font(max(12, int(H * sz)), font_path)
-        draw.text((x, y), text, font=font, fill=lf,
-                  stroke_width=max(0, int(H * lw)), stroke_fill=ls, anchor=anch)
+        draw.text(
+            (x, y), text, font=font, fill=lf,
+            stroke_width=max(0, int(H * lw)), stroke_fill=ls, anchor=anch,
+        )
+
     _draw(vivo_text, vivo_xy_pct, font_size_pct)
     _draw(operator_text, operator_xy_pct, font_size_pct)
+
     if extra_labels:
         for lbl in extra_labels:
-            _draw(lbl.get("text",""), lbl.get("xy_pct",(0.5,0.5)),
-                  float(lbl.get("font_size_pct", font_size_pct)),
-                  lf=lbl.get("fill",fill), ls=lbl.get("stroke_fill",stroke_fill),
-                  lw=float(lbl.get("stroke_width_pct",stroke_width_pct)),
-                  anch=lbl.get("anchor","mm"))
+            _draw(
+                lbl.get("text", ""),
+                lbl.get("xy_pct", (0.5, 0.5)),
+                float(lbl.get("font_size_pct", font_size_pct)),
+                lf=lbl.get("fill", fill),
+                ls=lbl.get("stroke_fill", stroke_fill),
+                lw=float(lbl.get("stroke_width_pct", stroke_width_pct)),
+                anch=lbl.get("anchor", "mm"),
+            )
+
     fd, tmp = tempfile.mkstemp(prefix="vivohub_diagrama_", suffix=".png")
     os.close(fd)
     img.save(tmp, format="PNG")
@@ -1242,7 +1528,8 @@ def render_labels_on_image(
 # =============================================================================
 class ExcelStylePalette:
     """Paleta centralizada de estilos para Excel."""
-    def __init__(self):
+
+    def __init__(self) -> None:
         self.fill_primary = PatternFill("solid", fgColor="4A148C")
         self.fill_secondary = PatternFill("solid", fgColor="6A1B9A")
         self.fill_light = PatternFill("solid", fgColor="7B1FA2")
@@ -1250,6 +1537,7 @@ class ExcelStylePalette:
         self.fill_neutral = PatternFill("solid", fgColor="E1BEE7")
         self.fill_background = PatternFill("solid", fgColor="F3E5F5")
         self.fill_white = PatternFill("solid", fgColor="FFFFFF")
+
         self.font_title = Font(name="Calibri", size=14, bold=True, color="FFFFFF")
         self.font_subtitle = Font(name="Calibri", size=12, bold=True, color="FFFFFF")
         self.font_brand = Font(name="Calibri", size=12, bold=True, color="FFFFFF")
@@ -1260,535 +1548,426 @@ class ExcelStylePalette:
         self.font_micro = Font(name="Calibri", size=8, bold=True, color="FFFFFF")
         self.font_check = Font(name="Calibri", size=11, bold=True, color="008000")
         self.font_x = Font(name="Calibri", size=11, bold=True, color="FF0000")
+
         thin = Side(style="thin", color="DDDDDD")
         self.box_border = Border(left=thin, right=thin, top=thin, bottom=thin)
         self.no_border = Border()
+
         self.align_center = Alignment(horizontal="center", vertical="center")
         self.align_left = Alignment(horizontal="left", vertical="center")
         self.align_wrap = Alignment(horizontal="left", vertical="center", wrap_text=True)
-        self.align_center_wrap = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        self.align_center_wrap = Alignment(
+            horizontal="center", vertical="center", wrap_text=True
+        )
 
-    def alt_fill(self, idx):
+    def alt_fill(self, idx: int):
         return self.fill_background if idx % 2 == 0 else self.fill_white
 
 
 class PTIWorkbookBuilder:
     """Builder para Workbook Excel do PTI."""
 
-    def __init__(self, form_row, sbc_analyzer=None):
-        if not OPENPYXL_AVAILABLE: raise RuntimeError("openpyxl não instalado.")
-        if not PIL_AVAILABLE: raise RuntimeError("Pillow não instalado.")
+    def __init__(self, form_row, sbc_analyzer: Optional[SBCAnalyzer] = None) -> None:
+        if not OPENPYXL_AVAILABLE:
+            raise RuntimeError("openpyxl não instalado.")
+        if not PIL_AVAILABLE:
+            raise RuntimeError("Pillow não instalado.")
+
         self.form = form_row
-        self.sbc_analyzer = sbc_analyzer  # SBCAnalyzer instance (optional)
+        self.sbc_analyzer = sbc_analyzer
         self.s = ExcelStylePalette()
         self.wb = Workbook()
         self.nome = (row_get(form_row, "nome_operadora") or "Operadora").strip()
-        self.resp_atk = (row_get(form_row, "responsavel_atacado") or row_get(form_row, "responsavel_vivo") or "").strip()
-        self.resp_eng = (row_get(form_row, "responsavel_engenharia","") or "").strip()
-        self.asn_op = (row_get(form_row, "asn","") or "").strip()
-        cdt = parse_db_datetime(row_get(form_row, "created_at",""))
+        self.resp_atk = (
+            row_get(form_row, "responsavel_atacado")
+            or row_get(form_row, "responsavel_vivo")
+            or ""
+        ).strip()
+        self.resp_eng = (row_get(form_row, "responsavel_engenharia", "") or "").strip()
+        self.asn_op = (row_get(form_row, "asn", "") or "").strip()
+
+        cdt = parse_db_datetime(row_get(form_row, "created_at", ""))
         self.created_str = cdt.strftime("%d/%m/%Y") if cdt else ""
 
-        # -----------------------------------------------------------------
-        # FIX: Extrair TODOS os flags de escopo (sem truncar em 3)
-        # -----------------------------------------------------------------
         self.traffic = self._extract_traffic()
-
         self.conc = self._extract_conc()
+        self.escopo_text = (row_get(form_row, "escopo_text", "") or "").strip()
 
-        # Texto livre do escopo
-        self.escopo_text = (row_get(form_row, "escopo_text","") or "").strip()
-
-        # -----------------------------------------------------------------
-        # FIX: Escopo completo para aba Versões = texto + flags
-        # -----------------------------------------------------------------
         if self.traffic:
             flags_str = " | ".join(self.traffic)
-            self.escopo_completo = f"{self.escopo_text} [{flags_str}]" if self.escopo_text else flags_str
+            self.escopo_completo = (
+                f"{self.escopo_text} [{flags_str}]" if self.escopo_text else flags_str
+            )
         else:
             self.escopo_completo = self.escopo_text
 
-        # Dados das tabelas do formulário
         self.vivo_rows = self._extract_vivo_rows()
         self.op_rows = self._extract_op_rows()
 
-        reserva_redes_ipam(vivo_rows)
+        # FIX: chamada correta via self. (antes era uma chamada global inválida)
+        self.reserva_redes_ipam(self.vivo_rows)
 
-        # CNs e Áreas Locais únicos (combinando vivo + operadora)
         cns_vivo = self._unique_field(self.vivo_rows, "cn")
         cns_op = self._unique_field(self.op_rows, "cn")
-        self.cns_unicos = list(dict.fromkeys(cns_vivo + cns_op))  # merge preservando ordem
+        self.cns_unicos = list(dict.fromkeys(cns_vivo + cns_op))
 
         areas_vivo = self._unique_field(self.vivo_rows, "cidade")
         areas_op = self._unique_field(self.op_rows, "cidade")
-        self.areas_locais = list(dict.fromkeys(areas_vivo + areas_op))  # merge preservando ordem
+        self.areas_locais = list(dict.fromkeys(areas_vivo + areas_op))
 
-        # -----------------------------------------------------------------
-        # Indicadores para Plan Num_Oper (RN1/EOT/CSP/CNG/RN2)
-        # -----------------------------------------------------------------
         self.rn1 = (row_get(form_row, "rn1", "") or "").strip()
         self.csp = bool(int(row_get(form_row, "csp", 0) or 0))
         self.cng = bool(int(row_get(form_row, "cng", 0) or 0))
-        self.servicos_especiais = bool(int(row_get(form_row, "servicos_especiais", 0) or 0))
-        # EOT Local: verifica se há valores em eto_lc nos dados
-        _all_rows = self.vivo_rows + self.op_rows
-        eot_lc_vals = [r.get("eto_lc", "") for r in _all_rows if r.get("eto_lc", "").strip()]
+        self.servicos_especiais = bool(
+            int(row_get(form_row, "servicos_especiais", 0) or 0)
+        )
+
+        all_rows = self.vivo_rows + self.op_rows
+        eot_lc_vals = [r.get("eto_lc", "") for r in all_rows if r.get("eto_lc", "").strip()]
         self.eot_local = ", ".join(eot_lc_vals) if eot_lc_vals else ""
-        eot_ld_vals = [r.get("eot_ld", "") for r in _all_rows if r.get("eot_ld", "").strip()]
+        eot_ld_vals = [r.get("eot_ld", "") for r in all_rows if r.get("eot_ld", "").strip()]
         self.eot_ld = ", ".join(eot_ld_vals) if eot_ld_vals else ""
 
-    def _extract_vivo_rows(self):
+    # =========================================================================
+    # RESERVA IPAM — método corrigido (IPAMClient agora é classe de módulo)
+    # =========================================================================
+    def reserva_redes_ipam(self, vivo_rows: list[dict]) -> None:
+        """
+        Reserva redes no phpIPAM para cada linha da tabela VIVO.
+
+        Requisita as variáveis de ambiente IPAM_USER e IPAM_PASS.
+        Sem credenciais, o método loga um aviso e encerra sem erro.
+        """
+        if not IPAM_USER or not IPAM_PASS:
+            logger.warning(
+                "Credenciais IPAM não configuradas (IPAM_USER / IPAM_PASS). "
+                "Reserva de redes ignorada."
+            )
+            return
+
+        for item in vivo_rows:
+            cn_usuario = item.get("cn", "")
+            mask_alvo = item.get("mask", "")
+            descricao_rede = item.get("escopo", "")
+
+            if not cn_usuario or not mask_alvo:
+                logger.debug("Linha sem CN ou máscara — ignorada para reserva IPAM.")
+                continue
+
+            nome_pool = IPAM_MASK_POOL_MAP.get(mask_alvo, IPAM_DEFAULT_POOL)
+            logger.info(
+                "Iniciando reserva | CN: %s | Máscara: /%s | Pool: %s",
+                cn_usuario, mask_alvo, nome_pool,
+            )
+
+            cliente = IPAMClient(IPAM_USER, IPAM_PASS)
+            try:
+                cliente.autenticar()
+                id_cn = cliente.buscar_id_cn(cn_usuario)
+                id_pool = cliente.buscar_id_pool(id_cn, nome_pool)
+                cliente.buscar_rede_pai(id_cn, id_pool, mask_alvo)
+                nova_rede = cliente.reservar_rede(id_pool, mask_alvo, descricao_rede)
+                logger.info("Reserva concluída: %s", nova_rede)
+            except (ValueError, RuntimeError) as exc:
+                logger.error("Falha na reserva IPAM para CN '%s': %s", cn_usuario, exc)
+
+    # =========================================================================
+    # EXTRAÇÃO DE DADOS DO FORMULÁRIO
+    # =========================================================================
+    def _extract_vivo_rows(self) -> list[dict]:
         raw = row_get(self.form, "dados_vivo_json", "[]")
         try:
             d = json.loads(raw) if isinstance(raw, str) else raw
-            if not isinstance(d, list): return []
+            if not isinstance(d, list):
+                return []
+            keys = ("ref", "data", "escopo", "localidade", "cn", "sbc", "mask",
+                    "endereco_link", "cidade", "uf", "lat", "long")
             rows = []
             for item in d:
-                if not isinstance(item, dict): continue
-                row = {k: str(item.get(k,"")).strip() for k in (
-                    "ref","data","escopo","localidade","cn","sbc","mask",
-                    "endereco_link","cidade","uf","lat","long"
-                )}
-                if any(row.values()): rows.append(row)
+                if not isinstance(item, dict):
+                    continue
+                row = {k: str(item.get(k, "")).strip() for k in keys}
+                if any(row.values()):
+                    rows.append(row)
             return rows[:MAX_TABLE_ROWS]
-        except: return []
+        except Exception:
+            return []
 
-    def _extract_op_rows(self):
+    def _extract_op_rows(self) -> list[dict]:
         raw = row_get(self.form, "dados_operadora_json", "[]")
         try:
             d = json.loads(raw) if isinstance(raw, str) else raw
-            if not isinstance(d, list): return []
+            if not isinstance(d, list):
+                return []
+            keys = ("ref", "localidade", "eto_lc", "eot_ld", "cn", "sbc", "faixa_ip",
+                    "concentracao", "endereco_link", "cidade", "uf", "lat", "long")
             rows = []
             for item in d:
-                if not isinstance(item, dict): continue
-                row = {k: str(item.get(k,"")).strip() for k in (
-                    "ref","localidade","eto_lc","eot_ld","cn","sbc","faixa_ip",
-                    "concentracao","endereco_link","cidade","uf","lat","long"
-                )}
-                if any(row.values()): rows.append(row)
+                if not isinstance(item, dict):
+                    continue
+                row = {k: str(item.get(k, "")).strip() for k in keys}
+                if any(row.values()):
+                    rows.append(row)
             return rows[:MAX_TABLE_ROWS]
-        except: return []
+        except Exception:
+            return []
 
-    def reserva_redes_ipam(self, vivo_rows):
-        for item in vivo_rows:
-            cn_usuario = item["cn"]
-            mask_alvo = item["mask"]
-            descricao_rede = item["escopo"]
-
-            # ---------------------------------------------------------------------------
-            # Configuração de logging
-            # ---------------------------------------------------------------------------
-            logging.basicConfig(
-                level=logging.INFO,
-                format="%(asctime)s [%(levelname)s] %(message)s",
-                datefmt="%Y-%m-%d %H:%M:%S",
-            )
-            logger = logging.getLogger(__name__)
-
-            # ---------------------------------------------------------------------------
-            # Configurações gerais (use variáveis de ambiente em produção)
-            # ---------------------------------------------------------------------------
-            IPAM_USER = os.getenv("IPAM_USER", "40418843")
-            IPAM_PASS = os.getenv("IPAM_PASS", "230581Bs.@@")
-
-            BASE_URL         = "http://10.113.144.242"
-            URL_AUTH         = f"{BASE_URL}/api/ctp/user/"
-            URL_SUBNETS_CN   = f"{BASE_URL}/api/ctp/sections/186/subnets/"
-
-            # Mapeamento máscara → nome do POOL
-            MASK_POOL_MAP: dict[str, str] = {
-                "24": "POOL 1",
-                "28": "POOL 3",
-                "29": "POOL 4",
-            }
-            DEFAULT_POOL = "POOL 5"
-
-            # ---------------------------------------------------------------------------
-            # Cliente IPAM
-            # ---------------------------------------------------------------------------
-            class IPAMClient:
-                """Encapsula autenticação e chamadas à API do phpIPAM."""
-
-                def __init__(self, user: str, password: str) -> None:
-                    self.user     = user
-                    self.password = password
-                    self.token: str | None = None
-                    self.session  = requests.Session()
-
-                # ------------------------------------------------------------------
-                # Autenticação
-                # ------------------------------------------------------------------
-                def autenticar(self) -> None:
-                    """
-                    Realiza login na API e armazena o token de acesso.
-                    O token expira periodicamente; chame este método novamente
-                    quando necessário.
-                    """
-                    logger.info("Autenticando na API phpIPAM...")
-                    try:
-                        resposta = self.session.post(URL_AUTH, auth=(self.user, self.password))
-                        resposta.raise_for_status()
-                    except RequestException as exc:
-                        raise RuntimeError(f"Falha na autenticação: {exc}") from exc
-
-                    dados = resposta.json()
-                    self.token = dados["data"]["token"]
-                    self.session.headers.update({"token": self.token})
-                    logger.info("Autenticação bem-sucedida.")
-
-                # ------------------------------------------------------------------
-                # Requisições genéricas
-                # ------------------------------------------------------------------
-                def _get(self, url: str) -> dict:
-                    """GET com tratamento de erros centralizado."""
-                    try:
-                        resposta = self.session.get(url)
-                        resposta.raise_for_status()
-                    except RequestException as exc:
-                        raise RuntimeError(f"Erro na requisição GET [{url}]: {exc}") from exc
-                    return resposta.json()
-
-                def _post(self, url: str, payload: dict) -> requests.Response:
-                    """POST com tratamento de erros centralizado."""
-                    try:
-                        resposta = self.session.post(url, json=payload)
-                    except RequestException as exc:
-                        raise RuntimeError(f"Erro na requisição POST [{url}]: {exc}") from exc
-                    return resposta
-
-                # ------------------------------------------------------------------
-                # Lógica de negócio
-                # ------------------------------------------------------------------
-                def buscar_id_cn(self, nome_cn: str) -> int:
-                    """Retorna o ID da pasta do CN dentro da seção 186."""
-                    logger.info("Buscando CN '%s'...", nome_cn)
-                    dados = self._get(URL_SUBNETS_CN)
-
-                    for item in dados.get("data", []):
-                        if item.get("description") == nome_cn:
-                            logger.info("CN '%s' encontrado → ID: %s", nome_cn, item["id"])
-                            return int(item["id"])
-
-                    raise ValueError(f"CN '{nome_cn}' não encontrado na seção 186.")
-
-                def buscar_id_pool(self, id_cn: int, nome_pool: str) -> int:
-                    """Retorna o ID da pasta POOL dentro do CN informado."""
-                    logger.info("Buscando pool '%s' no CN ID %d...", nome_pool, id_cn)
-                    url  = f"{BASE_URL}/api/ctp/subnets/{id_cn}/slaves/"
-                    dados = self._get(url)
-
-                    for item in dados.get("data", []):
-                        descricao = item.get("description", "").upper()
-                        if nome_pool.upper() in descricao:
-                            logger.info("Pool '%s' encontrado → ID: %s", nome_pool, item["id"])
-                            return int(item["id"])
-
-                    raise ValueError(
-                        f"Pool '{nome_pool}' não encontrado dentro do CN ID {id_cn}."
-                    )
-
-                def buscar_rede_pai(self, id_cn: int, id_pool: int, mascara: str) -> int | None:
-                    """
-                    Tenta localizar a rede pai com a máscara especificada.
-
-                    Retorna o ID se encontrada, ou None caso contrário.
-                    Essa etapa é apenas uma validação informativa — não bloqueia a reserva,
-                    pois o endpoint de reserva opera diretamente sobre o POOL.
-                    """
-                    logger.info(
-                        "Verificando rede pai com máscara /%s no pool ID %d...", mascara, id_pool
-                    )
-                    url   = f"{BASE_URL}/api/ctp/subnets/{id_cn}/slaves/{id_pool}"
-
-                    try:
-                        dados = self._get(url)
-                    except RuntimeError as exc:
-                        logger.warning("Não foi possível verificar rede pai: %s", exc)
-                        return None
-
-                    itens = dados.get("data", [])
-                    logger.debug("Itens retornados pelo endpoint de rede pai: %s", itens)
-
-                    for item in itens:
-                        if item.get("mask") == mascara:
-                            logger.info("Rede pai (/%s) encontrada → ID: %s", mascara, item["id"])
-                            return int(item["id"])
-
-                    # Aviso apenas — a reserva ainda será tentada
-                    logger.warning(
-                        "Rede pai com máscara /%s não localizada no pool ID %d. "
-                        "Prosseguindo com a reserva mesmo assim.",
-                        mascara, id_pool,
-                    )
-                    return None
-
-                def reservar_rede(
-                    self,
-                    id_pool: int,
-                    mascara: str,
-                    descricao: str,
-                ) -> dict:
-                    """
-                    Reserva a primeira sub-rede disponível com a máscara informada
-                    dentro do pool especificado.
-
-                    Retorna os dados da rede criada.
-                    """
-                    url     = f"{BASE_URL}/api/ctp/subnets/{id_pool}/first_subnet/{mascara}/"
-                    payload = {"description": descricao}
-
-                    logger.info(
-                        "Reservando rede /%s no pool ID %d com descrição '%s'...",
-                        mascara, id_pool, descricao,
-                    )
-                    resposta = self._post(url, payload)
-
-                    if resposta.status_code in (200, 201):
-                        dados = resposta.json()
-                        nova_rede = dados.get("data")
-                        logger.info("Rede /%s reservada com sucesso: %s", mascara, nova_rede)
-                        return nova_rede
-
-                    raise RuntimeError(
-                        f"Falha ao reservar subnet (HTTP {resposta.status_code}): {resposta.text}"
-                    )
-
-
-            # ---------------------------------------------------------------------------
-            # Ponto de entrada
-            # ---------------------------------------------------------------------------
-
-
-                nome_pool = MASK_POOL_MAP.get(mask_alvo, DEFAULT_POOL)
-                logger.info(
-                    "Iniciando reserva | CN: %s | Máscara: /%s | Pool: %s",
-                    cn_usuario, mask_alvo, nome_pool,
-                )
-
-                cliente = IPAMClient(IPAM_USER, IPAM_PASS)
-
-                try:
-                    # 1. Autenticação
-                    cliente.autenticar()
-
-                    # 2. Localiza o CN
-                    id_cn = cliente.buscar_id_cn(cn_usuario)
-
-                    # 3. Localiza o POOL correto para a máscara
-                    id_pool = cliente.buscar_id_pool(id_cn, nome_pool)
-
-                    # 4. Confirma existência da rede pai (validação)
-                    cliente.buscar_rede_pai(id_cn, id_pool, mask_alvo)
-
-                    # 5. Efetua a reserva
-                    nova_rede = cliente.reservar_rede(id_pool, mask_alvo, descricao_rede)
-
-                    print("\n✅ Reserva concluída com sucesso!")
-                    print(f"   Rede criada: {nova_rede}")
-
-                except (ValueError, RuntimeError) as exc:
-                    logger.error("❌ %s", exc)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    def _unique_field(self, rows, field):
-        seen = []
-        for r in rows:
-            v = r.get(field, "").strip()
-            if v and v not in seen: seen.append(v)
-        return seen
-
-    def _extract_traffic(self):
-        """
-        Extrai flags de escopo (tráfego) do formulário.
-
-        FIX: O código original fazia padding para 3 e truncava em [:3].
-        Agora retorna TODOS os flags selecionados, sem limite.
-        Esses flags populam a coluna "Tráfego" nas tabelas Ponta A e Ponta B.
-        """
+    def _extract_traffic(self) -> list[str]:
         raw = row_get(self.form, "escopo_flags_json", "[]")
         try:
             p = json.loads(raw) if isinstance(raw, str) else raw
-            items = [str(x).strip() for x in (p if isinstance(p, list) else []) if str(x).strip()]
-        except:
-            items = []
-        return items  # Retorna TODOS — sem padding nem truncamento
+            return [
+                str(x).strip()
+                for x in (p if isinstance(p, list) else [])
+                if str(x).strip()
+            ]
+        except Exception:
+            return []
 
-    def _extract_conc(self):
-        """
-        Extrai dados de concentração do JSON da operadora.
-        Campos expandidos para aba Concentração enriquecida:
-          ref, cn, cnl, cod_cni, status_link, localidade, cidade, uf,
-          concentracao, sbc, faixa_ip, endereco_link, eto_lc, eot_ld
-        """
+    def _extract_conc(self) -> list[dict]:
         raw = row_get(self.form, "dados_operadora_json", "[]")
         try:
             d = json.loads(raw) if isinstance(raw, str) else raw
-            if not isinstance(d, list): return []
-            r = []
-            for i in d:
-                if not isinstance(i, dict): continue
-                c = {k: str(i.get(k, "")).strip() for k in (
-                    "ref", "cn", "cnl", "cod_cni", "status_link",
-                    "localidade", "cidade", "uf", "concentracao",
-                    "sbc", "faixa_ip", "endereco_link", "eto_lc", "eot_ld",
-                )}
-                if any(c.values()): r.append(c)
-            return r[:MAX_TABLE_ROWS]
-        except: return []
+            if not isinstance(d, list):
+                return []
+            keys = (
+                "ref", "cn", "cnl", "cod_cni", "status_link",
+                "localidade", "cidade", "uf", "concentracao",
+                "sbc", "faixa_ip", "endereco_link", "eto_lc", "eot_ld",
+            )
+            rows = []
+            for item in d:
+                if not isinstance(item, dict):
+                    continue
+                c = {k: str(item.get(k, "")).strip() for k in keys}
+                if any(c.values()):
+                    rows.append(c)
+            return rows[:MAX_TABLE_ROWS]
+        except Exception:
+            return []
 
-    def _diagram_cfg(self):
+    def _unique_field(self, rows: list[dict], field: str) -> list[str]:
+        seen: list[str] = []
+        for r in rows:
+            v = r.get(field, "").strip()
+            if v and v not in seen:
+                seen.append(v)
+        return seen
+
+    # =========================================================================
+    # HELPERS DE CONSTRUÇÃO DE PLANILHA
+    # =========================================================================
+    def _cw(self, ws, widths: dict) -> None:
+        for c, v in widths.items():
+            ws.column_dimensions[get_column_letter(c)].width = v
+
+    def _bh(self, ws, row: int, sc: int, ec: int) -> None:
+        ws.merge_cells(start_row=row, start_column=sc, end_row=row, end_column=ec)
+        c = ws.cell(row=row, column=sc, value=f"VIVO — {self.nome}")
+        c.font = self.s.font_title
+        c.alignment = self.s.align_center
+        c.fill = self.s.fill_primary
+        ws.row_dimensions[row].height = 24.0
+
+    def _st(self, ws, row: int, sc: int, ec: int, title: str) -> None:
+        ws.merge_cells(start_row=row, start_column=sc, end_row=row, end_column=ec)
+        c = ws.cell(row=row, column=sc, value=title)
+        c.font = self.s.font_subtitle
+        c.alignment = self.s.align_center
+        c.fill = self.s.fill_secondary
+        ws.row_dimensions[row].height = 25.0
+
+    def _ps(self, ws, *, ls: bool = False) -> None:
+        ws.sheet_view.showGridLines = False
+        ws.page_setup.paperSize = ws.PAPERSIZE_A4
+        ws.page_setup.orientation = (
+            ws.ORIENTATION_LANDSCAPE if ls else ws.ORIENTATION_PORTRAIT
+        )
+        ws.print_options.horizontalCentered = True
+        ws.page_margins.left = ws.page_margins.right = 0.4
+        ws.page_margins.top = ws.page_margins.bottom = 0.5
+
+    def _ca(self, ws, r1: int, r2: int, c1: int, c2: int) -> None:
+        s = self.s
+        for r in range(r1, r2 + 1):
+            for c in range(c1, c2 + 1):
+                ws.cell(row=r, column=c).fill = s.fill_white
+                ws.cell(row=r, column=c).border = s.no_border
+
+    def _diagram_cfg(self) -> dict:
         f = self.form
-        def _fl(k,d):
-            try: return float(row_get(f,k,d))
-            except: return d
-        def _it(k,d):
-            try: return int(float(row_get(f,k,d)))
-            except: return d
-        ns = str(row_get(f,"roteador_op_no_stroke","")).lower() in ("1","true","yes","sim")
+
+        def _fl(k, d):
+            try:
+                return float(row_get(f, k, d))
+            except (ValueError, TypeError):
+                return d
+
+        def _it(k, d):
+            try:
+                return int(float(row_get(f, k, d)))
+            except (ValueError, TypeError):
+                return d
+
+        ns = str(row_get(f, "roteador_op_no_stroke", "")).lower() in ("1", "true", "yes", "sim")
         rs = 0.0 if ns else 0.009
-        ov = row_get(f,"roteador_op_stroke_width_pct",None)
-        if ov not in (None,""):
-            try: rs = float(ov)
-            except: pass
+        ov = row_get(f, "roteador_op_stroke_width_pct", None)
+        if ov not in (None, ""):
+            try:
+                rs = float(ov)
+            except (ValueError, TypeError):
+                pass
+
         return {
-            "img": row_get(f,"diagram_image_path") or DEFAULT_DIAGRAM_IMAGE,
-            "vxy": parse_xy_percent(row_get(f,"vivo_label_xy_pct",""),(0.16,0.48)),
-            "oxy": parse_xy_percent(row_get(f,"operadora_label_xy_pct",""),(0.83,0.44)),
-            "lvxy": parse_xy_percent(row_get(f,"link_vivo_label_xy_pct",""),(0.49,0.53)),
-            "loxy": parse_xy_percent(row_get(f,"link_op_label_xy_pct",""),(0.49,0.35)),
-            "fsz": _fl("diagram_font_size_pct",0.040),
-            "lfsz": _fl("link_labels_font_size_pct",0.030),
-            "fp": row_get(f,"diagram_font_path",None),
-            "r1": parse_xy_percent(row_get(f,"roteador_op1_label_xy_pct",""),(0.64,0.58)),
-            "r2": parse_xy_percent(row_get(f,"roteador_op2_label_xy_pct",""),(0.64,0.39)),
-            "rfp": _fl("roteador_op_font_size_pct",0.010), "rsp": rs,
-            "bw": _it("diagram_max_w",1900), "bh": _it("diagram_max_h",650),
-            "aro": _it("diagram_anchor_row_offset",-3), "aco": _it("diagram_anchor_col_offset",1),
+            "img": row_get(f, "diagram_image_path") or DEFAULT_DIAGRAM_IMAGE,
+            "vxy": parse_xy_percent(row_get(f, "vivo_label_xy_pct", ""), (0.16, 0.48)),
+            "oxy": parse_xy_percent(row_get(f, "operadora_label_xy_pct", ""), (0.83, 0.44)),
+            "lvxy": parse_xy_percent(row_get(f, "link_vivo_label_xy_pct", ""), (0.49, 0.53)),
+            "loxy": parse_xy_percent(row_get(f, "link_op_label_xy_pct", ""), (0.49, 0.35)),
+            "fsz": _fl("diagram_font_size_pct", 0.040),
+            "lfsz": _fl("link_labels_font_size_pct", 0.030),
+            "fp": row_get(f, "diagram_font_path", None),
+            "r1": parse_xy_percent(row_get(f, "roteador_op1_label_xy_pct", ""), (0.64, 0.58)),
+            "r2": parse_xy_percent(row_get(f, "roteador_op2_label_xy_pct", ""), (0.64, 0.39)),
+            "rfp": _fl("roteador_op_font_size_pct", 0.010),
+            "rsp": rs,
+            "bw": _it("diagram_max_w", 1900),
+            "bh": _it("diagram_max_h", 650),
+            "aro": _it("diagram_anchor_row_offset", -3),
+            "aco": _it("diagram_anchor_col_offset", 1),
         }
 
-    def _cw(self, ws, w):
-        for c,v in w.items(): ws.column_dimensions[get_column_letter(c)].width = v
-    def _bh(self, ws, r, sc, ec):
-        ws.merge_cells(start_row=r,start_column=sc,end_row=r,end_column=ec)
-        c=ws.cell(row=r,column=sc,value=f"VIVO — {self.nome}")
-        c.font=self.s.font_title; c.alignment=self.s.align_center; c.fill=self.s.fill_primary
-        ws.row_dimensions[r].height=24.0
-    def _st(self, ws, r, sc, ec, t):
-        ws.merge_cells(start_row=r,start_column=sc,end_row=r,end_column=ec)
-        c=ws.cell(row=r,column=sc,value=t)
-        c.font=self.s.font_subtitle; c.alignment=self.s.align_center; c.fill=self.s.fill_secondary
-        ws.row_dimensions[r].height=25.0
-    def _ps(self, ws, *, ls=False):
-        ws.sheet_view.showGridLines=False; ws.page_setup.paperSize=ws.PAPERSIZE_A4
-        ws.page_setup.orientation=ws.ORIENTATION_LANDSCAPE if ls else ws.ORIENTATION_PORTRAIT
-        ws.print_options.horizontalCentered=True
-        ws.page_margins.left=ws.page_margins.right=0.4; ws.page_margins.top=ws.page_margins.bottom=0.5
-    def _ca(self, ws, r1, r2, c1, c2):
-        for r in range(r1,r2+1):
-            for c in range(c1,c2+1):
-                ws.cell(row=r,column=c).fill=self.s.fill_white; ws.cell(row=r,column=c).border=self.s.no_border
-
-    # =====================================================================
+    # =========================================================================
     # ABA: ÍNDICE
-    # =====================================================================
-    def _b_index(self):
-        s=self.s; ws=self.wb.active; ws.title="Índice"
-        for c in range(1,10): ws.column_dimensions[get_column_letter(c)].width=12.0
-        ws.column_dimensions["C"].width=8.0; ws.column_dimensions["D"].width=45.0
-        self._bh(ws,2,3,8); ws.row_dimensions[2].height=28.0
-        ws.merge_cells(start_row=4,start_column=3,end_row=4,end_column=8)
-        c=ws.cell(row=4,column=3,value="ANEXO 3: PROJETO TÉCNICO"); c.font=s.font_subtitle; c.alignment=s.align_center; c.fill=s.fill_secondary
-        ws.merge_cells(start_row=5,start_column=3,end_row=5,end_column=8)
-        c=ws.cell(row=5,column=3,value="PROJETO DE INTERLIGAÇÃO PARA ENCAMINHAMENTO DA TERMINAÇÃO DE CHAMADAS DE VOZ")
-        c.font=Font(name="Calibri",size=11,bold=True,color="FFFFFF"); c.alignment=s.align_center; c.fill=s.fill_secondary; ws.row_dimensions[5].height=30.0
-        for i,t in enumerate(["1. Versões","2. Projeto de Interligação","2.2. Diagrama de Interligação",
-            "2.3. Características do Projeto de Interligação e do Plano de Encaminhamento","2.4. Plano de Contingência",
-            "2.5. Concentração","2.6. Plan NUM_Operadora","2.7. Dados de MTL","2.8. SE REG III (Vivo STFC Concessionária)","2.9. Parâmetros de Programação"]):
-            r=7+i; ws.merge_cells(start_row=r,start_column=3,end_row=r,end_column=8)
-            c=ws.cell(row=r,column=3,value=t); c.font=Font(name="Calibri",size=11); c.alignment=s.align_left; c.fill=s.alt_fill(i); ws.row_dimensions[r].height=22.0
-        ws.freeze_panes="C7"; self._ps(ws)
+    # =========================================================================
+    def _b_index(self) -> None:
+        s = self.s
+        ws = self.wb.active
+        ws.title = "Índice"
 
-    # =====================================================================
-    # ABA: VERSÕES — FIX: usa escopo_completo (texto + flags)
-    # =====================================================================
-    def _b_versions(self):
-        s=self.s; ws=self.wb.create_sheet(title="Versões")
-        self._cw(ws,{1:2,2:2,3:8,4:12,5:28,6:28,7:28,8:10,9:18,10:10,11:2})
-        self._bh(ws,2,3,10); self._st(ws,4,3,10,"CONTROLE DE VERSÕES DO PTI")
-        for i,t in enumerate(["Versão","Data","Responsável Eng de ITX","Responsável Gestão de ITX","Escopo","CN","ÁREAS LOCAIS","ATA"]):
-            c=ws.cell(row=6,column=3+i,value=t); c.font=Font(name="Calibri",size=9,bold=True,color="FFFFFF"); c.alignment=s.align_center; c.fill=s.fill_light
-        ws.row_dimensions[6].height=25.0
+        for c in range(1, 10):
+            ws.column_dimensions[get_column_letter(c)].width = 12.0
+        ws.column_dimensions["C"].width = 8.0
+        ws.column_dimensions["D"].width = 45.0
 
-        # -----------------------------------------------------------------
-        # FIX: Dados da primeira versão puxados corretamente do formulário.
-        # Col 7 (Escopo) agora inclui texto livre + flags selecionados.
-        # Col 8 (CN) e Col 9 (Áreas Locais) agora também buscam de op_rows
-        # quando vivo_rows está vazio.
-        # -----------------------------------------------------------------
+        self._bh(ws, 2, 3, 8)
+        ws.row_dimensions[2].height = 28.0
+
+        ws.merge_cells(start_row=4, start_column=3, end_row=4, end_column=8)
+        c = ws.cell(row=4, column=3, value="ANEXO 3: PROJETO TÉCNICO")
+        c.font = s.font_subtitle
+        c.alignment = s.align_center
+        c.fill = s.fill_secondary
+
+        ws.merge_cells(start_row=5, start_column=3, end_row=5, end_column=8)
+        c = ws.cell(
+            row=5, column=3,
+            value="PROJETO DE INTERLIGAÇÃO PARA ENCAMINHAMENTO DA TERMINAÇÃO DE CHAMADAS DE VOZ",
+        )
+        c.font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+        c.alignment = s.align_center
+        c.fill = s.fill_secondary
+        ws.row_dimensions[5].height = 30.0
+
+        items = [
+            "1. Versões",
+            "2. Projeto de Interligação",
+            "2.2. Diagrama de Interligação",
+            "2.3. Características do Projeto de Interligação e do Plano de Encaminhamento",
+            "2.4. Plano de Contingência",
+            "2.5. Concentração",
+            "2.6. Plan NUM_Operadora",
+            "2.7. Dados de MTL",
+            "2.8. SE REG III (Vivo STFC Concessionária)",
+            "2.9. Parâmetros de Programação",
+        ]
+        for i, t in enumerate(items):
+            r = 7 + i
+            ws.merge_cells(start_row=r, start_column=3, end_row=r, end_column=8)
+            c = ws.cell(row=r, column=3, value=t)
+            c.font = Font(name="Calibri", size=11)
+            c.alignment = s.align_left
+            c.fill = s.alt_fill(i)
+            ws.row_dimensions[r].height = 22.0
+
+        ws.freeze_panes = "C7"
+        self._ps(ws)
+
+    # =========================================================================
+    # ABA: VERSÕES
+    # =========================================================================
+    def _b_versions(self) -> None:
+        s = self.s
+        ws = self.wb.create_sheet(title="Versões")
+        self._cw(ws, {1: 2, 2: 2, 3: 8, 4: 12, 5: 28, 6: 28, 7: 28, 8: 10, 9: 18, 10: 10, 11: 2})
+        self._bh(ws, 2, 3, 10)
+        self._st(ws, 4, 3, 10, "CONTROLE DE VERSÕES DO PTI")
+
+        headers = [
+            "Versão", "Data", "Responsável Eng de ITX",
+            "Responsável Gestão de ITX", "Escopo", "CN", "ÁREAS LOCAIS", "ATA",
+        ]
+        for i, t in enumerate(headers):
+            c = ws.cell(row=6, column=3 + i, value=t)
+            c.font = Font(name="Calibri", size=9, bold=True, color="FFFFFF")
+            c.alignment = s.align_center
+            c.fill = s.fill_light
+        ws.row_dimensions[6].height = 25.0
+
         fd = {
             4: self.created_str,
             5: self.resp_eng,
             6: self.resp_atk,
-            7: self.escopo_completo,   # ← FIX: era self.escopo_text
+            7: self.escopo_completo,
             8: ", ".join(self.cns_unicos) if self.cns_unicos else "",
             9: ", ".join(self.areas_locais) if self.areas_locais else "",
         }
-        # Apenas 1 linha (versão atual) — novas versões adicionam linhas
-        r = 7; ws.row_dimensions[r].height = 22.0; f = s.alt_fill(0)
-        ws.cell(row=r, column=3, value=1).fill = f
-        ws.cell(row=r, column=3).font = s.font_body
-        ws.cell(row=r, column=3).alignment = s.align_center
+        r = 7
+        ws.row_dimensions[r].height = 22.0
+        f = s.alt_fill(0)
+
+        c = ws.cell(row=r, column=3, value=1)
+        c.fill = f
+        c.font = s.font_body
+        c.alignment = s.align_center
+
         for col in range(4, 11):
-            c = ws.cell(row=r, column=col)
-            c.value = fd.get(col, ""); c.font = s.font_body; c.fill = f
-            c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True) if col in (7, 9) else s.align_center
+            cell = ws.cell(row=r, column=col)
+            cell.value = fd.get(col, "")
+            cell.font = s.font_body
+            cell.fill = f
+            cell.alignment = (
+                Alignment(horizontal="center", vertical="center", wrap_text=True)
+                if col in (7, 9)
+                else s.align_center
+            )
+
         ws.freeze_panes = "C7"
         self._ps(ws, ls=True)
 
-    # =====================================================================
+    # =========================================================================
     # ABA: DIAGRAMA DE INTERLIGAÇÃO
-    # FIX: Tráfego (flags de escopo) e Mask preenchidos corretamente
-    #      em AMBAS as pontas (A=VIVO, B=Operadora).
-    # =====================================================================
-    def _b_diagram(self):
-        s=self.s; ws=self.wb.create_sheet(title="Diagrama de Interligação"); cfg=self._diagram_cfg(); n=self.nome
+    # =========================================================================
+    def _b_diagram(self) -> None:
+        s = self.s
+        ws = self.wb.create_sheet(title="Diagrama de Interligação")
+        cfg = self._diagram_cfg()
+        n = self.nome
 
-        # -----------------------------------------------------------------
-        # FONTE DE DADOS: usa vivo_rows se existem, senão op_rows
-        # Cada linha = 1 diagrama completo, empilhados verticalmente
-        # -----------------------------------------------------------------
         source_rows = self.vivo_rows if self.vivo_rows else self.op_rows
         num_blocks = max(1, len(source_rows))
         is_vivo_source = bool(self.vivo_rows)
 
-        # Layout fixo em colunas 3-14 (todos os blocos usam mesmas colunas)
-        LC = 3   # left col start
-        RC = 14  # right col end
-        MID = 9  # ponta B starts here
+        LC = 3
+        RC = 14
+        MID = 9
 
         col_widths = {1: 2.0, 2: 2.0, 15: 2.0}
         for c in range(LC, RC + 1):
             col_widths[c] = 12.0
         self._cw(ws, col_widths)
 
-        # ===== CABEÇALHO GLOBAL (linhas 2-13) =====
+        # Cabeçalho global
         self._bh(ws, 2, LC, RC)
         for r_row, t, bold in [
             (4, f"Diagrama de Interligação entre a VIVO e a {n}", True),
@@ -1804,249 +1983,215 @@ class PTIWorkbookBuilder:
             c.alignment = s.align_left if bold else s.align_wrap
             ws.row_dimensions[r_row].height = 22.0 if bold else 25.0
 
-        # ASN (global)
-        for o, label, val in [(0, "ASN VIVO", "10429 (Público)"), (1, f"ASN {n}", self.asn_op)]:
+        # ASN
+        for o, label, val in [
+            (0, "ASN VIVO", "10429 (Público)"),
+            (1, f"ASN {n}", self.asn_op),
+        ]:
             r_row = 12 + o
-            ws.merge_cells(start_row=r_row, start_column=LC, end_row=r_row, end_column=LC+2)
+            ws.merge_cells(start_row=r_row, start_column=LC, end_row=r_row, end_column=LC + 2)
             ws.cell(row=r_row, column=LC, value=label).font = Font(name="Calibri", size=10, bold=True)
             ws.cell(row=r_row, column=LC).alignment = s.align_center
-            ws.merge_cells(start_row=r_row, start_column=LC+3, end_row=r_row, end_column=LC+5)
-            ws.cell(row=r_row, column=LC+3, value=val).font = s.font_body
-            ws.cell(row=r_row, column=LC+3).alignment = s.align_center
+            ws.merge_cells(start_row=r_row, start_column=LC + 3, end_row=r_row, end_column=LC + 5)
+            ws.cell(row=r_row, column=LC + 3, value=val).font = s.font_body
+            ws.cell(row=r_row, column=LC + 3).alignment = s.align_center
 
-        # FLAGS DE ESCOPO = tráfego para ambas as pontas
         traffic_items = [t for t in self.traffic if t]
         num_traffic = max(len(traffic_items), 3)
-
-        # ===== BLOCOS VERTICAIS (1 por linha do formulário) =====
-        cursor = 15  # linha inicial do primeiro bloco
+        cursor = 15
 
         for b_idx in range(num_blocks):
             src_row = source_rows[b_idx] if b_idx < len(source_rows) else {}
 
-            # Resolver dados cruzando vivo ↔ operadora
             if is_vivo_source:
                 vivo_row = src_row
-                op_row = self._find_matching_op_row(src_row.get("cn",""), b_idx)
+                op_row = self._find_matching_op_row(src_row.get("cn", ""), b_idx)
             else:
                 op_row = src_row
-                vivo_row = self._find_matching_vivo_row(src_row.get("cn",""), b_idx)
+                vivo_row = self._find_matching_vivo_row(src_row.get("cn", ""), b_idx)
 
-            # Extrair valores com fallback entre as tabelas
-            cn_val = vivo_row.get("cn","") or (op_row.get("cn","") if op_row else "")
-            mask_val = vivo_row.get("mask","") or ""
-            endereco_vivo = vivo_row.get("endereco_link","") or ""
-            sbc_vivo = vivo_row.get("sbc","") or ""
-            endereco_op = (op_row.get("endereco_link","") if op_row else "") or ""
-            faixa_ip_op = (op_row.get("faixa_ip","") if op_row else "") or ""
-            sbc_op = (op_row.get("sbc","") if op_row else "") or ""
+            cn_val = vivo_row.get("cn", "") or (op_row.get("cn", "") if op_row else "")
+            mask_val = vivo_row.get("mask", "") or ""
+            endereco_vivo = vivo_row.get("endereco_link", "") or ""
+            sbc_vivo = vivo_row.get("sbc", "") or ""
+            endereco_op = (op_row.get("endereco_link", "") if op_row else "") or ""
+            faixa_ip_op = (op_row.get("faixa_ip", "") if op_row else "") or ""
+            sbc_op = (op_row.get("sbc", "") if op_row else "") or ""
 
-            # Resolver cidade/UF para o CN
-            cn_meta = CN_METADATA.get(cn_val.zfill(2), ("","")) if cn_val else ("","")
+            cn_meta = CN_METADATA.get(cn_val.zfill(2), ("", "")) if cn_val else ("", "")
             cn_cidade, cn_uf = cn_meta
 
-            # --- Linha 1 do bloco: CN + Cidade/UF + VRF ---
+            # Linha de CN
             r = cursor
             cn_label = f"CN {cn_val}"
             if cn_cidade:
                 cn_label += f" — {cn_cidade}/{cn_uf}"
-            ws.merge_cells(start_row=r, start_column=LC, end_row=r, end_column=LC+4)
+            ws.merge_cells(start_row=r, start_column=LC, end_row=r, end_column=LC + 4)
             c = ws.cell(row=r, column=LC, value=cn_label if cn_val else "CN ___")
             c.font = Font(name="Calibri", size=10, bold=True, color="FFFFFF")
-            c.alignment = s.align_center; c.fill = s.fill_light
+            c.alignment = s.align_center
+            c.fill = s.fill_light
             ws.merge_cells(start_row=r, start_column=MID, end_row=r, end_column=RC)
             c2 = ws.cell(row=r, column=MID, value="VRF: __________________________")
             c2.font = Font(name="Calibri", size=10, bold=True, color="FFFFFF")
-            c2.alignment = s.align_center; c2.fill = s.fill_light
+            c2.alignment = s.align_center
+            c2.fill = s.fill_light
             ws.row_dimensions[r].height = 25.0
-            # Limpar gap entre CN label e VRF
-            for gc in range(LC+5, MID):
+            for gc in range(LC + 5, MID):
                 ws.cell(row=r, column=gc).fill = s.fill_white
                 ws.cell(row=r, column=gc).border = s.no_border
 
-            # --- Linha 2: separador ---
             cursor += 2
 
-            # --- Linhas Ponta A / Ponta B ---
+            # Ponta A / B
             r = cursor
             for sc, ec, label, valor in [
-                (LC, LC+4, "Ponta A", "VIVO"),
-                (MID, RC, "Ponta B", n)
+                (LC, LC + 4, "Ponta A", "VIVO"),
+                (MID, RC, "Ponta B", n),
             ]:
                 ws.merge_cells(start_row=r, start_column=sc, end_row=r, end_column=ec)
                 ws.cell(row=r, column=sc, value=label).font = Font(name="Calibri", size=10, bold=True)
                 ws.cell(row=r, column=sc).alignment = s.align_center
                 ws.cell(row=r, column=sc).fill = s.fill_neutral
-                ws.merge_cells(start_row=r+1, start_column=sc, end_row=r+1, end_column=ec)
-                ws.cell(row=r+1, column=sc, value=valor).font = Font(name="Calibri", size=10, bold=True)
-                ws.cell(row=r+1, column=sc).alignment = s.align_center
+                ws.merge_cells(start_row=r + 1, start_column=sc, end_row=r + 1, end_column=ec)
+                ws.cell(row=r + 1, column=sc, value=valor).font = Font(name="Calibri", size=10, bold=True)
+                ws.cell(row=r + 1, column=sc).alignment = s.align_center
             ws.row_dimensions[r].height = 22.0
-            ws.row_dimensions[r+1].height = 22.0
-            # Limpar gap entre Ponta A e Ponta B
-            for rr in (r, r+1):
-                for gc in range(LC+5, MID):
+            ws.row_dimensions[r + 1].height = 22.0
+            for rr in (r, r + 1):
+                for gc in range(LC + 5, MID):
                     ws.cell(row=rr, column=gc).fill = s.fill_white
                     ws.cell(row=rr, column=gc).border = s.no_border
             cursor += 3
 
-            # --- SBC de cada ponta (alinhado com coluna inicial da tabela) ---
+            # SBCs
             r = cursor
-            ws.merge_cells(start_row=r, start_column=LC, end_row=r, end_column=LC+2)
+            ws.merge_cells(start_row=r, start_column=LC, end_row=r, end_column=LC + 2)
             ws.cell(row=r, column=LC, value=f"SBC: {sbc_vivo}" if sbc_vivo else "SBC: ___").font = Font(name="Calibri", size=9, bold=True)
             ws.cell(row=r, column=LC).alignment = s.align_center
-            ws.merge_cells(start_row=r, start_column=MID, end_row=r, end_column=MID+2)
+            ws.merge_cells(start_row=r, start_column=MID, end_row=r, end_column=MID + 2)
             ws.cell(row=r, column=MID, value=f"SBC: {sbc_op}" if sbc_op else "SBC: ___").font = Font(name="Calibri", size=9, bold=True)
             ws.cell(row=r, column=MID).alignment = s.align_center
             ws.row_dimensions[r].height = 20.0
-            # Limpar gap entre SBC labels
-            for gc in range(LC+3, MID):
+            for gc in range(LC + 3, MID):
                 ws.cell(row=r, column=gc).fill = s.fill_white
                 ws.cell(row=r, column=gc).border = s.no_border
             cursor += 1
 
-            # --- Cabeçalhos: Tráfego | Endereço IP | NET MASK (ambas pontas) ---
+            # Cabeçalhos de tráfego
             r = cursor
             for lc_start in (LC, MID):
                 for i, h in enumerate(["Tráfego", "Endereço IP", "NET MASK"]):
-                    c = ws.cell(row=r, column=lc_start+i, value=h)
-                    c.font = s.font_subheader; c.alignment = s.align_center; c.fill = s.fill_light
+                    c = ws.cell(row=r, column=lc_start + i, value=h)
+                    c.font = s.font_subheader
+                    c.alignment = s.align_center
+                    c.fill = s.fill_light
                     c.border = s.box_border
             ws.row_dimensions[r].height = 25.0
-            # Limpar gap entre cabeçalhos das duas tabelas
-            for gc in range(LC+3, MID):
+            for gc in range(LC + 3, MID):
                 ws.cell(row=r, column=gc).fill = s.fill_white
                 ws.cell(row=r, column=gc).border = s.no_border
             cursor += 1
 
-            # --- DADOS DE TRÁFEGO (apenas linhas com conteúdo visíveis) ---
-            num_visible = len(traffic_items)  # linhas com dados reais
+            num_visible = len(traffic_items)
             data_start_row = cursor
+
             for j in range(num_traffic):
                 r = cursor + j
                 ws.row_dimensions[r].height = 22.0
                 f = s.alt_fill(j)
                 traf_val = traffic_items[j] if j < len(traffic_items) else ""
 
-                # Ocultar linhas sem conteúdo de tráfego
                 if j >= num_visible:
                     ws.row_dimensions[r].hidden = True
 
-                # PONTA A (VIVO): Tráfego | IP (placeholder, merge abaixo) | MASK (placeholder, merge abaixo)
-                ws.cell(row=r, column=LC, value=traf_val).font = s.font_small
-                ws.cell(row=r, column=LC).fill = f; ws.cell(row=r, column=LC).alignment = s.align_center; ws.cell(row=r, column=LC).border = s.box_border
-                ws.cell(row=r, column=LC+1, value="" if num_visible > 1 else endereco_vivo).font = s.font_small
-                ws.cell(row=r, column=LC+1).fill = f; ws.cell(row=r, column=LC+1).alignment = s.align_center; ws.cell(row=r, column=LC+1).border = s.box_border
-                ws.cell(row=r, column=LC+2, value="" if num_visible > 1 else mask_val).font = s.font_small
-                ws.cell(row=r, column=LC+2).fill = f; ws.cell(row=r, column=LC+2).alignment = s.align_center; ws.cell(row=r, column=LC+2).border = s.box_border
+                for lc_start, ip_val, ip_op_val in [
+                    (LC, endereco_vivo, None),
+                    (MID, faixa_ip_op, None),
+                ]:
+                    ip = ip_val if lc_start == LC else faixa_ip_op
+                    ws.cell(row=r, column=lc_start, value=traf_val).font = s.font_small
+                    ws.cell(row=r, column=lc_start).fill = f
+                    ws.cell(row=r, column=lc_start).alignment = s.align_center
+                    ws.cell(row=r, column=lc_start).border = s.box_border
+                    ip_cell = ws.cell(row=r, column=lc_start + 1, value="" if num_visible > 1 else ip)
+                    ip_cell.font = s.font_small
+                    ip_cell.fill = f
+                    ip_cell.alignment = s.align_center
+                    ip_cell.border = s.box_border
+                    mask_cell = ws.cell(row=r, column=lc_start + 2, value="" if num_visible > 1 else mask_val)
+                    mask_cell.font = s.font_small
+                    mask_cell.fill = f
+                    mask_cell.alignment = s.align_center
+                    mask_cell.border = s.box_border
 
-                # Colunas intermediárias (gap limpo — sem ligação visual)
-                for gc in range(LC+3, MID):
+                for gc in range(LC + 3, MID):
                     ws.cell(row=r, column=gc).fill = s.fill_white
                     ws.cell(row=r, column=gc).border = s.no_border
 
-                # PONTA B (OPERADORA): Tráfego | IP (placeholder, merge abaixo) | MASK (placeholder, merge abaixo)
-                ws.cell(row=r, column=MID, value=traf_val).font = s.font_small
-                ws.cell(row=r, column=MID).fill = f; ws.cell(row=r, column=MID).alignment = s.align_center; ws.cell(row=r, column=MID).border = s.box_border
-                ws.cell(row=r, column=MID+1, value="" if num_visible > 1 else faixa_ip_op).font = s.font_small
-                ws.cell(row=r, column=MID+1).fill = f; ws.cell(row=r, column=MID+1).alignment = s.align_center; ws.cell(row=r, column=MID+1).border = s.box_border
-                ws.cell(row=r, column=MID+2, value="" if num_visible > 1 else mask_val).font = s.font_small
-                ws.cell(row=r, column=MID+2).fill = f; ws.cell(row=r, column=MID+2).alignment = s.align_center; ws.cell(row=r, column=MID+2).border = s.box_border
-
-            # --- Merge vertical Endereço IP + NET MASK (somente se >1 linha visível) ---
+            # Merge vertical de IP/MASK quando há mais de 1 linha visível
             if num_visible > 1:
                 last_vis = data_start_row + num_visible - 1
-                # Ponta A — Endereço IP merge
-                ws.merge_cells(start_row=data_start_row, start_column=LC+1,
-                               end_row=last_vis, end_column=LC+1)
-                mc_ip_a = ws.cell(row=data_start_row, column=LC+1, value=endereco_vivo)
-                mc_ip_a.font = s.font_small; mc_ip_a.alignment = s.align_center; mc_ip_a.border = s.box_border
-                # Ponta A — NET MASK merge
-                ws.merge_cells(start_row=data_start_row, start_column=LC+2,
-                               end_row=last_vis, end_column=LC+2)
-                mc_a = ws.cell(row=data_start_row, column=LC+2, value=mask_val)
-                mc_a.font = s.font_small; mc_a.alignment = s.align_center; mc_a.border = s.box_border
-                # Ponta B — Endereço IP merge
-                ws.merge_cells(start_row=data_start_row, start_column=MID+1,
-                               end_row=last_vis, end_column=MID+1)
-                mc_ip_b = ws.cell(row=data_start_row, column=MID+1, value=faixa_ip_op)
-                mc_ip_b.font = s.font_small; mc_ip_b.alignment = s.align_center; mc_ip_b.border = s.box_border
-                # Ponta B — NET MASK merge
-                ws.merge_cells(start_row=data_start_row, start_column=MID+2,
-                               end_row=last_vis, end_column=MID+2)
-                mc_b = ws.cell(row=data_start_row, column=MID+2, value=mask_val)
-                mc_b.font = s.font_small; mc_b.alignment = s.align_center; mc_b.border = s.box_border
+                for (lc_start, ip_val) in [(LC, endereco_vivo), (MID, faixa_ip_op)]:
+                    ws.merge_cells(
+                        start_row=data_start_row, start_column=lc_start + 1,
+                        end_row=last_vis, end_column=lc_start + 1,
+                    )
+                    mc = ws.cell(row=data_start_row, column=lc_start + 1, value=ip_val)
+                    mc.font = s.font_small
+                    mc.alignment = s.align_center
+                    mc.border = s.box_border
+                    ws.merge_cells(
+                        start_row=data_start_row, start_column=lc_start + 2,
+                        end_row=last_vis, end_column=lc_start + 2,
+                    )
+                    mc2 = ws.cell(row=data_start_row, column=lc_start + 2, value=mask_val)
+                    mc2.font = s.font_small
+                    mc2.alignment = s.align_center
+                    mc2.border = s.box_border
 
             cursor += num_traffic
 
-            # --- Resumo de endereços abaixo da tabela ---
+            # Resumo de endereços
             r = cursor + 1
-            ws.merge_cells(start_row=r, start_column=LC, end_row=r, end_column=LC+4)
+            ws.merge_cells(start_row=r, start_column=LC, end_row=r, end_column=LC + 4)
             ws.cell(row=r, column=LC, value=f"Endereço (VIVO): {endereco_vivo}").font = s.font_small
             ws.cell(row=r, column=LC).alignment = s.align_left
             ws.merge_cells(start_row=r, start_column=MID, end_row=r, end_column=RC)
             ws.cell(row=r, column=MID, value=f"Endereço ({n}): {endereco_op}").font = s.font_small
             ws.cell(row=r, column=MID).alignment = s.align_left
-            # Limpar gap entre resumos
-            for gc in range(LC+5, MID):
+            for gc in range(LC + 5, MID):
                 ws.cell(row=r, column=gc).fill = s.fill_white
                 ws.cell(row=r, column=gc).border = s.no_border
             cursor = r + 2
 
-            # =============================================================
-            # DIAGRAMA POR BLOCO — Cada linha gera seu próprio diagrama
-            # com dados específicos (SBC, IP, CN) renderizados na imagem.
-            # =============================================================
+            # Diagrama (imagem)
             if os.path.exists(cfg["img"]):
-                # Deslocar imagem para baixo — espaço limpo entre tabelas e imagem
-                cursor += 4  # 4 linhas extras de espaçamento
+                cursor += 4
                 img_anchor_row = cursor
 
-                # Labels padrão (presentes em todos os diagramas)
                 row_labels = [
-                    {"text": "Roteador OP", "xy_pct": cfg["r1"],
-                     "font_size_pct": cfg["rfp"], "stroke_width_pct": cfg["rsp"]},
-                    {"text": "Roteador OP", "xy_pct": cfg["r2"],
-                     "font_size_pct": cfg["rfp"], "stroke_width_pct": cfg["rsp"]},
-                    {"text": "Link resp Vivo", "xy_pct": cfg["lvxy"],
-                     "font_size_pct": cfg["lfsz"], "stroke_width_pct": 0.006},
-                    {"text": f"Link resp {n}", "xy_pct": cfg["loxy"],
-                     "font_size_pct": cfg["lfsz"], "stroke_width_pct": 0.006},
-                    {"text": "RAC/RAV/HL4", "xy_pct": (0.34, 0.39),
-                     "font_size_pct": 0.010, "stroke_width_pct": 0.006},
-                    {"text": "RAC/RAV/HL4", "xy_pct": (0.34, 0.58),
-                     "font_size_pct": 0.010, "stroke_width_pct": 0.006},
-                     ] 
+                    {"text": "Roteador OP", "xy_pct": cfg["r1"], "font_size_pct": cfg["rfp"], "stroke_width_pct": cfg["rsp"]},
+                    {"text": "Roteador OP", "xy_pct": cfg["r2"], "font_size_pct": cfg["rfp"], "stroke_width_pct": cfg["rsp"]},
+                    {"text": "Link resp Vivo", "xy_pct": cfg["lvxy"], "font_size_pct": cfg["lfsz"], "stroke_width_pct": 0.006},
+                    {"text": f"Link resp {n}", "xy_pct": cfg["loxy"], "font_size_pct": cfg["lfsz"], "stroke_width_pct": 0.006},
+                    {"text": "RAC/RAV/HL4", "xy_pct": (0.34, 0.39), "font_size_pct": 0.010, "stroke_width_pct": 0.006},
+                    {"text": "RAC/RAV/HL4", "xy_pct": (0.34, 0.58), "font_size_pct": 0.010, "stroke_width_pct": 0.006},
+                ]
 
-                # Labels dinâmicos PER-ROW: SBC, IP, CN/Cidade
-                if sbc_vivo:
-                    row_labels.append({
-                        "text": sbc_vivo, "xy_pct": (0.16, 0.62),
-                        "font_size_pct": 0.025, "stroke_width_pct": 0.006,
-                    })
-                if sbc_op:
-                    row_labels.append({
-                        "text": sbc_op, "xy_pct": (0.83, 0.56),
-                        "font_size_pct": 0.025, "stroke_width_pct": 0.006,
-                    })
+                for sbc_text, xy in [(sbc_vivo, (0.16, 0.62)), (sbc_op, (0.83, 0.56))]:
+                    if sbc_text:
+                        row_labels.append({"text": sbc_text, "xy_pct": xy, "font_size_pct": 0.025, "stroke_width_pct": 0.006})
                 if endereco_vivo:
-                    row_labels.append({
-                        "text": endereco_vivo, "xy_pct": (0.16, 0.72),
-                        "font_size_pct": 0.020, "stroke_width_pct": 0.005,
-                    })
-                if faixa_ip_op or endereco_op:
-                    ip_text = faixa_ip_op or endereco_op
-                    row_labels.append({
-                        "text": ip_text, "xy_pct": (0.83, 0.66),
-                        "font_size_pct": 0.020, "stroke_width_pct": 0.005,
-                    })
+                    row_labels.append({"text": endereco_vivo, "xy_pct": (0.16, 0.72), "font_size_pct": 0.020, "stroke_width_pct": 0.005})
+                ip_text = faixa_ip_op or endereco_op
+                if ip_text:
+                    row_labels.append({"text": ip_text, "xy_pct": (0.83, 0.66), "font_size_pct": 0.020, "stroke_width_pct": 0.005})
                 if cn_val:
                     cn_img_text = f"CN {cn_val}"
                     if cn_cidade:
                         cn_img_text += f" — {cn_cidade}/{cn_uf}"
-                    row_labels.append({
-                        "text": cn_img_text, "xy_pct": (0.50, 0.08),
-                        "font_size_pct": 0.028, "stroke_width_pct": 0.007,
-                    })
+                    row_labels.append({"text": cn_img_text, "xy_pct": (0.50, 0.08), "font_size_pct": 0.028, "stroke_width_pct": 0.007})
 
                 try:
                     ann = render_labels_on_image(
@@ -2071,82 +2216,61 @@ class PTIWorkbookBuilder:
                     anchor_col = get_column_letter(LC + cfg["aco"])
                     anchor_row = max(1, img_anchor_row + cfg["aro"])
                     ws.add_image(xi, f"{anchor_col}{anchor_row}")
-
-                    # Reservar linhas para a altura da imagem (~15px por row)
                     estimated_img_rows = max(22, int(fh / 15) + 2)
                     cursor = img_anchor_row + estimated_img_rows + 2
-                except Exception as e:
-                    logger.warning(f"Erro ao gerar imagem do diagrama (bloco {b_idx+1}): {e}")
+                except Exception as exc:
+                    logger.warning("Erro ao gerar imagem do diagrama (bloco %d): %s", b_idx + 1, exc)
                     cursor += 3
             else:
-                # Sem imagem base — apenas log, sem crash
                 if b_idx == 0:
-                    logger.warning(f"Imagem base do diagrama não encontrada: {cfg['img']}")
+                    logger.warning("Imagem base do diagrama não encontrada: %s", cfg["img"])
                 cursor += 3
 
         self._ps(ws, ls=True)
 
-    def _find_matching_op_row(self, cn, index):
-        """Busca linha da operadora que corresponde ao CN ou ao índice."""
+    def _find_matching_op_row(self, cn: str, index: int) -> Optional[dict]:
         if cn:
             for op in self.op_rows:
-                if op.get("cn","") == cn:
+                if op.get("cn", "") == cn:
                     return op
-        if index < len(self.op_rows):
-            return self.op_rows[index]
-        return None
+        return self.op_rows[index] if index < len(self.op_rows) else None
 
-    def _find_matching_vivo_row(self, cn, index):
-        """Busca linha da VIVO que corresponde ao CN ou ao índice."""
+    def _find_matching_vivo_row(self, cn: str, index: int) -> dict:
         if cn:
             for vr in self.vivo_rows:
-                if vr.get("cn","") == cn:
+                if vr.get("cn", "") == cn:
                     return vr
-        if index < len(self.vivo_rows):
-            return self.vivo_rows[index]
-        return {}
+        return self.vivo_rows[index] if index < len(self.vivo_rows) else {}
 
-    # =====================================================================
+    # =========================================================================
     # MAPEAMENTO: Tipo de Tráfego → Encaminhamento / Sinalização / CODEC
-    # =====================================================================
-    def _resolve_traffic_mapping(self, traf_type, operadora, cn_vivo, cn_op):
-        """
-        Mapeia um tipo de tráfego para os campos:
-          - enc_ab  (DE A > B / Formato de Entrega)  → col 17
-          - enc_ba  (DE B > A)                        → col 18
-          - codec                                     → col 19
-
-        Substituições aplicadas:
-          <Operadora> → nome da operadora
-          XY          → código CSP extraído do tipo (ex: "15" de "CSP 15")
-          CN          → cn_vivo ou cn_op conforme contexto
-        """
+    # =========================================================================
+    def _resolve_traffic_mapping(
+        self, traf_type: str, operadora: str, cn_vivo: str, cn_op: str
+    ) -> dict:
+        """Mapeia tipo de tráfego para enc_ab, enc_ba e codec."""
         t = traf_type.strip()
         t_upper = t.upper()
         op = operadora or "Operadora"
         cv = cn_vivo or "CN"
         co = cn_op or "CN"
 
-        # Extrair CSP (XY) do tipo de tráfego, se presente
-        import re as _re
-        csp_match = _re.search(r'CSP\s*(\d{2})', t, _re.IGNORECASE)
-        # Também extrair de "Rota LD XY"
-        rota_match = _re.search(r'Rota\s+LD\s*(\d{2})', t, _re.IGNORECASE)
-        xy = csp_match.group(1) if csp_match else (rota_match.group(1) if rota_match else "XY")
-        # Detectar se é "s/ CSP" (sem CSP)
-        sem_csp = bool(_re.search(r's/\s*CSP', t, _re.IGNORECASE))
+        # Extrair CSP (XY) do tipo de tráfego
+        csp_match = re.search(r'CSP\s*(\d{2})', t, re.IGNORECASE)
+        rota_match = re.search(r'Rota\s+LD\s*(\d{2})', t, re.IGNORECASE)
+        xy = (
+            csp_match.group(1) if csp_match
+            else (rota_match.group(1) if rota_match else "XY")
+        )
+        sem_csp = bool(re.search(r's/\s*CSP', t, re.IGNORECASE))
 
-        # --- Tabela de mapeamento (ordem de matching) ---
-
-        # 1) LC+TR LC - AL SPO
         if "LC+TR" in t_upper or ("LC" in t_upper and "TR" in t_upper and "AL" in t_upper):
             return {
                 "enc_ab": f"LC: (9090) PREF-MCDU {op} do CN {cv}",
                 "enc_ba": f"LC: (9090) PREF-MCDU VIVO do CN {cv}",
-                "codec":  "G711 / G729",
+                "codec": "G711 / G729",
             }
 
-        # 2) CSP 15 + CNG VIVO-STFC - SPO - CN 11
         if "CSP" in t_upper and xy == "15" and "CNG" in t_upper and "VIVO" in t_upper:
             return {
                 "enc_ab": f"LD: (9)01511 PREF-MCDU - NUM B do CN {cv}",
@@ -2158,7 +2282,6 @@ class PTIWorkbookBuilder:
                 "codec": "G711 / G729",
             }
 
-        # 3) CSP XY + CNG - SPO - CN (genérico, não CSP 15 VIVO, não "s/ CSP")
         if "CSP" in t_upper and "CNG" in t_upper and "TRANSP" not in t_upper and not sem_csp:
             return {
                 "enc_ab": (
@@ -2170,7 +2293,6 @@ class PTIWorkbookBuilder:
                 "codec": "G711 / G729",
             }
 
-        # 4) LD s/ CSP + CNG - SPO - CN
         if "LD" in t_upper and "S/" in t_upper and "CSP" in t_upper and "TRANSP" not in t_upper:
             return {
                 "enc_ab": "CNG: 08XX 03XX 05XX 09XX (10-11 dig)",
@@ -2178,7 +2300,6 @@ class PTIWorkbookBuilder:
                 "codec": "G711 / G729",
             }
 
-        # 5) Transp CSP XY + CNG
         if "TRANSP" in t_upper and "CSP" in t_upper and "CNG" in t_upper:
             return {
                 "enc_ab": "CNG: 08XX 03XX 05XX 09XX (10-11 dig) (**)",
@@ -2186,7 +2307,6 @@ class PTIWorkbookBuilder:
                 "codec": "G711 / G729",
             }
 
-        # 6) Transp LD s/ CSP + CNG
         if "TRANSP" in t_upper and "LD" in t_upper and "S/" in t_upper:
             return {
                 "enc_ab": "CNG: 08XX 03XX 05XX 09XX (10-11 dig) (**)",
@@ -2194,7 +2314,6 @@ class PTIWorkbookBuilder:
                 "codec": "G711 / G729",
             }
 
-        # 7) VC1 - CN XX - Rota LD XY (precisa vir antes do VC1 genérico)
         if "VC1" in t_upper and "ROTA" in t_upper and "LD" in t_upper:
             return {
                 "enc_ab": f"LD: (9) 0 {xy} {cv} PREF-MCDU do CN {cv} No de B VIVO",
@@ -2202,7 +2321,6 @@ class PTIWorkbookBuilder:
                 "codec": "G-711 / AMR",
             }
 
-        # 8) VC1 - CN XX (genérico)
         if "VC1" in t_upper:
             return {
                 "enc_ab": f"LC: (9) 0{cv} PREF-MCDU - CN {cv}",
@@ -2210,24 +2328,14 @@ class PTIWorkbookBuilder:
                 "codec": "G-711 / AMR",
             }
 
-        # Fallback: tipo não mapeado → retorna vazio
         return {"enc_ab": "", "enc_ba": "", "codec": ""}
 
-    # =====================================================================
-    # SBC RESOLVER — Busca o melhor SBC para um UF/Cidade via XLSX data
-    # =====================================================================
-    def _resolve_sbc_for_uf(self, uf, cidade=""):
-        """
-        Busca o SBC mais adequado para um UF a partir dos dados XLSX.
-
-        Lógica:
-          1. Se cidade informada → busca SBC da mesma cidade
-          2. Senão → SBC mais recorrente (mais medições) para o UF
-          3. Fallback: vizinhos → regional
-
-        Retorna dict com {nome, cidade, uf, caps_avg, status, modelo}
-        ou None se nenhum SBC encontrado.
-        """
+    # =========================================================================
+    # SBC RESOLVER
+    # =========================================================================
+    def _resolve_sbc_for_uf(
+        self, uf: str, cidade: str = ""
+    ) -> Optional[dict]:
         if not self.sbc_analyzer or not uf:
             return None
         uf = uf.strip().upper()
@@ -2238,18 +2346,16 @@ class PTIWorkbookBuilder:
         if not measurements:
             return None
 
-        # Filtrar medições por UF
         uf_m = [m for m in measurements if m.uf == uf]
-
-        # Fallback: vizinhos
         fallback_label = ""
+
         if not uf_m:
             for n_uf in UF_NEIGHBORS.get(uf, []):
                 uf_m = [m for m in measurements if m.uf == n_uf]
                 if uf_m:
                     fallback_label = f"(vizinho: {n_uf})"
                     break
-        # Fallback: regional
+
         if not uf_m:
             regional = UF_TO_REGIONAL.get(uf, "")
             if regional:
@@ -2261,12 +2367,10 @@ class PTIWorkbookBuilder:
         if not uf_m:
             return None
 
-        # Agrupar por nome do SBC
-        groups = defaultdict(list)
+        groups: dict[str, list] = defaultdict(list)
         for m in uf_m:
             groups[m.sbc].append(m)
 
-        # Se cidade informada, priorizar SBC da mesma cidade
         cidade_norm = cidade.strip().upper() if cidade else ""
         if cidade_norm:
             for sbc_name, ms in groups.items():
@@ -2284,7 +2388,6 @@ class PTIWorkbookBuilder:
                             "fallback": fallback_label,
                         }
 
-        # Senão: SBC mais recorrente (mais medições)
         best_name = max(groups, key=lambda k: len(groups[k]))
         best_ms = groups[best_name]
         caps_vals = [x.caps for x in best_ms]
@@ -2299,86 +2402,71 @@ class PTIWorkbookBuilder:
             "fallback": fallback_label,
         }
 
-    # =====================================================================
-    # ABA: ENCAMINHAMENTO — 1 tabela completa por linha do formulário
-    #
-    # Regras implementadas:
-    #   - Cada linha do form → 1 tabela idêntica ao modelo padrão
-    #   - CN único por coluna (merge vertical, centralizado)
-    #   - SBC preenchido obrigatoriamente via lookup UF→XLSX
-    #   - IP da Vivo incluído
-    #   - Células com auto-adjust de largura
-    #   - Alerta de campos ausentes
-    # =====================================================================
-    def _b_routing(self):
+    # =========================================================================
+    # ABA: ENCAMINHAMENTO
+    # =========================================================================
+    def _b_routing(self) -> None:
         s = self.s
         ws = self.wb.create_sheet(title="Encaminhamento")
         n = self.nome
 
-        # ===== AUTO-ADJUST: larguras base (serão atualizadas no final) =====
         col_widths = {
             1: 2, 2: 16, 3: 10, 4: 16, 5: 10, 6: 18,
             7: 16, 8: 18, 9: 14, 10: 8, 11: 8, 12: 8,
             13: 8, 14: 8, 15: 8, 16: 12, 17: 18, 18: 12,
             19: 12, 20: 16, 21: 14, 22: 12, 23: 14, 24: 12, 25: 2,
         }
-        # Track max widths for auto-adjust
-        max_widths = {c: w for c, w in col_widths.items()}
+        max_widths = dict(col_widths)
 
-        def _track_width(col, value):
-            """Atualiza largura máxima da coluna com base no conteúdo."""
+        def _track_width(col: int, value) -> None:
             if value:
                 char_len = len(str(value)) * 1.15 + 2
                 if char_len > max_widths.get(col, 0):
-                    max_widths[col] = min(char_len, 45)  # cap em 45
+                    max_widths[col] = min(char_len, 45)
 
-        # ===== CABEÇALHO GLOBAL =====
         self._bh(ws, 2, 2, 24)
-        self._st(ws, 4, 2, 24,
-                 "2.3. CARACTERÍSTICAS DO PROJETO DE INTERLIGAÇÃO "
-                 "E DO PLANO DE ENCAMINHAMENTO")
+        self._st(
+            ws, 4, 2, 24,
+            "2.3. CARACTERÍSTICAS DO PROJETO DE INTERLIGAÇÃO E DO PLANO DE ENCAMINHAMENTO",
+        )
 
-        # ===== FONTE DE DADOS =====
         source_rows = self.vivo_rows if self.vivo_rows else self.op_rows
         num_blocks = max(1, len(source_rows))
         is_vivo_source = bool(self.vivo_rows)
         traffic_items = [t for t in self.traffic if t]
-        traffic_str = " / ".join(traffic_items) or ""
 
-        cursor = 6  # primeira linha de conteúdo
+        cursor = 6
+        align_merged = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        align_data_wrap = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
         for b_idx in range(num_blocks):
             src_row = source_rows[b_idx] if b_idx < len(source_rows) else {}
 
-            # ----- Resolver dados cruzando vivo ↔ operadora -----
             if is_vivo_source:
                 vivo_row = src_row
-                op_row = self._find_matching_op_row(src_row.get("cn", ""), b_idx)
+                op_row = self._find_matching_op_row(src_row.get("cn", ""), b_idx) or {}
             else:
                 op_row = src_row
                 vivo_row = self._find_matching_vivo_row(src_row.get("cn", ""), b_idx)
-            if op_row is None:
-                op_row = {}
 
-            # ----- Extrair valores -----
             cn_vivo = vivo_row.get("cn", "") or ""
-            cn_op = (op_row.get("cn", "") if op_row else "") or cn_vivo
+            cn_op = op_row.get("cn", "") or cn_vivo
             localidade_vivo = vivo_row.get("localidade", "") or ""
-            localidade_op = (op_row.get("localidade", "") if op_row else "") or ""
+            localidade_op = op_row.get("localidade", "") or ""
             sbc_vivo = vivo_row.get("sbc", "") or ""
-            sbc_op = (op_row.get("sbc", "") if op_row else "") or ""
+            sbc_op = op_row.get("sbc", "") or ""
             endereco_vivo = vivo_row.get("endereco_link", "") or ""
             mask_vivo = vivo_row.get("mask", "") or ""
-            faixa_ip_op = (op_row.get("faixa_ip", "") if op_row else "") or ""
-            endereco_op = (op_row.get("endereco_link", "") if op_row else "") or ""
+            faixa_ip_op = op_row.get("faixa_ip", "") or ""
+            endereco_op = op_row.get("endereco_link", "") or ""
             ip_op = faixa_ip_op or endereco_op
             mask_op = mask_vivo
 
-            # Resolver cidade / Área Local
             cidade_vivo = vivo_row.get("cidade", "") or ""
-            cidade_op = (op_row.get("cidade", "") if op_row else "") or ""
+            cidade_op = op_row.get("cidade", "") or ""
             area_local = cidade_vivo or cidade_op
-            uf_val = vivo_row.get("uf", "") or (op_row.get("uf", "") if op_row else "")
+            uf_val = vivo_row.get("uf", "") or op_row.get("uf", "")
+
             if not area_local and cn_vivo:
                 cn_meta = CN_METADATA.get(cn_vivo.zfill(2))
                 if cn_meta:
@@ -2386,10 +2474,7 @@ class PTIWorkbookBuilder:
                     if not uf_val:
                         uf_val = cn_meta[1]
 
-            # =============================================================
-            # SBC OBRIGATÓRIO VIA LOOKUP UF → XLSX
-            # Se o formulário não informou SBC, buscar nos dados XLSX
-            # =============================================================
+            # SBC via lookup XLSX
             sbc_vivo_note = ""
             if not sbc_vivo and uf_val:
                 resolved = self._resolve_sbc_for_uf(uf_val, cidade_vivo or area_local)
@@ -2405,14 +2490,12 @@ class PTIWorkbookBuilder:
                 else:
                     sbc_vivo_note = "Nenhum SBC disponível para o UF informado"
 
-            sbc_op_note = ""
             if not sbc_op and uf_val:
                 resolved = self._resolve_sbc_for_uf(uf_val, cidade_op or area_local)
                 if resolved:
                     sbc_op = resolved["nome"]
-                    sbc_op_note = f"Auto: {resolved['nome']} {resolved.get('fallback', '')}"
 
-            # ----- SEPARADOR DO BLOCO -----
+            # Separador de bloco
             r = cursor
             block_title = f"CN {cn_vivo}" if cn_vivo else f"Bloco {b_idx + 1}"
             if area_local:
@@ -2428,12 +2511,11 @@ class PTIWorkbookBuilder:
             ws.row_dimensions[r].height = 26.0
             cursor = r + 1
 
-            # =============================================================
-            # CABEÇALHO NÍVEL 1 (3 linhas de header)
-            # =============================================================
+            # Cabeçalho nível 1
             h1 = cursor
             ws.row_dimensions[h1].height = 30.0
-            for sc, ec, t, vertical in [
+
+            header_defs = [
                 (2, 2, "ÁREA LOCAL", True),
                 (3, 6, "LOCALIZAÇÃO", False),
                 (7, 9, "DADOS DA ROTA", False),
@@ -2444,23 +2526,21 @@ class PTIWorkbookBuilder:
                 (17, 18, "ENCAMINHAMENTO", False),
                 (19, 20, "SINALIZAÇÃO", False),
                 (21, 24, "ENDEREÇO IP", False),
-            ]:
+            ]
+            for sc, ec, t, vertical in header_defs:
                 if vertical:
-                    ws.merge_cells(start_row=h1, start_column=sc,
-                                   end_row=h1 + 2, end_column=ec)
+                    ws.merge_cells(start_row=h1, start_column=sc, end_row=h1 + 2, end_column=ec)
                 else:
-                    ws.merge_cells(start_row=h1, start_column=sc,
-                                   end_row=h1, end_column=ec)
+                    ws.merge_cells(start_row=h1, start_column=sc, end_row=h1, end_column=ec)
                 c = ws.cell(row=h1, column=sc, value=t)
                 c.font = s.font_subheader
                 c.alignment = s.align_center_wrap
                 c.fill = s.fill_secondary if vertical else s.fill_light
                 c.border = s.box_border
 
-            # CABEÇALHO NÍVEL 2
             h2 = h1 + 1
             ws.row_dimensions[h2].height = 25.0
-            for col, t in [
+            h2_defs = [
                 (3, "CN"), (4, "POI/PPI VIVO"),
                 (5, "CN"), (6, f"POI/PPI {n.upper()}"),
                 (7, "PONTA A VIVO"), (8, f"PONTA B {n.upper()}"),
@@ -2470,94 +2550,44 @@ class PTIWorkbookBuilder:
                 (14, "EXIST."), (15, "PLAN."),
                 (17, "DE A > B\n(FORMATO DE ENTREGA)"), (18, "DE B > A"),
                 (19, "CODEC"), (20, "OBSERVAÇÃO"),
-            ]:
-                ws.merge_cells(start_row=h2, start_column=col,
-                               end_row=h2 + 1, end_column=col)
+            ]
+            for col, t in h2_defs:
+                ws.merge_cells(start_row=h2, start_column=col, end_row=h2 + 1, end_column=col)
                 c = ws.cell(row=h2, column=col, value=t)
-                c.font = Font(name="Calibri",
-                              size=7 if col == 17 else 8,
-                              bold=True, color="FFFFFF")
+                c.font = Font(name="Calibri", size=7 if col == 17 else 8, bold=True, color="FFFFFF")
                 c.alignment = s.align_center_wrap
                 c.fill = s.fill_accent
                 c.border = s.box_border
 
             for sc, ec, t in [(21, 22, "VIVO"), (23, 24, n.upper())]:
-                ws.merge_cells(start_row=h2, start_column=sc,
-                               end_row=h2, end_column=ec)
+                ws.merge_cells(start_row=h2, start_column=sc, end_row=h2, end_column=ec)
                 c = ws.cell(row=h2, column=sc, value=t)
                 c.font = s.font_micro
                 c.alignment = s.align_center
                 c.fill = s.fill_accent
                 c.border = s.box_border
 
-            # CABEÇALHO NÍVEL 3: IP ADDRESS / NETMASK
             h3 = h2 + 1
             ws.row_dimensions[h3].height = 25.0
-            for col, t in [(21, "IP ADDRESS"), (22, "NETMASK"),
-                           (23, "IP ADDRESS"), (24, "NETMASK")]:
+            for col, t in [(21, "IP ADDRESS"), (22, "NETMASK"), (23, "IP ADDRESS"), (24, "NETMASK")]:
                 c = ws.cell(row=h3, column=col, value=t)
                 c.font = Font(name="Calibri", size=7, bold=True, color="FFFFFF")
                 c.alignment = s.align_center
                 c.fill = s.fill_light
                 c.border = s.box_border
 
-            # =============================================================
-            # LINHAS DE DADOS (DATA_ROWS linhas)
-            #
-            # COLUNAS COM VALOR ÚNICO (merge vertical, centralizado):
-            #   Col 2  = ÁREA LOCAL
-            #   Col 3  = CN VIVO
-            #   Col 4  = POI/PPI VIVO
-            #   Col 5  = CN OPERADORA
-            #   Col 6  = POI/PPI OPERADORA
-            #   Col 7  = PONTA A (SBC VIVO)
-            #   Col 8  = PONTA B (SBC OPERADORA)
-            #   Col 16 = ATIVAÇÃO (data atual + 90 dias)
-            #   Col 21 = IP ADDRESS VIVO
-            #   Col 22 = NETMASK VIVO
-            #   Col 23 = IP ADDRESS OPERADORA
-            #   Col 24 = NETMASK OPERADORA
-            #
-            # COLUNA SEM MERGE (1 valor por linha, altura proporcional):
-            #   Col 9  = TIPO DE TRÁFEGO
-            #
-            # COLUNAS LIVRES (vazias para preenchimento manual):
-            #   Col 10-15, 17-20
-            # =============================================================
-            ds = h3 + 1  # primeira linha de dados
-
-            # ATIVAÇÃO: data real DD/MM/AAAA + texto literal " + 90 dias"
+            ds = h3 + 1
             ativacao_str = datetime.now().strftime("%d/%m/%Y") + " + 90 dias"
-
-            # DATA_ROWS = exatamente o número de tipos de tráfego (mín 1)
             num_traffic = len(traffic_items) if traffic_items else 1
             DATA_ROWS = max(num_traffic, 1)
-
-            # Altura total fixa da área de dados; distribuída proporcionalmente
-            TOTAL_DATA_HEIGHT = 110.0  # px (equivale a ~5 linhas de 22px)
+            TOTAL_DATA_HEIGHT = 110.0
             row_height = max(18.0, round(TOTAL_DATA_HEIGHT / DATA_ROWS, 1))
 
-            # Alignment reutilizável: centro vertical + wrap
-            align_merged = Alignment(
-                horizontal="center", vertical="center", wrap_text=True
-            )
-            align_data_wrap = Alignment(
-                horizontal="center", vertical="center", wrap_text=True
-            )
+            traffic_mappings = [
+                self._resolve_traffic_mapping(t_item, n, cn_vivo, cn_op)
+                for t_item in (traffic_items if traffic_items else [""])
+            ]
 
-            # -----------------------------------------------------------
-            # PRÉ-CALCULAR MAPEAMENTO: tráfego → enc_ab / enc_ba / codec
-            # -----------------------------------------------------------
-            traffic_mappings = []
-            for t_item in (traffic_items if traffic_items else [""]):
-                mapping = self._resolve_traffic_mapping(
-                    t_item, n, cn_vivo, cn_op
-                )
-                traffic_mappings.append(mapping)
-
-            # -----------------------------------------------------------
-            # MERGE VERTICAL: todas as colunas com valor único
-            # -----------------------------------------------------------
             merged_cols = {
                 2:  (area_local,      Font(name="Calibri", size=10, bold=True)),
                 3:  (cn_vivo,         Font(name="Calibri", size=10, bold=True)),
@@ -2585,12 +2615,6 @@ class PTIWorkbookBuilder:
                 c.border = s.box_border
                 _track_width(col_num, val)
 
-            # -----------------------------------------------------------
-            # LINHAS DE DADOS: tráfego (1 por linha) + colunas livres
-            #
-            # Altura proporcional: se 3 tipos de tráfego, cada linha
-            # fica mais alta (~36px) para preencher a tabela visualmente.
-            # -----------------------------------------------------------
             merged_col_set = set(merged_cols.keys())
 
             for i in range(DATA_ROWS):
@@ -2600,27 +2624,24 @@ class PTIWorkbookBuilder:
                 traf_val = traffic_items[i] if i < len(traffic_items) else ""
                 traf_map = traffic_mappings[i] if i < len(traffic_mappings) else {}
 
-                # Colunas NÃO merged: renderizar individualmente
                 for col in range(2, 25):
                     if col in merged_col_set:
-                        # Apenas aplicar borda + fill nas linhas internas do merge
                         ws.cell(row=r, column=col).border = s.box_border
                         ws.cell(row=r, column=col).fill = f
                         continue
 
-                    # Determinar valor da célula
                     if col == 9:
-                        val = traf_val  # TRÁFEGO: 1 por linha (sem merge)
+                        val = traf_val
                     elif col == 17:
-                        val = traf_map.get("enc_ab", "")  # DE A > B
+                        val = traf_map.get("enc_ab", "")
                     elif col == 18:
-                        val = traf_map.get("enc_ba", "")  # DE B > A
+                        val = traf_map.get("enc_ba", "")
                     elif col == 19:
-                        val = traf_map.get("codec", "")   # CODEC
+                        val = traf_map.get("codec", "")
                     elif col == 20:
-                        val = "SIP-I"  # OBSERVAÇÃO: sempre SIP-I
+                        val = "SIP-I"
                     else:
-                        val = ""  # Colunas livres (BANDA, CANAIS, CAPS)
+                        val = ""
 
                     c = ws.cell(row=r, column=col, value=val)
                     c.font = s.font_small
@@ -2631,7 +2652,7 @@ class PTIWorkbookBuilder:
                     if i == 0:
                         _track_width(col, val)
 
-            # ----- AVISO DE DADOS AUSENTES -----
+            # Aviso de campos ausentes
             missing = []
             if not cn_vivo:
                 missing.append("CN VIVO")
@@ -2646,8 +2667,7 @@ class PTIWorkbookBuilder:
 
             if missing:
                 note_row = ds + DATA_ROWS
-                ws.merge_cells(start_row=note_row, start_column=2,
-                               end_row=note_row, end_column=24)
+                ws.merge_cells(start_row=note_row, start_column=2, end_row=note_row, end_column=24)
                 note_text = f"⚠ Campos não preenchidos: {', '.join(missing)}"
                 c = ws.cell(row=note_row, column=2, value=note_text)
                 c.font = Font(name="Calibri", size=8, italic=True, color="FF6600")
@@ -2657,13 +2677,13 @@ class PTIWorkbookBuilder:
             else:
                 cursor = ds + DATA_ROWS + 1
 
-        # ===== AUTO-ADJUST LARGURAS =====
+        # Auto-adjust larguras
         for col_num, width in max_widths.items():
             ws.column_dimensions[get_column_letter(col_num)].width = max(
                 col_widths.get(col_num, 8), width
             )
 
-        # ===== LIMPEZA DE MARGENS LATERAIS =====
+        # Margens laterais
         for col in (1, 25):
             for r in range(1, cursor + 5):
                 ws.cell(row=r, column=col).fill = s.fill_white
@@ -2672,67 +2692,63 @@ class PTIWorkbookBuilder:
         ws.freeze_panes = "C6"
         self._ps(ws, ls=True)
 
-    def _b_conc(self):
-        """
-        Aba Concentração — 5 colunas: Ref | CN | CNL | Cod. CnI | Status Link
-        Apenas linhas com dados reais (sem linhas vazias extras).
-        """
+    # =========================================================================
+    # ABA: CONCENTRAÇÃO
+    # =========================================================================
+    def _b_conc(self) -> None:
         s = self.s
         ws = self.wb.create_sheet(title="Concentração")
         n = self.nome
 
-        # --- Larguras ---
         col_w = {1: 2, 2: 8, 3: 8, 4: 12, 5: 12, 6: 25}
         max_w = dict(col_w)
-        last_col = 6  # cols 2-6 (B-F): margem em 1 e 7
+        last_col = 6
 
-        def _tw(col, val):
+        def _tw(col: int, val) -> None:
             if val:
                 cw = len(str(val)) * 1.15 + 2
                 if cw > max_w.get(col, 0):
                     max_w[col] = min(cw, 35)
 
-        align_wrap = Alignment(horizontal="center", vertical="center",
-                               wrap_text=True)
+        align_wrap = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
-        # ===== BANNER + TÍTULO =====
         self._bh(ws, 2, 2, last_col)
         self._st(ws, 4, 2, last_col, "2.5 - Concentração")
 
-        # ===== TEXTOS INTRODUTÓRIOS =====
         for row, text, italic in [
-            (5, f"A '{n.upper()}' informou interesse em realizar a "
+            (
+                5,
+                f"A '{n.upper()}' informou interesse em realizar a "
                 f"concentração de ALs conforme detalhado na tabela abaixo:",
-             False),
-            (6, 'Caso necessite de incluir mais ALs, Favor inserir linhas '
+                False,
+            ),
+            (
+                6,
+                'Caso necessite de incluir mais ALs, Favor inserir linhas '
                 'adicionais de acordo com reunião que foi acordado o tema '
-                '(coluna B - "Ref").', True),
+                '(coluna B - "Ref").',
+                True,
+            ),
         ]:
-            ws.merge_cells(start_row=row, start_column=2,
-                           end_row=row, end_column=last_col)
+            ws.merge_cells(start_row=row, start_column=2, end_row=row, end_column=last_col)
             c = ws.cell(row=row, column=2, value=text)
-            c.font = Font(name="Calibri", size=9 if italic else 10,
-                          italic=italic)
-            c.alignment = Alignment(horizontal="left", vertical="center",
-                                    wrap_text=True)
+            c.font = Font(name="Calibri", size=9 if italic else 10, italic=italic)
+            c.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
             c.fill = s.fill_background
             ws.row_dimensions[row].height = 28.0 if italic else 22.0
 
-        # ===== CABEÇALHO =====
         hr = 8
         ws.row_dimensions[hr].height = 25.0
-        headers = [
+        for col, txt in [
             (2, "Ref"), (3, "CN"), (4, "CNL"),
             (5, "Cod. CnI"), (6, "Status Link"),
-        ]
-        for col, txt in headers:
+        ]:
             c = ws.cell(row=hr, column=col, value=txt)
             c.font = Font(name="Calibri", size=10, bold=True, color="FFFFFF")
             c.alignment = align_wrap
             c.fill = s.fill_secondary
             c.border = s.box_border
 
-        # ===== DADOS — apenas linhas com conteúdo =====
         conc_rows = [d for d in self.conc if any(d.values())] if self.conc else []
         ds = hr + 1
 
@@ -2757,17 +2773,16 @@ class PTIWorkbookBuilder:
                 c.border = s.box_border
                 c.alignment = Alignment(
                     horizontal="left" if col_num == 6 else "center",
-                    vertical="center", wrap_text=True,
+                    vertical="center",
+                    wrap_text=True,
                 )
                 _tw(col_num, val)
 
-        # ===== AUTO-ADJUST LARGURAS =====
         for col_num, w in max_w.items():
             ws.column_dimensions[get_column_letter(col_num)].width = max(
                 col_w.get(col_num, 8), w
             )
 
-        # ===== MARGENS =====
         last_row = ds + len(conc_rows)
         for col in (1, last_col + 1):
             for r in range(1, last_row + 3):
@@ -2777,46 +2792,89 @@ class PTIWorkbookBuilder:
         ws.freeze_panes = f"C{ds}"
         self._ps(ws)
 
-    def _b_prefixes(self):
-        s=self.s; ws=self.wb.create_sheet(title="Plan Num_Oper")
-        self._cw(ws,{1:2,2:4,3:12,4:12,5:12,6:6,7:10,8:10,9:8,10:15}); self._bh(ws,2,2,10); self._st(ws,4,2,10,f"2.6. Tabela de Prefixos da {self.nome.upper()}")
-        ws.merge_cells(start_row=5,start_column=2,end_row=5,end_column=10); ws.cell(row=5,column=2,value='OBS: Caso necessite incluir mais faixas, inserir linhas adicionais (coluna B - "Ref").').font=Font(name="Calibri",size=9,italic=True); ws.cell(row=5,column=2).alignment=s.align_wrap; ws.cell(row=5,column=2).fill=s.fill_background
-        h1=7; ws.row_dimensions[h1].height=25.0
-        for sc,ec,t,v in [(2,2,"Ref",True),(3,3,"Município",True),(4,4,"ÁREA LOCAL",True),(5,5,"CÓDIGO CNL",True),(6,6,"CN",True),(7,8,"SERIE AUTORIZADA",False),(9,9,"EOT LOCAL",True),(10,10,"SNOA STFC / SMP",True)]:
-            if v: ws.merge_cells(start_row=h1,start_column=sc,end_row=h1+1,end_column=ec)
-            else: ws.merge_cells(start_row=h1,start_column=sc,end_row=h1,end_column=ec)
-            c=ws.cell(row=h1,column=sc,value=t); c.font=s.font_subheader; c.alignment=s.align_center; c.fill=s.fill_secondary; c.border=s.box_border
-        h2=h1+1; ws.row_dimensions[h2].height=30.0
-        for col,t in [(7,"INCLUÍNOS\nN8 N7 N6 N5"),(8,"FINAL\nN4 N3 N2 N1")]:
-            c=ws.cell(row=h2,column=col,value=t); c.font=s.font_micro; c.alignment=s.align_center_wrap; c.fill=s.fill_accent; c.border=s.box_border
-        ds=h2+1
-        # 5 linhas de dados vazias — só a 1ª visível, demais ocultas
+    # =========================================================================
+    # ABA: PLAN NUM_OPER
+    # =========================================================================
+    def _b_prefixes(self) -> None:
+        s = self.s
+        ws = self.wb.create_sheet(title="Plan Num_Oper")
+        self._cw(ws, {1: 2, 2: 4, 3: 12, 4: 12, 5: 12, 6: 6, 7: 10, 8: 10, 9: 8, 10: 15})
+        self._bh(ws, 2, 2, 10)
+        self._st(ws, 4, 2, 10, f"2.6. Tabela de Prefixos da {self.nome.upper()}")
+
+        ws.merge_cells(start_row=5, start_column=2, end_row=5, end_column=10)
+        c = ws.cell(
+            row=5, column=2,
+            value='OBS: Caso necessite incluir mais faixas, inserir linhas adicionais (coluna B - "Ref").',
+        )
+        c.font = Font(name="Calibri", size=9, italic=True)
+        c.alignment = s.align_wrap
+        c.fill = s.fill_background
+
+        h1 = 7
+        ws.row_dimensions[h1].height = 25.0
+
+        h1_defs = [
+            (2, 2, "Ref", True),
+            (3, 3, "Município", True),
+            (4, 4, "ÁREA LOCAL", True),
+            (5, 5, "CÓDIGO CNL", True),
+            (6, 6, "CN", True),
+            (7, 8, "SERIE AUTORIZADA", False),
+            (9, 9, "EOT LOCAL", True),
+            (10, 10, "SNOA STFC / SMP", True),
+        ]
+        for sc, ec, t, vertical in h1_defs:
+            if vertical:
+                ws.merge_cells(start_row=h1, start_column=sc, end_row=h1 + 1, end_column=ec)
+            else:
+                ws.merge_cells(start_row=h1, start_column=sc, end_row=h1, end_column=ec)
+            c = ws.cell(row=h1, column=sc, value=t)
+            c.font = s.font_subheader
+            c.alignment = s.align_center
+            c.fill = s.fill_secondary
+            c.border = s.box_border
+
+        h2 = h1 + 1
+        ws.row_dimensions[h2].height = 30.0
+        for col, t in [(7, "INCLUÍNOS\nN8 N7 N6 N5"), (8, "FINAL\nN4 N3 N2 N1")]:
+            c = ws.cell(row=h2, column=col, value=t)
+            c.font = s.font_micro
+            c.alignment = s.align_center_wrap
+            c.fill = s.fill_accent
+            c.border = s.box_border
+
+        ds = h2 + 1
         for i in range(5):
-            r=ds+i; ws.row_dimensions[r].height=20.0; f=s.alt_fill(i)
-            for col in range(2,11): c=ws.cell(row=r,column=col,value=""); c.font=s.font_small; c.alignment=s.align_center; c.border=s.box_border; c.fill=f
+            r = ds + i
+            ws.row_dimensions[r].height = 20.0
+            f = s.alt_fill(i)
+            for col in range(2, 11):
+                c = ws.cell(row=r, column=col, value="")
+                c.font = s.font_small
+                c.alignment = s.align_center
+                c.border = s.box_border
+                c.fill = f
             if i > 0:
                 ws.row_dimensions[r].hidden = True
 
-        # ===== BLOCO RN1/EOT/CSP/CNG/RN2 — títulos padronizados + indicadores =====
-        ps=ds+6
+        ps = ds + 6
         title_font = Font(name="Calibri", size=9, bold=True)
         title_align = Alignment(horizontal="left", vertical="center")
         resp_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
-        TITLE_H = 22.0  # altura fixa e igual para todos
+        TITLE_H = 22.0
 
-        # Indicadores: (label, tipo, valor_do_form)
-        # Todos usam: col 2 = título fixo, cols 3-10 = UMA célula grande mesclada
         indicators = [
-            ("RN1",            "text",   self.rn1),
-            ("EOT Local",      "text",   self.eot_local),
-            ("EOT LDN/LDI",   "text",   self.eot_ld),
-            ("CSP",            "binary", self.csp),
-            ("Código Especial:","binary", self.servicos_especiais),
-            ("CNG:",           "binary", self.cng),
-            ("RN2",            "binary", False),
+            ("RN1",             "text",   self.rn1),
+            ("EOT Local",       "text",   self.eot_local),
+            ("EOT LDN/LDI",    "text",   self.eot_ld),
+            ("CSP",             "binary", self.csp),
+            ("Código Especial:", "binary", self.servicos_especiais),
+            ("CNG:",            "binary", self.cng),
+            ("RN2",             "binary", False),
         ]
 
-        font_flag_ok  = Font(name="Calibri", size=14, bold=True, color="008000")
+        font_flag_ok = Font(name="Calibri", size=14, bold=True, color="008000")
         font_flag_nok = Font(name="Calibri", size=14, bold=True, color="FF0000")
         font_text_val = Font(name="Calibri", size=10, bold=True)
 
@@ -2825,16 +2883,17 @@ class PTIWorkbookBuilder:
             ws.row_dimensions[r].height = TITLE_H
             f = s.alt_fill(i)
 
-            # Título (col 2) — tamanho fixo, formatação padronizada
             ct = ws.cell(row=r, column=2, value=label)
-            ct.font = title_font; ct.alignment = title_align
-            ct.border = s.box_border; ct.fill = f
+            ct.font = title_font
+            ct.alignment = title_align
+            ct.border = s.box_border
+            ct.fill = f
 
-            # Resposta (cols 3-10 mescladas) — UMA célula grande
             ws.merge_cells(start_row=r, start_column=3, end_row=r, end_column=10)
             cr_cell = ws.cell(row=r, column=3)
             cr_cell.alignment = resp_align
-            cr_cell.border = s.box_border; cr_cell.fill = f
+            cr_cell.border = s.box_border
+            cr_cell.fill = f
 
             if tipo == "binary":
                 cr_cell.value = "✔" if valor else "✘"
@@ -2847,67 +2906,82 @@ class PTIWorkbookBuilder:
                     cr_cell.value = "✘"
                     cr_cell.font = font_flag_nok
 
-        # Textos descritivos abaixo dos indicadores
         desc_start = ps + len(indicators)
-        for o, t in [(0, "Operadora de transporte nas localidades onde não existir rota direta"),
-                      (1, "Transbordo nas localidades onde existe rota direta:")]:
-            ws.merge_cells(start_row=desc_start+o, start_column=2, end_row=desc_start+o, end_column=10)
-            ws.cell(row=desc_start+o, column=2, value=t).font = Font(name="Calibri", size=9, bold=True)
-            ws.cell(row=desc_start+o, column=2).alignment = s.align_wrap; ws.cell(row=desc_start+o, column=2).fill = s.fill_background
-        tr=desc_start+2
-        for sc,ec,t in [(2,3,"UF"),(4,7,"SERIE AUTORIZADA")]:
-            ws.merge_cells(start_row=tr,start_column=sc,end_row=tr,end_column=ec); c=ws.cell(row=tr,column=sc,value=t); c.font=s.font_subheader; c.alignment=s.align_center; c.fill=s.fill_secondary; c.border=s.box_border
-        sr=tr+1
-        for sc,ec in [(2,3),(4,5),(6,7)]:
-            ws.merge_cells(start_row=sr,start_column=sc,end_row=sr,end_column=ec); ws.cell(row=sr,column=sc,value="").border=s.box_border; ws.cell(row=sr,column=sc).fill=s.fill_background
-        cr=sr+2
-        for o,t in [(0,"A programação de CNG ocorre pelo processo de portabilidade intrínseca - via ABR"),(1,"O encaminhamento do CNG será programado nas localidades onde o ponto de entrega for informado")]:
-            ws.merge_cells(start_row=cr+o,start_column=2,end_row=cr+o,end_column=10); ws.cell(row=cr+o,column=2,value=t).font=s.font_small
-        sm=cr+3; ws.merge_cells(start_row=sm,start_column=2,end_row=sm,end_column=10); ws.cell(row=sm,column=2,value="2.12 Tabela de Prefixos Vivo SMP").font=Font(name="Calibri",size=10,bold=True)
-        ws.merge_cells(start_row=sm+1,start_column=2,end_row=sm+1,end_column=10); ws.cell(row=sm+1,column=2,value="Os prefixos da VIVO SMP, poderão ser obtidos acessando o site www.telefonica.net.br/sp/transfer/").font=s.font_small
-        ws.freeze_panes=f"B{h1}"; self._ps(ws,ls=True)
+        for o, t in [
+            (0, "Operadora de transporte nas localidades onde não existir rota direta"),
+            (1, "Transbordo nas localidades onde existe rota direta:"),
+        ]:
+            ws.merge_cells(
+                start_row=desc_start + o, start_column=2,
+                end_row=desc_start + o, end_column=10,
+            )
+            ws.cell(row=desc_start + o, column=2, value=t).font = Font(name="Calibri", size=9, bold=True)
+            ws.cell(row=desc_start + o, column=2).alignment = s.align_wrap
+            ws.cell(row=desc_start + o, column=2).fill = s.fill_background
 
-    def _b_mtl(self):
-        """
-        Aba Dados MTL — 2 linhas por referência.
+        tr = desc_start + 2
+        for sc, ec, t in [(2, 3, "UF"), (4, 7, "SERIE AUTORIZADA")]:
+            ws.merge_cells(start_row=tr, start_column=sc, end_row=tr, end_column=ec)
+            c = ws.cell(row=tr, column=sc, value=t)
+            c.font = s.font_subheader
+            c.alignment = s.align_center
+            c.fill = s.fill_secondary
+            c.border = s.box_border
 
-        Para cada ref (par vivo_row + op_row):
-          Linha 1: MTL = nome operadora, CN = cn_vivo
-          Linha 2: MTL = "VIVO",          CN = cn_op (ou mesmo)
-        Ambas linhas: PONTA VIVO = endereco_vivo, PONTA OP = endereco_op
-        Demais colunas em branco.
-        """
+        sr = tr + 1
+        for sc, ec in [(2, 3), (4, 5), (6, 7)]:
+            ws.merge_cells(start_row=sr, start_column=sc, end_row=sr, end_column=ec)
+            ws.cell(row=sr, column=sc, value="").border = s.box_border
+            ws.cell(row=sr, column=sc).fill = s.fill_background
+
+        cr = sr + 2
+        for o, t in [
+            (0, "A programação de CNG ocorre pelo processo de portabilidade intrínseca - via ABR"),
+            (1, "O encaminhamento do CNG será programado nas localidades onde o ponto de entrega for informado"),
+        ]:
+            ws.merge_cells(
+                start_row=cr + o, start_column=2, end_row=cr + o, end_column=10
+            )
+            ws.cell(row=cr + o, column=2, value=t).font = s.font_small
+
+        sm = cr + 3
+        ws.merge_cells(start_row=sm, start_column=2, end_row=sm, end_column=10)
+        ws.cell(row=sm, column=2, value="2.12 Tabela de Prefixos Vivo SMP").font = Font(name="Calibri", size=10, bold=True)
+        ws.merge_cells(start_row=sm + 1, start_column=2, end_row=sm + 1, end_column=10)
+        ws.cell(
+            row=sm + 1, column=2,
+            value="Os prefixos da VIVO SMP, poderão ser obtidos acessando o site www.telefonica.net.br/sp/transfer/",
+        ).font = s.font_small
+
+        ws.freeze_panes = f"B{h1}"
+        self._ps(ws, ls=True)
+
+    # =========================================================================
+    # ABA: DADOS MTL
+    # =========================================================================
+    def _b_mtl(self) -> None:
         s = self.s
         ws = self.wb.create_sheet(title="Dados MTL")
         n = self.nome
 
-        # Larguras
-        col_w = {1: 2, 2: 6, 3: 8, 4: 10, 5: 12, 6: 18, 7: 18,
-                 8: 20, 9: 15, 10: 18, 11: 18, 12: 20}
+        col_w = {
+            1: 2, 2: 6, 3: 8, 4: 10, 5: 12, 6: 18,
+            7: 18, 8: 20, 9: 15, 10: 18, 11: 18, 12: 20,
+        }
         self._cw(ws, col_w)
         self._bh(ws, 2, 2, 12)
         self._st(ws, 4, 2, 12, "2.7. Dados de MTL")
 
-        # Texto intro
-        ws.merge_cells(start_row=5, start_column=2, end_row=5, end_column=12)
-        c = ws.cell(row=5, column=2,
-                    value="Tabela de dados MTL para interligação entre "
-                          "VIVO e operadora.")
-        c.font = s.font_body
-        c.fill = s.fill_background
-        c.alignment = Alignment(horizontal="left", vertical="center",
-                                wrap_text=True)
+        for row, text, italic in [
+            (5, "Tabela de dados MTL para interligação entre VIVO e operadora.", False),
+            (6, "Preencher com os dados técnicos dos circuitos de interligação.", True),
+        ]:
+            ws.merge_cells(start_row=row, start_column=2, end_row=row, end_column=12)
+            c = ws.cell(row=row, column=2, value=text)
+            c.font = Font(name="Calibri", size=9 if italic else 10, italic=italic)
+            c.fill = s.fill_background
+            c.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
 
-        ws.merge_cells(start_row=6, start_column=2, end_row=6, end_column=12)
-        c = ws.cell(row=6, column=2,
-                    value="Preencher com os dados técnicos dos circuitos "
-                          "de interligação.")
-        c.font = Font(name="Calibri", size=9, italic=True)
-        c.fill = s.fill_background
-        c.alignment = Alignment(horizontal="left", vertical="center",
-                                wrap_text=True)
-
-        # Cabeçalho
         hr = 8
         headers = [
             (2, "Ref"), (3, "Cn"), (4, "ID"), (5, "MTL"),
@@ -2920,18 +2994,13 @@ class PTIWorkbookBuilder:
         for col, txt in headers:
             c = ws.cell(row=hr, column=col, value=txt)
             c.font = s.font_subheader
-            c.alignment = Alignment(horizontal="center", vertical="center",
-                                    wrap_text=True)
+            c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
             c.fill = s.fill_secondary
             c.border = s.box_border
 
-        # ===== DADOS: 2 linhas por referência =====
-        align_c = Alignment(horizontal="center", vertical="center",
-                            wrap_text=True)
-        align_l = Alignment(horizontal="left", vertical="center",
-                            wrap_text=True)
+        align_c = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        align_l = Alignment(horizontal="left", vertical="center", wrap_text=True)
 
-        # Determinar número de referências (maior entre vivo e op)
         num_refs = max(len(self.vivo_rows), len(self.op_rows), 1)
         ds = hr + 1
         row_idx = 0
@@ -2940,111 +3009,217 @@ class PTIWorkbookBuilder:
             vr = self.vivo_rows[ref_i] if ref_i < len(self.vivo_rows) else {}
             opr = self.op_rows[ref_i] if ref_i < len(self.op_rows) else {}
 
-            # Extrair dados
             cn_vivo = vr.get("cn", "").strip()
             cn_op = opr.get("cn", "").strip()
             endereco_vivo = vr.get("endereco_link", "").strip()
             endereco_op = opr.get("endereco_link", "").strip()
             ref_val = ref_i + 1
 
-            # --- Linha 1: MTL = Operadora ---
-            r1 = ds + row_idx
-            ws.row_dimensions[r1].height = 22.0
-            f1 = s.alt_fill(row_idx)
-            line1 = {
-                3: cn_vivo, 4: "", 5: n.upper(),
-                6: endereco_vivo, 7: endereco_op,
-                8: "", 9: "", 10: "", 11: "", 12: "",
-            }
-            for col_num, val in line1.items():
-                c = ws.cell(row=r1, column=col_num, value=val)
-                c.font = s.font_small
-                c.alignment = align_l if col_num in (6, 7, 12) else align_c
-                c.border = s.box_border
-                c.fill = f1
-            row_idx += 1
+            for row_data, mtl_label in [
+                ({3: cn_vivo, 4: "", 5: n.upper(), 6: endereco_vivo, 7: endereco_op,
+                  8: "", 9: "", 10: "", 11: "", 12: ""},
+                 None),
+                ({3: cn_op or cn_vivo, 4: "", 5: "VIVO", 6: endereco_vivo, 7: endereco_op,
+                  8: "", 9: "", 10: "", 11: "", 12: ""},
+                 None),
+            ]:
+                r = ds + row_idx
+                ws.row_dimensions[r].height = 22.0
+                f = s.alt_fill(row_idx)
+                for col_num, val in row_data.items():
+                    c = ws.cell(row=r, column=col_num, value=val)
+                    c.font = s.font_small
+                    c.alignment = align_l if col_num in (6, 7, 12) else align_c
+                    c.border = s.box_border
+                    c.fill = f
+                row_idx += 1
 
-            # --- Linha 2: MTL = VIVO ---
-            r2 = ds + row_idx
-            ws.row_dimensions[r2].height = 22.0
-            f2 = s.alt_fill(row_idx)
-            line2 = {
-                3: cn_op or cn_vivo, 4: "", 5: "VIVO",
-                6: endereco_vivo, 7: endereco_op,
-                8: "", 9: "", 10: "", 11: "", 12: "",
-            }
-            for col_num, val in line2.items():
-                c = ws.cell(row=r2, column=col_num, value=val)
-                c.font = s.font_small
-                c.alignment = align_l if col_num in (6, 7, 12) else align_c
-                c.border = s.box_border
-                c.fill = f2
-            row_idx += 1
-
-            # --- Merge vertical na coluna Ref (col 2) cobrindo as 2 linhas ---
-            ws.merge_cells(start_row=r1, start_column=2,
-                           end_row=r2, end_column=2)
+            # Merge coluna Ref (cobre as 2 linhas)
+            r1 = ds + row_idx - 2
+            r2 = ds + row_idx - 1
+            ws.merge_cells(start_row=r1, start_column=2, end_row=r2, end_column=2)
             c = ws.cell(row=r1, column=2, value=ref_val)
             c.font = s.font_small
             c.alignment = align_c
             c.border = s.box_border
-            c.fill = f1
+            c.fill = s.alt_fill(row_idx - 2)
 
         ws.freeze_panes = f"B{ds}"
         self._ps(ws, ls=True)
 
-    def _b_params(self):
-        s=self.s; ws=self.wb.create_sheet(title="Parâmetros de Programação"); n=self.nome
-        self._cw(ws,{1:2,2:50,3:35,4:15,5:12,6:35}); self._bh(ws,2,2,6); self._st(ws,4,2,6,"2.9 - Parâmetros de Programação")
-        ws.merge_cells(start_row=5,start_column=2,end_row=5,end_column=6)
-        ws.cell(row=5,column=2,value=f"Relação dos parâmetros de configuração de rotas SIP entre a TELEFÔNICA-VIVO e a Operadora {n.upper()}.").font=s.font_body; ws.cell(row=5,column=2).fill=s.fill_background
-        cur=[7]
-        def _h(t):
-            r=cur[0]; ws.merge_cells(start_row=r,start_column=2,end_row=r,end_column=6); c=ws.cell(row=r,column=2,value=t); c.font=Font(name="Calibri",size=11,bold=True,color="FFFFFF"); c.alignment=s.align_center; c.fill=s.fill_light; c.border=s.box_border; ws.row_dimensions[r].height=20.0; cur[0]+=1
-        def _ch():
-            r=cur[0]
-            for ci,t in enumerate(["Parâmetro",f"TELEFÔNICA VIVO <> {n.upper()}","Categoria","Cumpre?","Observação"],2):
-                c=ws.cell(row=r,column=ci,value=t); c.font=s.font_subheader; c.alignment=s.align_center; c.fill=s.fill_secondary; c.border=s.box_border
-            ws.row_dimensions[r].height=25.0; cur[0]+=1
-        def _r(data):
-            for i,rd in enumerate(data):
-                r=cur[0]; f=s.alt_fill(i)
-                for ci,v in enumerate(rd,2):
-                    c=ws.cell(row=r,column=ci,value=v); c.font=s.font_check if ci==5 and v=="✔" else s.font_small
-                    c.alignment=s.align_left if ci==2 else s.align_center; c.fill=f; c.border=s.box_border
-                cur[0]+=1
-        def _sec(title,data,ch=False):
+    # =========================================================================
+    # ABA: PARÂMETROS DE PROGRAMAÇÃO
+    # =========================================================================
+    def _b_params(self) -> None:
+        s = self.s
+        ws = self.wb.create_sheet(title="Parâmetros de Programação")
+        n = self.nome
+
+        self._cw(ws, {1: 2, 2: 50, 3: 35, 4: 15, 5: 12, 6: 35})
+        self._bh(ws, 2, 2, 6)
+        self._st(ws, 4, 2, 6, "2.9 - Parâmetros de Programação")
+
+        ws.merge_cells(start_row=5, start_column=2, end_row=5, end_column=6)
+        ws.cell(
+            row=5, column=2,
+            value=f"Relação dos parâmetros de configuração de rotas SIP entre a "
+                  f"TELEFÔNICA-VIVO e a Operadora {n.upper()}.",
+        ).font = s.font_body
+        ws.cell(row=5, column=2).fill = s.fill_background
+
+        cur = [7]
+
+        def _h(t: str) -> None:
+            r = cur[0]
+            ws.merge_cells(start_row=r, start_column=2, end_row=r, end_column=6)
+            c = ws.cell(row=r, column=2, value=t)
+            c.font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+            c.alignment = s.align_center
+            c.fill = s.fill_light
+            c.border = s.box_border
+            ws.row_dimensions[r].height = 20.0
+            cur[0] += 1
+
+        def _ch() -> None:
+            r = cur[0]
+            for ci, t in enumerate(
+                ["Parâmetro", f"TELEFÔNICA VIVO <> {n.upper()}", "Categoria", "Cumpre?", "Observação"],
+                start=2,
+            ):
+                c = ws.cell(row=r, column=ci, value=t)
+                c.font = s.font_subheader
+                c.alignment = s.align_center
+                c.fill = s.fill_secondary
+                c.border = s.box_border
+            ws.row_dimensions[r].height = 25.0
+            cur[0] += 1
+
+        def _r(data: list) -> None:
+            for i, rd in enumerate(data):
+                r = cur[0]
+                f = s.alt_fill(i)
+                for ci, v in enumerate(rd, start=2):
+                    c = ws.cell(row=r, column=ci, value=v)
+                    c.font = s.font_check if ci == 5 and v == "✔" else s.font_small
+                    c.alignment = s.align_left if ci == 2 else s.align_center
+                    c.fill = f
+                    c.border = s.box_border
+                cur[0] += 1
+
+        def _sec(title: str, data: list, ch: bool = False) -> None:
             _h(title)
-            if ch: _ch()
-            _r(data); cur[0]+=1
+            if ch:
+                _ch()
+            _r(data)
+            cur[0] += 1
 
-        ws.merge_cells(start_row=cur[0],start_column=2,end_row=cur[0],end_column=6)
-        c=ws.cell(row=cur[0],column=2,value="Interconexão Nacional"); c.font=Font(name="Calibri",size=11,bold=True,color="FFFFFF"); c.alignment=s.align_center; c.fill=s.fill_primary; c.border=s.box_border; cur[0]+=1
-        _sec("Informação do Gateway",[("Fabricante / Fornecedor","sipwise","Mandatório","✔",""),("Modelo - Versão","Elementos Rede Fixa, Fixa I e Móvel","Mandatório","✔","")],ch=True)
-        _sec("Tipo de Serviço",[("Voz","SIM","Mandatório","✔",""),("Fax","SIM","Mandatório","✔",""),("DTMF","SIM","Mandatório","✔","")])
-        _sec("Protocolo",[("Tipo de Protocolo","SIP-I (Q.1912.5)","Mandatório","✔","")])
-        _sec("Atributos SIP",[("SIP Version","SIP v2.1","Mandatório","✔",""),("Protocolo de Transporte","UDP","Mandatório","✔",""),("Endereço IP Gateway SIP","Gateway de Gateway - NNI","Mandatório","✔",""),("IP ADDR do RTP","IP ADDR do RTP","Mandatório","✔",""),("FW ou SBC antes do Gateway","Mandatório","Mandatório","✔",""),("Envia DOMAIN na URI","P-Asserted-Identity e Diversion","Mandatório","✔",""),("Envia DOMAIN IP","Mandatório","Mandatório","✔",""),("Envia DOMAIN IP no SDP","Mandatório","Mandatório","✔",""),("Envia DOMAIN IP no SDP para Controle","Mandatório","Mandatório","✔",""),("Envia DOMAIN IP no SDP para Controle de QoS","Mandatório","Mandatório","✔",""),("Envia DOMAIN IP no SDP para Controle de QoS e Segurança","Mandatório","Mandatório","✔",""),("Envia DOMAIN IP no SDP para Controle de QoS e Segurança e Controle de Chamada","Mandatório","Mandatório","✔",""),("Envia DOMAIN IP no SDP para Controle de QoS e Segurança e Controle de Sessão","Mandatório","Mandatório","✔",""),("Envia DOMAIN IP no SDP para Controle de QoS e Segurança e Controle de Recursos","Mandatório","Mandatório","✔",""),("Envia DOMAIN IP no SDP para Controle de QoS e Segurança e Controle de Política","Mandatório","Mandatório","✔","")])
-        _sec("Codec Rede Móvel",[("AMR encaminhamento","","Mandatório","✔",""),("2ª opção G.711a 20ms","","Mandatório","✔","Não aceita codec g.711u")])
-        _sec("Codec Rede Fixa",[("G.711a 20ms","","Mandatório","✔",""),("2ª opção G.729a 20ms","","Mandatório","✔","Não aceita codec g.711u")])
-        _sec("DTMF",[("1ª Opção: RFC 2833 (Outband) com valor payload = 100","","Mandatório","✔",""),("Todos os payloads de DTMF definidos no padrão (96-125) podem ser usados","","Mandatório","✔","")])
-        _sec("FAX",[("Protocolo T.38 suportado","","Mandatório","✔","")])
-        _sec("POS",[("Detecção do UPSEEED","Utilização do g711a em re-INVITE","Mandatório","✔","Dados necessários no SDP"),("Detecção do UPSEEED","Utilização do g711u em re-INVITE","Mandatório","✔","Dados necessários no SDP")])
-        _sec("Encaminhamento Enfrante",[("P-ASSERTED Identity (RFC 3325)","SIM - Fomento E.164","Mandatório","✔",""),("Nature of address of Calling","SUB, NAT, UNKW","Mandatório","✔",""),("B-NUMBER (Called Number)","E.164 - Padrão Roteamento","Mandatório","✔",""),("Nature of address","SUB, NAT, UNKW","Mandatório","✔","")])
-        _sec("Encaminhamento Sainte",[("A-NUMBER (Calling Number)","E.164 - Nacional","Mandatório","✔",""),("P-Asserted Identity (RFC 3325)","SIM - Formato E.164","Mandatório","✔",""),("Nature of address of Calling","SUB, NAT, UNKW","Mandatório","✔",""),("B-NUMBER (Called Number)","E.164 - Padrão Roteamento","Mandatório","✔",""),("Nature of address","SUB, NAT, UNKW","Mandatório","✔","")])
-        _sec("Principais RFC's que devem estar habilitadas e/ou suportadas",[("3261 - SIP Base","","","",""),("3311 - UPDATE (PRACK)","","","",""),("3264/4028 - Offer/Answer - SDP","","","",""),("2833 - DTMF - RTP","","","",""),("RFC 3398 - SIP-I interworking","","","",""),("RFC 4033/4035 - DNSSEC","","","",""),("RFC 4566 - SDP","","","",""),("RFC 3606 - Early Media & Tone Generation","","","","SIP 180Ring (puro), o Proxy deverá gerar o RBT localmente")])
-        _sec("Método para alteração dos dados do SDP",[("Método Update","","Mandatório","","Antes do Atendimento"),("Método Update","","Mandatório","","Após atendimento")])
-        _sec("Negociação de Codec",[("É mandatório a utilização de re-invites pelo Origem para definição de codecs.","","Mandatório","✔",""),("O ptime no SDP answer deve ser múltiplo inteiro de 20 para codecs móveis; 3GPP 26.114","","Mandatório","✔",""),("Pacotes suportados às marcações USR, DSCP 46 ou EF para pacotes RTP","","Mandatório","✔","")])
-        self._ps(ws,ls=True)
+        ws.merge_cells(start_row=cur[0], start_column=2, end_row=cur[0], end_column=6)
+        c = ws.cell(row=cur[0], column=2, value="Interconexão Nacional")
+        c.font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+        c.alignment = s.align_center
+        c.fill = s.fill_primary
+        c.border = s.box_border
+        cur[0] += 1
 
-    def build(self):
+        _sec("Informação do Gateway", [
+            ("Fabricante / Fornecedor", "sipwise", "Mandatório", "✔", ""),
+            ("Modelo - Versão", "Elementos Rede Fixa, Fixa I e Móvel", "Mandatório", "✔", ""),
+        ], ch=True)
+        _sec("Tipo de Serviço", [
+            ("Voz", "SIM", "Mandatório", "✔", ""),
+            ("Fax", "SIM", "Mandatório", "✔", ""),
+            ("DTMF", "SIM", "Mandatório", "✔", ""),
+        ])
+        _sec("Protocolo", [("Tipo de Protocolo", "SIP-I (Q.1912.5)", "Mandatório", "✔", "")])
+        _sec("Atributos SIP", [
+            ("SIP Version", "SIP v2.1", "Mandatório", "✔", ""),
+            ("Protocolo de Transporte", "UDP", "Mandatório", "✔", ""),
+            ("Endereço IP Gateway SIP", "Gateway de Gateway - NNI", "Mandatório", "✔", ""),
+            ("IP ADDR do RTP", "IP ADDR do RTP", "Mandatório", "✔", ""),
+            ("FW ou SBC antes do Gateway", "Mandatório", "Mandatório", "✔", ""),
+            ("Envia DOMAIN na URI", "P-Asserted-Identity e Diversion", "Mandatório", "✔", ""),
+            ("Envia DOMAIN IP", "Mandatório", "Mandatório", "✔", ""),
+            ("Envia DOMAIN IP no SDP", "Mandatório", "Mandatório", "✔", ""),
+            ("Envia DOMAIN IP no SDP para Controle", "Mandatório", "Mandatório", "✔", ""),
+            ("Envia DOMAIN IP no SDP para Controle de QoS", "Mandatório", "Mandatório", "✔", ""),
+            ("Envia DOMAIN IP no SDP para Controle de QoS e Segurança", "Mandatório", "Mandatório", "✔", ""),
+            ("Envia DOMAIN IP no SDP para Controle de QoS e Segurança e Controle de Chamada", "Mandatório", "Mandatório", "✔", ""),
+            ("Envia DOMAIN IP no SDP para Controle de QoS e Segurança e Controle de Sessão", "Mandatório", "Mandatório", "✔", ""),
+            ("Envia DOMAIN IP no SDP para Controle de QoS e Segurança e Controle de Recursos", "Mandatório", "Mandatório", "✔", ""),
+            ("Envia DOMAIN IP no SDP para Controle de QoS e Segurança e Controle de Política", "Mandatório", "Mandatório", "✔", ""),
+        ])
+        _sec("Codec Rede Móvel", [
+            ("AMR encaminhamento", "", "Mandatório", "✔", ""),
+            ("2ª opção G.711a 20ms", "", "Mandatório", "✔", "Não aceita codec g.711u"),
+        ])
+        _sec("Codec Rede Fixa", [
+            ("G.711a 20ms", "", "Mandatório", "✔", ""),
+            ("2ª opção G.729a 20ms", "", "Mandatório", "✔", "Não aceita codec g.711u"),
+        ])
+        _sec("DTMF", [
+            ("1ª Opção: RFC 2833 (Outband) com valor payload = 100", "", "Mandatório", "✔", ""),
+            ("Todos os payloads de DTMF definidos no padrão (96-125) podem ser usados", "", "Mandatório", "✔", ""),
+        ])
+        _sec("FAX", [("Protocolo T.38 suportado", "", "Mandatório", "✔", "")])
+        _sec("POS", [
+            ("Detecção do UPSEEED", "Utilização do g711a em re-INVITE", "Mandatório", "✔", "Dados necessários no SDP"),
+            ("Detecção do UPSEEED", "Utilização do g711u em re-INVITE", "Mandatório", "✔", "Dados necessários no SDP"),
+        ])
+        _sec("Encaminhamento Enfrante", [
+            ("P-ASSERTED Identity (RFC 3325)", "SIM - Fomento E.164", "Mandatório", "✔", ""),
+            ("Nature of address of Calling", "SUB, NAT, UNKW", "Mandatório", "✔", ""),
+            ("B-NUMBER (Called Number)", "E.164 - Padrão Roteamento", "Mandatório", "✔", ""),
+            ("Nature of address", "SUB, NAT, UNKW", "Mandatório", "✔", ""),
+        ])
+        _sec("Encaminhamento Sainte", [
+            ("A-NUMBER (Calling Number)", "E.164 - Nacional", "Mandatório", "✔", ""),
+            ("P-Asserted Identity (RFC 3325)", "SIM - Formato E.164", "Mandatório", "✔", ""),
+            ("Nature of address of Calling", "SUB, NAT, UNKW", "Mandatório", "✔", ""),
+            ("B-NUMBER (Called Number)", "E.164 - Padrão Roteamento", "Mandatório", "✔", ""),
+            ("Nature of address", "SUB, NAT, UNKW", "Mandatório", "✔", ""),
+        ])
+        _sec("Principais RFC's que devem estar habilitadas e/ou suportadas", [
+            ("3261 - SIP Base", "", "", "", ""),
+            ("3311 - UPDATE (PRACK)", "", "", "", ""),
+            ("3264/4028 - Offer/Answer - SDP", "", "", "", ""),
+            ("2833 - DTMF - RTP", "", "", "", ""),
+            ("RFC 3398 - SIP-I interworking", "", "", "", ""),
+            ("RFC 4033/4035 - DNSSEC", "", "", "", ""),
+            ("RFC 4566 - SDP", "", "", "", ""),
+            ("RFC 3606 - Early Media & Tone Generation", "", "", "", "SIP 180Ring (puro), o Proxy deverá gerar o RBT localmente"),
+        ])
+        _sec("Método para alteração dos dados do SDP", [
+            ("Método Update", "", "Mandatório", "", "Antes do Atendimento"),
+            ("Método Update", "", "Mandatório", "", "Após atendimento"),
+        ])
+        _sec("Negociação de Codec", [
+            ("É mandatório a utilização de re-invites pelo Origem para definição de codecs.", "", "Mandatório", "✔", ""),
+            ("O ptime no SDP answer deve ser múltiplo inteiro de 20 para codecs móveis; 3GPP 26.114", "", "Mandatório", "✔", ""),
+            ("Pacotes suportados às marcações USR, DSCP 46 ou EF para pacotes RTP", "", "Mandatório", "✔", ""),
+        ])
+        self._ps(ws, ls=True)
+
+    # =========================================================================
+    # BUILD — monta o Workbook completo
+    # FIX: _b_conc() adicionado (estava ausente no original)
+    # =========================================================================
+    def build(self) -> Workbook:
         """Constrói o Workbook completo com todas as abas do PTI."""
-        logger.info(f"Gerando PTI Excel para '{self.nome}'...")
-        self._b_index(); self._b_versions(); self._b_diagram(); self._b_routing()
-        self._b_prefixes(); self._b_mtl(); self._b_params()
-        self.wb.properties.title=f"PTI — Completo — {self.nome}"
-        self.wb.properties.subject="Projeto Técnico de Interligação"
-        self.wb.properties.creator="VIVOHUB"
-        self.wb.active=0
+        logger.info("Gerando PTI Excel para '%s'...", self.nome)
+        self._b_index()
+        self._b_versions()
+        self._b_diagram()
+        self._b_routing()
+        self._b_conc()        # FIX: estava faltando no original
+        self._b_prefixes()
+        self._b_mtl()
+        self._b_params()
+
+        self.wb.properties.title = f"PTI — Completo — {self.nome}"
+        self.wb.properties.subject = "Projeto Técnico de Interligação"
+        self.wb.properties.creator = "VIVOHUB"
+        self.wb.active = 0
+
         logger.info("PTI Excel gerado com sucesso.")
         return self.wb
 
@@ -3052,206 +3227,381 @@ class PTIWorkbookBuilder:
 # =============================================================================
 # REGISTRO DE ROTAS HTTP
 # =============================================================================
-def _register_routes(app):
+def _register_routes(app: Flask) -> None:
 
     @app.get("/")
     def index():
-        if "user_id" in session: return redirect(url_for(f"central_{session['role']}"))
+        if "user_id" in session:
+            return redirect(url_for(f"central_{session['role']}"))
         return redirect(url_for("login"))
 
     @app.get("/login")
-    def login(): return render_template("login.html")
+    def login():
+        return render_template("login.html")
 
     @app.post("/login")
     def login_post():
-        email=(request.form.get("email") or "").strip().lower(); password=request.form.get("password","")
-        db=get_db(); user=db.execute("SELECT * FROM users WHERE email = ?",(email,)).fetchone()
-        if not user or not check_password_hash(user["password_hash"],password):
-            flash("Credenciais inválidas.","danger"); return redirect(url_for("login"))
-        session.clear(); session["user_id"]=user["id"]; session["email"]=user["email"]; session["role"]=user["role"]
+        email = (request.form.get("email") or "").strip().lower()
+        password = request.form.get("password", "")
+        db = get_db()
+        user = db.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
+        if not user or not check_password_hash(user["password_hash"], password):
+            flash("Credenciais inválidas.", "danger")
+            return redirect(url_for("login"))
+        session.clear()
+        session["user_id"] = user["id"]
+        session["email"] = user["email"]
+        session["role"] = user["role"]
         return redirect(url_for(f"central_{user['role']}"))
 
     @app.get("/logout")
-    def logout(): session.clear(); flash("Sessão encerrada.","info"); return redirect(url_for("login"))
+    def logout():
+        session.clear()
+        flash("Sessão encerrada.", "info")
+        return redirect(url_for("login"))
 
     @app.get("/admin_login")
-    def admin_login(): return render_template("admin_login.html")
+    def admin_login():
+        return render_template("admin_login.html")
 
     @app.post("/admin_login")
     def admin_login_post():
-        if request.form.get("code","")==app.config["ADMIN_CODE"]:
-            session["is_admin"]=True; flash("Login de administrador efetuado.","success"); return redirect(url_for("register"))
-        flash("Código de administrador inválido.","danger"); return redirect(url_for("admin_login"))
+        if request.form.get("code", "") == app.config["ADMIN_CODE"]:
+            session["is_admin"] = True
+            flash("Login de administrador efetuado.", "success")
+            return redirect(url_for("register"))
+        flash("Código de administrador inválido.", "danger")
+        return redirect(url_for("admin_login"))
 
     @app.get("/register")
     @admin_required
-    def register(): return render_template("register.html")
+    def register():
+        return render_template("register.html")
 
     @app.post("/register")
     @admin_required
     def register_post():
-        email=(request.form.get("email") or "").strip().lower(); password=request.form.get("password",""); role=(request.form.get("role") or "").strip().lower()
-        if not email or not password or role not in ("engenharia","atacado"):
-            flash("Preencha todos os campos corretamente.","danger"); return redirect(url_for("register"))
-        db=get_db()
+        email = (request.form.get("email") or "").strip().lower()
+        password = request.form.get("password", "")
+        role = (request.form.get("role") or "").strip().lower()
+        if not email or not password or role not in ("engenharia", "atacado"):
+            flash("Preencha todos os campos corretamente.", "danger")
+            return redirect(url_for("register"))
+        db = get_db()
         try:
-            db.execute("INSERT INTO users (email, password_hash, role) VALUES (?, ?, ?)",(email,generate_password_hash(password),role)); db.commit()
-            flash("Usuário criado com sucesso.","success")
-        except sqlite3.IntegrityError: flash("Este e-mail já está cadastrado.","warning")
+            db.execute(
+                "INSERT INTO users (email, password_hash, role) VALUES (?, ?, ?)",
+                (email, generate_password_hash(password), role),
+            )
+            db.commit()
+            flash("Usuário criado com sucesso.", "success")
+        except sqlite3.IntegrityError:
+            flash("Este e-mail já está cadastrado.", "warning")
         return redirect(url_for("register"))
 
     @app.get("/central_atacado")
     @login_required
     @role_required("atacado")
-    def central_atacado(): return render_template("central_atacado.html")
+    def central_atacado():
+        return render_template("central_atacado.html")
 
     @app.get("/central_engenharia")
     @login_required
     @role_required("engenharia")
-    def central_engenharia(): return render_template("central_engenharia.html")
+    def central_engenharia():
+        return render_template("central_engenharia.html")
 
     @app.get("/atacado_formularios")
     @login_required
     @role_required("atacado")
     def atacado_form_list():
-        db=get_db(); q=(request.args.get("q") or "").strip(); status=(request.args.get("status") or "").strip(); sort=(request.args.get("sort") or "-created_at").strip()
-        sql,params=build_list_query("SELECT * FROM atacado_forms",search_term=q or None,status_filter=status or None,owner_id=session["user_id"],sort_key=sort)
-        return render_template("atacado_formularios.html",forms=db.execute(sql,params).fetchall(),counters=get_status_counters(db,"WHERE owner_id = ?",(session["user_id"],)))
+        db = get_db()
+        q = (request.args.get("q") or "").strip()
+        status = (request.args.get("status") or "").strip()
+        sort = (request.args.get("sort") or "-created_at").strip()
+        sql, params = build_list_query(
+            "SELECT * FROM atacado_forms",
+            search_term=q or None,
+            status_filter=status or None,
+            owner_id=session["user_id"],
+            sort_key=sort,
+        )
+        return render_template(
+            "atacado_formularios.html",
+            forms=db.execute(sql, params).fetchall(),
+            counters=get_status_counters(db, "WHERE owner_id = ?", (session["user_id"],)),
+        )
 
     @app.get("/atacado_formularios/new")
     @login_required
     @role_required("atacado")
     def atacado_form_new():
-        db=get_db(); last=db.execute("SELECT responsavel_atacado FROM atacado_forms WHERE owner_id = ? AND COALESCE(responsavel_atacado,'')<>'' ORDER BY created_at DESC LIMIT 1",(session["user_id"],)).fetchone()
-        preset=(last["responsavel_atacado"] if last else "") or session.get("email","").split("@")[0].replace("."," ").title()
-        return render_template("formulario_atacado.html",form=None,preset_responsavel_atacado=preset)
+        db = get_db()
+        last = db.execute(
+            "SELECT responsavel_atacado FROM atacado_forms "
+            "WHERE owner_id = ? AND COALESCE(responsavel_atacado,'') <> '' "
+            "ORDER BY created_at DESC LIMIT 1",
+            (session["user_id"],),
+        ).fetchone()
+        preset = (last["responsavel_atacado"] if last else "") or (
+            session.get("email", "").split("@")[0].replace(".", " ").title()
+        )
+        return render_template("formulario_atacado.html", form=None, preset_responsavel_atacado=preset)
 
     @app.post("/atacado_formularios/new")
     @login_required
     @role_required("atacado")
     def atacado_form_create():
-        payload=extract_form_payload(); payload["owner_id"]=session["user_id"]; payload["status"]=(payload.get("status") or "rascunho").lower(); payload["engenharia_params_json"]="{}"
-        truncated=validate_table_rows(payload)
-        if payload["status"]=="enviado" and not (payload.get("responsavel_atacado") or "").strip():
-            flash('Informe o "Responsável Gestão de ITX (Atacado)" antes de finalizar.',"warning"); return redirect(url_for("atacado_form_new"))
-        cols=["owner_id"]+list(TEXT_FIELDS)+list(BOOLEAN_FIELDS)+["escopo_flags_json","dados_vivo_json","dados_operadora_json","engenharia_params_json"]
-        db=get_db(); db.execute(f"INSERT INTO atacado_forms ({','.join(cols)}) VALUES ({','.join(['?']*len(cols))})",[payload.get(c) for c in cols]); db.commit()
-        flash("Formulário criado." + (f" Tabelas limitadas a {MAX_TABLE_ROWS} linhas." if truncated else ""),"success"); return redirect(url_for("atacado_form_list"))
+        payload = extract_form_payload()
+        payload["owner_id"] = session["user_id"]
+        payload["status"] = (payload.get("status") or "rascunho").lower()
+        payload["engenharia_params_json"] = "{}"
+        truncated = validate_table_rows(payload)
+
+        if payload["status"] == "enviado" and not (payload.get("responsavel_atacado") or "").strip():
+            flash('Informe o "Responsável Gestão de ITX (Atacado)" antes de finalizar.', "warning")
+            return redirect(url_for("atacado_form_new"))
+
+        cols = ["owner_id"] + list(TEXT_FIELDS) + list(BOOLEAN_FIELDS) + [
+            "escopo_flags_json", "dados_vivo_json", "dados_operadora_json", "engenharia_params_json"
+        ]
+        db = get_db()
+        db.execute(
+            f"INSERT INTO atacado_forms ({','.join(cols)}) VALUES ({','.join(['?'] * len(cols))})",
+            [payload.get(c) for c in cols],
+        )
+        db.commit()
+        msg = "Formulário criado."
+        if truncated:
+            msg += f" Tabelas limitadas a {MAX_TABLE_ROWS} linhas."
+        flash(msg, "success")
+        return redirect(url_for("atacado_form_list"))
 
     @app.get("/atacado_formularios/<int:form_id>")
     @login_required
     @role_required("atacado")
     def atacado_form_edit(form_id):
-        db=get_db(); form=db.execute("SELECT * FROM atacado_forms WHERE id = ? AND owner_id = ?",(form_id,session["user_id"])).fetchone()
-        if not form: abort(404)
-        return render_template("formulario_atacado.html",form=form)
+        db = get_db()
+        form = db.execute(
+            "SELECT * FROM atacado_forms WHERE id = ? AND owner_id = ?",
+            (form_id, session["user_id"]),
+        ).fetchone()
+        if not form:
+            abort(404)
+        return render_template("formulario_atacado.html", form=form)
 
     @app.post("/atacado_formularios/<int:form_id>")
     @login_required
     @role_required("atacado")
     def atacado_form_update(form_id):
-        db=get_db()
-        if not db.execute("SELECT id FROM atacado_forms WHERE id = ? AND owner_id = ?",(form_id,session["user_id"])).fetchone(): abort(404)
-        payload=extract_form_payload(); payload["updated_at"]=datetime.utcnow().isoformat(timespec="seconds"); truncated=validate_table_rows(payload)
-        if (payload.get("status") or "").lower()=="enviado" and not (payload.get("responsavel_atacado") or "").strip():
-            flash('Informe o "Responsável Gestão de ITX (Atacado)" antes de finalizar.',"warning"); return redirect(url_for("atacado_form_edit",form_id=form_id))
-        fields=list(TEXT_FIELDS)+list(BOOLEAN_FIELDS)+["escopo_flags_json","dados_vivo_json","dados_operadora_json"]
-        params=[payload.get(f) for f in fields]+[payload["updated_at"],form_id,session["user_id"]]
-        db.execute(f"UPDATE atacado_forms SET {', '.join([f'{f} = ?' for f in fields]+['updated_at = ?'])} WHERE id = ? AND owner_id = ?",params); db.commit()
-        flash("Formulário atualizado." + (f" Tabelas limitadas a {MAX_TABLE_ROWS} linhas." if truncated else ""),"success"); return redirect(url_for("atacado_form_list"))
+        db = get_db()
+        if not db.execute(
+            "SELECT id FROM atacado_forms WHERE id = ? AND owner_id = ?",
+            (form_id, session["user_id"]),
+        ).fetchone():
+            abort(404)
+
+        payload = extract_form_payload()
+        payload["updated_at"] = datetime.utcnow().isoformat(timespec="seconds")
+        truncated = validate_table_rows(payload)
+
+        if (payload.get("status") or "").lower() == "enviado" and not (
+            payload.get("responsavel_atacado") or ""
+        ).strip():
+            flash('Informe o "Responsável Gestão de ITX (Atacado)" antes de finalizar.', "warning")
+            return redirect(url_for("atacado_form_edit", form_id=form_id))
+
+        fields = list(TEXT_FIELDS) + list(BOOLEAN_FIELDS) + [
+            "escopo_flags_json", "dados_vivo_json", "dados_operadora_json"
+        ]
+        params = [payload.get(f) for f in fields] + [payload["updated_at"], form_id, session["user_id"]]
+        db.execute(
+            f"UPDATE atacado_forms SET "
+            f"{', '.join([f'{f} = ?' for f in fields] + ['updated_at = ?'])} "
+            f"WHERE id = ? AND owner_id = ?",
+            params,
+        )
+        db.commit()
+        msg = "Formulário atualizado."
+        if truncated:
+            msg += f" Tabelas limitadas a {MAX_TABLE_ROWS} linhas."
+        flash(msg, "success")
+        return redirect(url_for("atacado_form_list"))
 
     @app.post("/atacado_formularios/<int:form_id>/delete")
     @login_required
     @role_required("atacado")
     def atacado_form_delete(form_id):
-        db=get_db(); db.execute("DELETE FROM atacado_forms WHERE id = ? AND owner_id = ?",(form_id,session["user_id"])); db.commit()
-        flash("Formulário excluído.","info"); return redirect(url_for("atacado_form_list"))
+        db = get_db()
+        db.execute(
+            "DELETE FROM atacado_forms WHERE id = ? AND owner_id = ?",
+            (form_id, session["user_id"]),
+        )
+        db.commit()
+        flash("Formulário excluído.", "info")
+        return redirect(url_for("atacado_form_list"))
 
     @app.get("/engenharia_formularios")
     @login_required
     @role_required("engenharia")
     def engenharia_form_list():
-        db=get_db(); q=(request.args.get("q") or "").strip(); status=(request.args.get("status") or "").strip(); sort=(request.args.get("sort") or "-created_at").strip()
-        sql,params=build_list_query("SELECT * FROM atacado_forms",search_term=q or None,status_filter=status or None,sort_key=sort)
-        forms=db.execute(sql,params).fetchall(); counters=get_status_counters(db)
-        ff=request.args.get("form")
-        if ff and ff.isdigit():
-            exports=db.execute("SELECT e.id,e.form_id,e.filename,e.size_bytes,e.created_at,f.nome_operadora FROM exports e JOIN atacado_forms f ON f.id=e.form_id WHERE e.form_id=? ORDER BY e.created_at DESC LIMIT 100",(int(ff),)).fetchall()
-        else:
-            exports=db.execute("SELECT e.id,e.form_id,e.filename,e.size_bytes,e.created_at,f.nome_operadora FROM exports e JOIN atacado_forms f ON f.id=e.form_id ORDER BY e.created_at DESC LIMIT 100").fetchall()
-        return render_template("engenharia_formularios.html",forms=forms,counters=counters,exports=exports,show_files=request.args.get("show_files")=="1",form_filter=ff)
+        db = get_db()
+        q = (request.args.get("q") or "").strip()
+        status = (request.args.get("status") or "").strip()
+        sort = (request.args.get("sort") or "-created_at").strip()
+        sql, params = build_list_query(
+            "SELECT * FROM atacado_forms",
+            search_term=q or None,
+            status_filter=status or None,
+            sort_key=sort,
+        )
+        forms = db.execute(sql, params).fetchall()
+        counters = get_status_counters(db)
+        ff = request.args.get("form")
 
-    @app.route("/engenharia_formularios/<int:form_id>",methods=["GET","POST"])
+        if ff and ff.isdigit():
+            exports = db.execute(
+                "SELECT e.id, e.form_id, e.filename, e.size_bytes, e.created_at, f.nome_operadora "
+                "FROM exports e JOIN atacado_forms f ON f.id = e.form_id "
+                "WHERE e.form_id = ? ORDER BY e.created_at DESC LIMIT 100",
+                (int(ff),),
+            ).fetchall()
+        else:
+            exports = db.execute(
+                "SELECT e.id, e.form_id, e.filename, e.size_bytes, e.created_at, f.nome_operadora "
+                "FROM exports e JOIN atacado_forms f ON f.id = e.form_id "
+                "ORDER BY e.created_at DESC LIMIT 100"
+            ).fetchall()
+
+        return render_template(
+            "engenharia_formularios.html",
+            forms=forms,
+            counters=counters,
+            exports=exports,
+            show_files=request.args.get("show_files") == "1",
+            form_filter=ff,
+        )
+
+    @app.route("/engenharia_formularios/<int:form_id>", methods=["GET", "POST"])
     @login_required
     @role_required("engenharia")
     def engenharia_form_view(form_id):
-        db=get_db(); form=db.execute("SELECT * FROM atacado_forms WHERE id = ?",(form_id,)).fetchone()
-        if not form: abort(404)
-        if request.method=="POST":
-            resp_eng=(request.form.get("responsavel_engenharia") or "").strip()
+        db = get_db()
+        form = db.execute("SELECT * FROM atacado_forms WHERE id = ?", (form_id,)).fetchone()
+        if not form:
+            abort(404)
+
+        if request.method == "POST":
+            resp_eng = (request.form.get("responsavel_engenharia") or "").strip()
             if not resp_eng:
-                flash('Informe o "Responsável Eng de ITX" para salvar.',"warning"); return redirect(url_for("engenharia_form_view",form_id=form_id))
-            eng_json=_parse_json_dict(request.form.get("engenharia_params_json","") or "{}")
-            # FIX: Salvar também dados_vivo_json (antes era perdido no POST)
-            vivo_json=truncate_json_list(request.form.get("dados_vivo_json","[]"), "[]")
-            db.execute("UPDATE atacado_forms SET engenharia_params_json=?,responsavel_engenharia=?,dados_vivo_json=?,updated_at=? WHERE id=?",(eng_json,resp_eng,vivo_json,datetime.utcnow().isoformat(timespec="seconds"),form_id)); db.commit()
-            flash("Validação da Engenharia salva.","success"); return redirect(url_for("engenharia_form_list",show_files="1",form=form_id))
-        return render_template("formulario_atacado.html",form=form,readonly=True)
+                flash('Informe o "Responsável Eng de ITX" para salvar.', "warning")
+                return redirect(url_for("engenharia_form_view", form_id=form_id))
+            eng_json = _parse_json_dict(request.form.get("engenharia_params_json", "") or "{}")
+            vivo_json = truncate_json_list(request.form.get("dados_vivo_json", "[]"), "[]")
+            db.execute(
+                "UPDATE atacado_forms SET engenharia_params_json=?, responsavel_engenharia=?, "
+                "dados_vivo_json=?, updated_at=? WHERE id=?",
+                (eng_json, resp_eng, vivo_json, datetime.utcnow().isoformat(timespec="seconds"), form_id),
+            )
+            db.commit()
+            flash("Validação da Engenharia salva.", "success")
+            return redirect(url_for("engenharia_form_list", show_files="1", form=form_id))
+
+        return render_template("formulario_atacado.html", form=form, readonly=True)
 
     @app.get("/formularios/<int:form_id>/excel_index")
     @login_required
     def exportar_form_excel_index(form_id):
         if not OPENPYXL_AVAILABLE:
-            flash("openpyxl não instalado.","warning"); return redirect(url_for("index"))
-        db=get_db(); form=db.execute("SELECT * FROM atacado_forms WHERE id = ?",(form_id,)).fetchone()
-        if not form: abort(404)
-        if session.get("role")=="atacado" and form["owner_id"]!=session.get("user_id"): abort(403)
-        wb=PTIWorkbookBuilder(form, sbc_analyzer=app.config.get("SBC_ANALYZER")).build()
-        buf=BytesIO(); wb.save(buf); buf.seek(0)
-        nome=safe_filename(form["nome_operadora"] or "Operadora")
-        return send_file(buf,mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",as_attachment=True,download_name=f"PTI_Completo_{nome}_ID{form['id']}.xlsx")
+            flash("openpyxl não instalado.", "warning")
+            return redirect(url_for("index"))
+        db = get_db()
+        form = db.execute("SELECT * FROM atacado_forms WHERE id = ?", (form_id,)).fetchone()
+        if not form:
+            abort(404)
+        if session.get("role") == "atacado" and form["owner_id"] != session.get("user_id"):
+            abort(403)
+
+        wb = PTIWorkbookBuilder(form, sbc_analyzer=app.config.get("SBC_ANALYZER")).build()
+        buf = BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        nome = safe_filename(form["nome_operadora"] or "Operadora")
+        return send_file(
+            buf,
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            as_attachment=True,
+            download_name=f"PTI_Completo_{nome}_ID{form['id']}.xlsx",
+        )
 
     @app.post("/engenharia_formularios/<int:form_id>/generate_excel")
     @login_required
     @role_required("engenharia")
     def engenharia_generate_excel(form_id):
         if not OPENPYXL_AVAILABLE:
-            flash("openpyxl não instalado.","warning"); return redirect(url_for("engenharia_form_list"))
-        db=get_db(); form=db.execute("SELECT id, nome_operadora FROM atacado_forms WHERE id = ?",(form_id,)).fetchone()
-        if not form: abort(404)
-        wb=Workbook(); wb.active.title="Índice"
-        ts=datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-        fname=f"PTI_Indice_{safe_filename(form['nome_operadora'] or 'Operadora')}_ID{form_id}_{ts}.xlsx"
-        fpath=os.path.join(app.config["EXPORT_DIR"],fname)
+            flash("openpyxl não instalado.", "warning")
+            return redirect(url_for("engenharia_form_list"))
+        db = get_db()
+        form = db.execute(
+            "SELECT id, nome_operadora FROM atacado_forms WHERE id = ?", (form_id,)
+        ).fetchone()
+        if not form:
+            abort(404)
+        wb = Workbook()
+        wb.active.title = "Índice"
+        ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        fname = f"PTI_Indice_{safe_filename(form['nome_operadora'] or 'Operadora')}_ID{form_id}_{ts}.xlsx"
+        fpath = os.path.join(app.config["EXPORT_DIR"], fname)
         wb.save(fpath)
-        db.execute("INSERT INTO exports (form_id, filename, filepath, size_bytes) VALUES (?, ?, ?, ?)",(form_id,fname,fpath,os.path.getsize(fpath))); db.commit()
-        flash(f"Excel gerado: {fname}","success"); return redirect(url_for("engenharia_form_list",show_files="1",form=form_id))
+        db.execute(
+            "INSERT INTO exports (form_id, filename, filepath, size_bytes) VALUES (?, ?, ?, ?)",
+            (form_id, fname, fpath, os.path.getsize(fpath)),
+        )
+        db.commit()
+        flash(f"Excel gerado: {fname}", "success")
+        return redirect(url_for("engenharia_form_list", show_files="1", form=form_id))
 
     @app.get("/engenharia_exports/<int:export_id>/download")
     @login_required
     @role_required("engenharia")
     def engenharia_export_download(export_id):
-        db=get_db(); row=db.execute("SELECT filename, filepath FROM exports WHERE id = ?",(export_id,)).fetchone()
-        if not row: abort(404)
+        db = get_db()
+        row = db.execute(
+            "SELECT filename, filepath FROM exports WHERE id = ?", (export_id,)
+        ).fetchone()
+        if not row:
+            abort(404)
         if not os.path.exists(row["filepath"]):
-            flash("Arquivo não encontrado.","warning"); return redirect(url_for("engenharia_form_list",show_files="1"))
-        return send_file(row["filepath"],mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",as_attachment=True,download_name=row["filename"])
+            flash("Arquivo não encontrado.", "warning")
+            return redirect(url_for("engenharia_form_list", show_files="1"))
+        return send_file(
+            row["filepath"],
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            as_attachment=True,
+            download_name=row["filename"],
+        )
 
     @app.post("/engenharia_exports/<int:export_id>/delete")
     @login_required
     @role_required("engenharia")
     def engenharia_export_delete(export_id):
-        db=get_db(); row=db.execute("SELECT filepath FROM exports WHERE id = ?",(export_id,)).fetchone()
-        if not row: abort(404)
+        db = get_db()
+        row = db.execute("SELECT filepath FROM exports WHERE id = ?", (export_id,)).fetchone()
+        if not row:
+            abort(404)
         try:
-            if os.path.exists(row["filepath"]): os.remove(row["filepath"])
-        except OSError: pass
-        db.execute("DELETE FROM exports WHERE id = ?",(export_id,)); db.commit()
-        flash("Arquivo removido.","info"); return redirect(url_for("engenharia_form_list",show_files="1"))
+            if os.path.exists(row["filepath"]):
+                os.remove(row["filepath"])
+        except OSError:
+            pass
+        db.execute("DELETE FROM exports WHERE id = ?", (export_id,))
+        db.commit()
+        flash("Arquivo removido.", "info")
+        return redirect(url_for("engenharia_form_list", show_files="1"))
 
-    # =====================================================================
+    # =========================================================================
     # API — SBC
-    # =====================================================================
+    # =========================================================================
     @app.get("/api/sbc/suggest")
     @login_required
     @role_required("engenharia")
@@ -3265,17 +3615,7 @@ def _register_routes(app):
             result = analyzer.suggest_for_uf(uf)
         else:
             return jsonify({"error": "Parâmetro 'cn' ou 'uf' é obrigatório."}), 400
-        return jsonify(asdict(result) if hasattr(result, '__dataclass_fields__') else {
-            "cn": result.cn, "uf": result.uf, "cidade": result.cidade,
-            "regional": result.regional, "source_file": result.source_file,
-            "source_modificado_em": result.source_modificado_em,
-            "data_medicao": result.data_medicao, "total_sbcs": result.total_sbcs,
-            "sbcs": result.sbcs, "fallback_usado": result.fallback_usado,
-            "fallback_origem": result.fallback_origem, "mensagem": result.mensagem,
-            "todos_criticos": result.todos_criticos,
-            "total_disponiveis": result.total_disponiveis,
-            "total_criticos": result.total_criticos,
-        })
+        return jsonify(asdict(result))
 
     @app.get("/api/sbc/overview")
     @login_required
@@ -3298,7 +3638,8 @@ def _register_routes(app):
         analyzer: SBCAnalyzer = app.config["SBC_ANALYZER"]
         measurements, aggregated = analyzer.processor.get_data(force_reload=True)
         return jsonify({
-            "status": "reloaded", "measurements": len(measurements),
+            "status": "reloaded",
+            "measurements": len(measurements),
             "aggregated_rows": len(aggregated),
             "file_info": analyzer.processor.get_file_info(),
         })
@@ -3306,72 +3647,109 @@ def _register_routes(app):
     @app.get("/api/cns")
     @login_required
     def api_cns():
-        db=get_db(); rows=db.execute("SELECT codigo, COALESCE(nome,'') AS nome, COALESCE(uf,'') AS uf FROM cns WHERE ativo=1 ORDER BY codigo ASC").fetchall()
-        return jsonify([{"codigo":r["codigo"],"nome":r["nome"],"uf":r["uf"]} for r in rows])
+        db = get_db()
+        rows = db.execute(
+            "SELECT codigo, COALESCE(nome,'') AS nome, COALESCE(uf,'') AS uf "
+            "FROM cns WHERE ativo=1 ORDER BY codigo ASC"
+        ).fetchall()
+        return jsonify([{"codigo": r["codigo"], "nome": r["nome"], "uf": r["uf"]} for r in rows])
 
 
 # =============================================================================
 # CLI COMMANDS
 # =============================================================================
-def _register_cli_commands(app):
+def _register_cli_commands(app: Flask) -> None:
+
     @app.cli.command("create-user")
     @click.argument("email")
     @click.argument("password")
     @click.argument("role")
-    def create_user_cmd(email, password, role):
-        role=role.strip().lower()
-        if role not in ("engenharia","atacado"):
-            click.echo("Role inválida. Use: engenharia ou atacado."); return
-        db=get_db()
+    def create_user_cmd(email: str, password: str, role: str) -> None:
+        role = role.strip().lower()
+        if role not in ("engenharia", "atacado"):
+            click.echo("Role inválida. Use: engenharia ou atacado.")
+            return
+        db = get_db()
         try:
-            db.execute("INSERT INTO users (email, password_hash, role) VALUES (?, ?, ?)",(email.strip().lower(),generate_password_hash(password),role)); db.commit()
+            db.execute(
+                "INSERT INTO users (email, password_hash, role) VALUES (?, ?, ?)",
+                (email.strip().lower(), generate_password_hash(password), role),
+            )
+            db.commit()
             click.echo("Usuário criado com sucesso.")
-        except sqlite3.IntegrityError: click.echo("E-mail já cadastrado.")
+        except sqlite3.IntegrityError:
+            click.echo("E-mail já cadastrado.")
 
     @app.cli.command("seed-cns")
-    def seed_cns_cmd():
-        db=get_db(); _seed_cns(db); _apply_cn_metadata(db)
+    def seed_cns_cmd() -> None:
+        db = get_db()
+        _seed_cns(db)
+        _apply_cn_metadata(db)
         click.echo("Seed de CNs aplicado/atualizado.")
 
     @app.cli.command("sbc-check")
-    def sbc_check_cmd():
+    def sbc_check_cmd() -> None:
         analyzer: SBCAnalyzer = app.config["SBC_ANALYZER"]
         health = analyzer.health_check()
-        click.echo(f"Diretório: {health['data_dir']} ({'OK' if health['data_dir_exists'] else 'NÃO ENCONTRADO'})")
+        click.echo(
+            f"Diretório: {health['data_dir']} "
+            f"({'OK' if health['data_dir_exists'] else 'NÃO ENCONTRADO'})"
+        )
         click.echo(f"XLSX mais recente: {health.get('latest_file', 'Nenhum')}")
-        if health['file_info'].get('filename'):
-            info = health['file_info']
+        if health["file_info"].get("filename"):
+            info = health["file_info"]
             click.echo(f"  Medições: {info['total_measurements']}")
             click.echo(f"  Linhas agregadas: {info['total_aggregated']}")
             click.echo(f"  Modificado: {info['modified_at']}")
 
     @app.cli.command("sbc-suggest")
     @click.argument("cn")
-    def sbc_suggest_cmd(cn):
+    def sbc_suggest_cmd(cn: str) -> None:
         analyzer: SBCAnalyzer = app.config["SBC_ANALYZER"]
         result = analyzer.suggest_for_cn(cn)
-        click.echo(f"\n{'='*60}")
+        sep = "=" * 60
+        click.echo(f"\n{sep}")
         click.echo(f"  SBC Suggestion para CN {result.cn} — {result.cidade} ({result.uf})")
         click.echo(f"  Regional: {result.regional}")
         click.echo(f"  Fonte: {result.source_file} ({result.source_modificado_em})")
         click.echo(f"  Medição: {result.data_medicao}")
         if result.fallback_usado:
             click.echo(f"  ⚠️  Fallback: {result.fallback_origem}")
-        click.echo(f"{'='*60}")
+        click.echo(sep)
         click.echo(f"  {result.mensagem}")
-        click.echo(f"{'='*60}\n")
+        click.echo(f"{sep}\n")
+
         if not result.sbcs:
-            click.echo("  Nenhum SBC encontrado."); return
+            click.echo("  Nenhum SBC encontrado.")
+            return
+
         for i, sbc in enumerate(result.sbcs):
-            icon = "✅" if sbc.get("recomendado") else ("⚠️" if sbc.get("saude") in ("moderado","critico") else "  ")
-            click.echo(f"  {icon} #{i+1} {sbc['nome']} — {sbc.get('cidade','')} ({sbc['uf']})")
-            click.echo(f"     Modelo: {sbc['modelo']} | Serviços: {', '.join(sbc.get('servicos',[]))}")
-            click.echo(f"     CAPS avg: {sbc['caps_avg']} | máx {sbc['caps_max']} | mín {sbc['caps_min']} | último {sbc['caps_ultimo']}")
-            click.echo(f"     Tendência: {sbc['caps_tendencia']} | Medições: {sbc['total_medicoes']} | Status: {sbc['status_fonte']} | Saúde: {sbc['saude']}")
-            click.echo(f"     Score: {sbc['score']}/100 {'🏆 RECOMENDADO' if sbc.get('recomendado') else ''}")
-            if sbc.get('responsavel'): click.echo(f"     Responsável: {sbc['responsavel']}")
-            if sbc.get('prazo'): click.echo(f"     Prazo: {sbc['prazo']}")
-            click.echo(f"     Motivo: {sbc['motivo']}"); click.echo()
+            saude = sbc.get("saude", "")
+            if sbc.get("recomendado"):
+                icon = "✅"
+            elif saude in ("moderado", "critico"):
+                icon = "⚠️"
+            else:
+                icon = "  "
+
+            click.echo(f"  {icon} #{i+1} {sbc['nome']} — {sbc.get('cidade', '')} ({sbc['uf']})")
+            click.echo(f"     Modelo: {sbc['modelo']} | Serviços: {', '.join(sbc.get('servicos', []))}")
+            click.echo(
+                f"     CAPS avg: {sbc['caps_avg']} | máx {sbc['caps_max']} "
+                f"| mín {sbc['caps_min']} | último {sbc['caps_ultimo']}"
+            )
+            click.echo(
+                f"     Tendência: {sbc['caps_tendencia']} | Medições: {sbc['total_medicoes']} "
+                f"| Status: {sbc['status_fonte']} | Saúde: {saude}"
+            )
+            rec_label = " 🏆 RECOMENDADO" if sbc.get("recomendado") else ""
+            click.echo(f"     Score: {sbc['score']}/100{rec_label}")
+            if sbc.get("responsavel"):
+                click.echo(f"     Responsável: {sbc['responsavel']}")
+            if sbc.get("prazo"):
+                click.echo(f"     Prazo: {sbc['prazo']}")
+            click.echo(f"     Motivo: {sbc['motivo']}")
+            click.echo()
 
 
 # =============================================================================
