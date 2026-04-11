@@ -1,89 +1,61 @@
-"""forms.py — Extração e validação de dados de formulários Flask."""
-import json
-import logging
-
-from flask import request
-
-from config import (
-    ALLOWED_SCOPE_FLAGS,
-    BOOLEAN_FIELDS,
-    JSON_FIELDS,
-    MAX_TABLE_ROWS,
-    TEXT_FIELDS,
-)
-from helpers import parse_bool_field, truncate_json_list
-
-logger = logging.getLogger(__name__)
+"""queries.py — Construtores de queries SQL reutilizáveis."""
+import sqlite3
+from typing import Optional
 
 
-# =============================================================================
-# ESCOPO / FLAGS
-# =============================================================================
-def extract_scope_flags_from_request() -> str:
-    """
-    Lê flags de escopo do request.
+def build_list_query(
+    base_sql: str,
+    *,
+    search_term: Optional[str] = None,
+    status_filter: Optional[str] = None,
+    owner_id: Optional[int] = None,
+    sort_key: str = "-created_at",
+) -> tuple[str, list]:
+    conditions: list[str] = []
+    params: list = []
 
-    Tentativa 1: checkboxes com name="escopo_flags".
-    Tentativa 2: hidden input "escopo_flags_json" atualizado pelo JavaScript.
-    """
-    raw = request.form.getlist("escopo_flags") or []
+    if owner_id is not None:
+        conditions.append("owner_id = ?")
+        params.append(owner_id)
+    if search_term:
+        conditions.append("nome_operadora LIKE ?")
+        params.append(f"%{search_term}%")
+    if status_filter:
+        conditions.append("LOWER(COALESCE(status, '')) = LOWER(?)")
+        params.append(status_filter)
 
-    if not raw:
-        json_raw = request.form.get("escopo_flags_json", "[]")
-        try:
-            parsed = json.loads(json_raw) if isinstance(json_raw, str) else []
-            if isinstance(parsed, list):
-                raw = [str(x).strip() for x in parsed if str(x).strip()]
-        except (json.JSONDecodeError, TypeError):
-            raw = []
+    if conditions:
+        base_sql += " WHERE " + " AND ".join(conditions)
 
-    valid = [f for f in raw if f in ALLOWED_SCOPE_FLAGS]
-    return json.dumps(list(dict.fromkeys(valid)), ensure_ascii=False)
-
-
-def _parse_json_dict(raw) -> str:
-    if not raw:
-        return "{}"
-    try:
-        parsed = json.loads(raw) if isinstance(raw, str) else raw
-        if isinstance(parsed, dict):
-            return json.dumps(parsed, ensure_ascii=False)
-    except (json.JSONDecodeError, TypeError):
-        pass
-    return "{}"
-
-
-# =============================================================================
-# PAYLOAD COMPLETO
-# =============================================================================
-def extract_form_payload() -> dict:
-    payload: dict = {}
-    for f in TEXT_FIELDS:
-        payload[f] = (request.form.get(f) or "").strip()
-    for f in BOOLEAN_FIELDS:
-        payload[f] = parse_bool_field(request.form.get(f))
-    payload["escopo_flags_json"] = extract_scope_flags_from_request()
-    for f in JSON_FIELDS:
-        if f == "escopo_flags_json":
-            continue
-        raw = request.form.get(f, "")
-        payload[f] = (
-            _parse_json_dict(raw)
-            if f == "engenharia_params_json"
-            else truncate_json_list(raw, "[]")
-        )
-    return payload
+    sort_map = {
+        "created_at":     "created_at ASC",
+        "-created_at":    "created_at DESC",
+        "nome_operadora":  "nome_operadora COLLATE NOCASE ASC",
+        "-nome_operadora": "nome_operadora COLLATE NOCASE DESC",
+        "id":  "id ASC",
+        "-id": "id DESC",
+    }
+    base_sql += f" ORDER BY {sort_map.get(sort_key, 'id DESC')}"
+    return base_sql, params
 
 
-def validate_table_rows(payload: dict) -> bool:
-    """Trunca tabelas que excedam MAX_TABLE_ROWS. Retorna True se truncou."""
-    truncated = False
-    for key in ("dados_vivo_json", "dados_operadora_json"):
-        try:
-            rows = json.loads(payload[key])
-            if isinstance(rows, list) and len(rows) > MAX_TABLE_ROWS:
-                payload[key] = json.dumps(rows[:MAX_TABLE_ROWS], ensure_ascii=False)
-                truncated = True
-        except (json.JSONDecodeError, TypeError, KeyError):
-            payload[key] = "[]"
-    return truncated
+def get_status_counters(
+    db: sqlite3.Connection,
+    extra_where: str = "",
+    extra_params: tuple = (),
+) -> dict[str, int]:
+    connector = "AND" if "WHERE" in extra_where else "WHERE"
+
+    def _count(cond: str = "") -> int:
+        sql = f"SELECT COUNT(*) AS c FROM atacado_forms {extra_where}"
+        if cond:
+            sql += f" {connector} {cond}"
+        return db.execute(sql, extra_params).fetchone()["c"]
+
+    return {
+        "total":     _count(),
+        "rascunho":  _count("LOWER(status) = 'rascunho'"),
+        "enviado":   _count("LOWER(status) = 'enviado'"),
+        "em_revisao": _count("LOWER(status) = 'em revisão'"),
+        "aprovado":  _count("LOWER(status) = 'aprovado'"),
+    }
