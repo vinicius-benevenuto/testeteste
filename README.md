@@ -1,235 +1,239 @@
-<!doctype html>
-<html lang="pt-br" data-color-scheme="auto">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta http-equiv="x-ua-compatible" content="ie=edge">
+{% extends "base.html" %}
+{% block title %}Central Atacado{% endblock %}
 
-  <title>{% block title %}VIVOHUB{% endblock %}</title>
-  <meta name="description" content="VIVOHUB — Gestão de Pré-PTI (Atacado/Engenharia)">
-  <meta name="theme-color" content="#6b09a6">
+{% block extra_head %}
+<style>
+  /* Hero com identidade VIVOHUB */
+  .atk-hero{
+    position:relative; isolation:isolate; overflow:hidden;
+    background:
+      radial-gradient(1200px 600px at -10% -20%, rgba(107,9,166,.14), transparent 60%),
+      radial-gradient(900px 500px at 120% 10%, rgba(107,9,166,.10), transparent 60%),
+      linear-gradient(180deg, #ffffff 0%, var(--vh-bg) 100%);
+  }
+  .atk-badge{
+    display:inline-flex; align-items:center; gap:.4rem;
+    padding:.35rem .6rem; border-radius:999px;
+    border:1px solid var(--vh-border); background:var(--vh-surface-0);
+    color:var(--vh-muted); font-weight:600; font-size:.85rem;
+  }
 
-  <!-- Favicon (opcional: troque o href pelo seu arquivo) -->
-  <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}">
+  /* Cards de ação */
+  .atk-card{
+    border:1px solid var(--vh-border);
+    background:var(--vh-surface-0);
+    border-radius: var(--vh-radius);
+    box-shadow: var(--vh-shadow-md);
+    transition: transform .18s ease, box-shadow .18s ease;
+    height:100%;
+  }
+  .atk-card:hover{
+    transform: translateY(-2px);
+    box-shadow: var(--vh-shadow-lg);
+  }
+  .atk-card .icon-wrap{
+    width:44px; height:44px; border-radius:12px;
+    display:grid; place-items:center;
+    background: rgba(107,9,166,.08);
+    color: var(--vh-primary);
+  }
+  .atk-card .list-inline{
+    margin:0; padding:0; list-style:none;
+  }
+  .atk-card .list-inline li{
+    display:inline-flex; align-items:center; gap:.35rem;
+    color:var(--vh-muted); font-size:.9rem;
+  }
 
-  <!-- Bootstrap 5 + Icons (CDN) -->
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous">
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet" crossorigin="anonymous">
+  /* Quick links (chips) */
+  .atk-chip{
+    display:inline-flex; align-items:center; gap:.4rem;
+    border:1px solid var(--vh-border); background:var(--vh-surface-0);
+    border-radius:999px; padding:.4rem .7rem; font-weight:600;
+  }
+  .atk-chip:hover{ background:var(--vh-surface-1); text-decoration:none; }
 
-  <!-- Paleta/Design System – VIVO Purple -->
-  <style>
-    :root{
-      /* Brand */
-      --vh-primary:#6b09a6;        /* Vivo Purple base */
-      --vh-primary-600:#5f0895;
-      --vh-primary-700:#520781;
-      --vh-primary-050:#f6effb;
+  /* Tabela “últimas ações” (opcional futura) */
+  .atk-table th{ white-space:nowrap; font-weight:600; }
+  .atk-table tbody tr:hover{ background:#fbfbff; }
 
-      /* Semantics */
-      --vh-success:#17a673;
-      --vh-warning:#ffcc00;
-      --vh-danger:#d93c65;
+  /* Reduz animações para quem prefere */
+  @media (prefers-reduced-motion: reduce){
+    .atk-card{ transition:none; }
+  }
+</style>
+{% endblock %}
 
-      /* Surfaces / text */
-      --vh-bg:#f6f7fb;
-      --vh-surface-0:#ffffff;
-      --vh-surface-1:#fafafa;
-      --vh-text:#1f2430;
-      --vh-text-sub:#656b78;
-      --vh-border:#e5e7eb;
-
-      /* Elevation + radius */
-      --vh-shadow-sm:0 4px 12px rgba(17,17,26,.07);
-      --vh-shadow-md:0 10px 34px rgba(17,17,26,.12);
-      --vh-radius:16px;
-    }
-
-    /* Reset / estrutura */
-    html, body{height:100%;}
-    body{
-      font-feature-settings:"cv11","ss01";
-      background: linear-gradient(180deg, var(--vh-bg), #ffffff);
-      color: var(--vh-text);
-    }
-    /* Páginas com fundo branco pleno (ex.: formulários/impresso) */
-    body.bg-plain{ background:#fff !important; }
-
-    /* Navbar */
-    .vh-navbar{
-      background: var(--vh-surface-0);
-      border-bottom: 1px solid var(--vh-border);
-    }
-    .vh-brand{
-      display:inline-flex; align-items:center; gap:.5rem;
-      font-weight:800; letter-spacing:.2px; color:var(--vh-primary) !important;
-      text-decoration:none;
-    }
-    .vh-brand-dot{
-      width:10px;height:10px;border-radius:999px;background:var(--vh-primary);
-      box-shadow: 0 0 0 3px var(--vh-primary-050);
-    }
-
-    /* Botões padrão do Hub */
-    .btn-hub{
-      --bs-btn-color:#fff;
-      --bs-btn-bg:var(--vh-primary);
-      --bs-btn-border-color:var(--vh-primary);
-      --bs-btn-hover-color:#000;
-      --bs-btn-hover-bg:#ffffff;
-      --bs-btn-hover-border-color:var(--vh-primary);
-      --bs-btn-focus-shadow-rgb:107,9,166;
-      font-weight:700; border:0; border-radius:.85rem; padding:.6rem 1.05rem;
-      box-shadow:var(--vh-shadow-sm); transition: box-shadow .18s ease, transform .18s ease;
-    }
-    .btn-hub:hover{ transform:translateY(-1px); box-shadow:var(--vh-shadow-md); }
-    .btn-outline-hub{
-      border-radius:.85rem; font-weight:700;
-      border:1px solid var(--vh-primary); color:var(--vh-primary);
-      background:transparent;
-      transition: background .18s ease, color .18s ease, transform .18s ease;
-    }
-    .btn-outline-hub:hover{ background:var(--vh-primary-050); color:#000; transform:translateY(-1px); }
-
-    /* Chips (contadores/estados) */
-    .chip{
-      display:inline-flex; align-items:center; gap:.4rem;
-      border-radius:999px; padding:.35rem .7rem; font-weight:600; line-height:1;
-      background:var(--vh-surface-0); border:1px solid var(--vh-border);
-    }
-    .chip.active{ background:#eef3ff; border-color:#bfd0ff; color:#0d6efd; }
-
-    /* Badges de status padronizados */
-    .badge-status{ font-weight:600; border:1px solid transparent; }
-    .badge-status.rascunho{ background:#eef1f4; color:#2b2f32; border-color:#e1e6ea; }
-    .badge-status.enviado{ background:#cfe2ff; color:#084298; border-color:#b6d0ff; }
-    .badge-status.em-revisao{ background:#fff3cd; color:#664d03; border-color:#ffe29a; }
-    .badge-status.aprovado{ background:#d1e7dd; color:#0f5132; border-color:#bcd9cc; }
-
-    /* Tabelas e cartões */
-    .table-hover tbody tr:hover{ background:#f8fbff; }
-    .table thead th{ font-weight:600; white-space:nowrap; }
-    .vh-card{
-      border:1px solid var(--vh-border);
-      border-radius:var(--vh-radius);
-      box-shadow:var(--vh-shadow-sm);
-      background:var(--vh-surface-0);
-    }
-
-    /* Utilitários */
-    .kbd{
-      display:inline-block; padding:.1rem .45rem; border:1px solid var(--vh-border);
-      border-bottom-width:2px; border-radius:.35rem; background:#fff; font-weight:600; font-size:.8rem;
-    }
-    .vh-divider{ height:1px; background:var(--vh-border); margin:1rem 0; }
-    .vh-flash{ position:fixed; top:12px; left:50%; transform:translateX(-50%); z-index:1080; width:min(680px,96vw); }
-
-    @media (prefers-reduced-motion: reduce){
-      .btn, .btn-hub, .btn-outline-hub{ transition:none !important; }
-    }
-  </style>
-
-  {% block extra_head %}{% endblock %}
-</head>
-
-{# Defina plain_bg=True em páginas que precisam de fundo branco #}
-<body class="{{ 'bg-plain' if plain_bg else '' }}">
-
-  <!-- Navbar -->
-  <nav class="navbar navbar-expand-lg vh-navbar">
-    <div class="container-fluid">
-
-      <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#vhNav" aria-controls="vhNav" aria-expanded="false" aria-label="Alternar navegação">
-        <span class="navbar-toggler-icon"></span>
-      </button>
-
-      <div class="collapse navbar-collapse" id="vhNav">
-        <ul class="navbar-nav ms-auto align-items-lg-center">
-          {% set _role = session.get('role') %}
-          {% if _role == 'atacado' %}
-            <li class="nav-item me-1">
-              <a class="btn btn-outline-hub btn-sm" href="{{ url_for('central_atacado') }}">Central Atacado</a>
-            </li>
-            <li class="nav-item me-1">
-              <a class="btn btn-outline-hub btn-sm" href="{{ url_for('atacado_form_list') }}">Formulários</a>
-            </li>
-          {% elif _role == 'engenharia' %}
-            <li class="nav-item me-1">
-              <a class="btn btn-outline-hub btn-sm" href="{{ url_for('central_engenharia') }}">Central Engenharia</a>
-            </li>
-            <li class="nav-item me-1">
-              <a class="btn btn-outline-hub btn-sm" href="{{ url_for('engenharia_form_list') }}">Formulários</a>
-            </li>
-          {% endif %}
-
-          {% if session.get('user_id') %}
-            <li class="nav-item ms-lg-2">
-              <a class="btn btn-hub btn-sm" href="{{ url_for('logout') }}">
-                <i class="bi bi-box-arrow-right"></i> Sair
-              </a>
-            </li>
-          {% else %}
-            <li class="nav-item ms-lg-2">
-            </li>
-          {% endif %}
-        </ul>
+{% block content %}
+<section class="atk-hero border-bottom">
+  <div class="container py-5 py-xl-6">
+    <div class="d-flex align-items-start justify-content-between flex-wrap gap-3">
+      <div>
+        <h1 class="display-6 fw-bold mb-2">Central Atacado</h1>
+        <p class="lead text-body-secondary mb-0">
+          Crie e acompanhe seus <strong>Pré-PTIs</strong>. Tudo padronizado, rápido e com foco na melhor experiência.
+        </p>
+      </div>
+      <div class="d-flex gap-2 align-items-center">
+        <a class="btn btn-outline-hub" href="{{ url_for('logout') }}">
+          <i class="bi bi-box-arrow-right me-1"></i> Sair
+        </a>
       </div>
     </div>
-  </nav>
 
-  <!-- Flash messages -->
-  <div class="vh-flash">
-    {% with messages = get_flashed_messages(with_categories=true) %}
-      {% if messages %}
-        {% for category, msg in messages %}
-          <div class="alert alert-{{ category }} alert-dismissible fade show shadow-sm mb-2" role="alert">
-            {{ msg }}
-            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Fechar"></button>
-          </div>
-        {% endfor %}
-      {% endif %}
-    {% endwith %}
+    <!-- CTA principal -->
+    <div class="mt-4 d-flex flex-wrap gap-2">
+      <a href="{{ url_for('atacado_form_new') }}" class="btn btn-hub btn-lg">
+        <i class="bi bi-file-earmark-plus me-2"></i>Novo Pré-PTI
+      </a>
+      <a href="{{ url_for('atacado_form_list') }}" class="btn btn-outline-hub btn-lg">
+        <i class="bi bi-journal-text me-2"></i>Meus Formulários
+      </a>
+    </div>
+
+    <!-- Atalhos de filtro (chips) -->
+    <div class="mt-3">
+      <a class="atk-chip me-1" href="{{ url_for('atacado_form_list') }}">
+        <i class="bi bi-collection"></i> Todos
+      </a>
+      <a class="atk-chip me-1" href="{{ url_for('atacado_form_list') }}?status=rascunho">
+        <i class="bi bi-pencil-square"></i> Rascunhos
+      </a>
+      <a class="atk-chip me-1" href="{{ url_for('atacado_form_list') }}?status=enviado">
+        <i class="bi bi-send"></i> Enviados
+      </a>
+      <a class="atk-chip me-1" href="{{ url_for('atacado_form_list') }}?status=em%20revis%C3%A3o">
+        <i class="bi bi-hourglass-split"></i> Em revisão
+      </a>
+      <a class="atk-chip" href="{{ url_for('atacado_form_list') }}?status=aprovado">
+        <i class="bi bi-check2-circle"></i> Aprovados
+      </a>
+    </div>
   </div>
+</section>
 
-  <!-- Conteúdo -->
-  <main id="main" class="min-vh-100">
-    {% block content %}
-    <div class="container py-5">
-      <div class="text-center text-body-secondary">
-        <p class="mb-0">Conteúdo não definido.</p>
+<!-- Seções de ação rápida -->
+<section class="py-5">
+  <div class="container">
+    <div class="row g-4">
+      <!-- Criar Pré-PTI -->
+      <div class="col-12 col-md-6 col-xl-4">
+        <a class="text-decoration-none" href="{{ url_for('atacado_form_new') }}" aria-label="Criar um novo Pré-PTI">
+          <div class="atk-card p-4 h-100">
+            <div class="d-flex align-items-start gap-3">
+              <div class="icon-wrap"><i class="bi bi-plus-lg"></i></div>
+              <div class="flex-grow-1">
+                <h2 class="h5 fw-bold mb-1">Criar Pré-PTI</h2>
+                <p class="mb-3 text-body-secondary">Formulário claro, com validações e preenchimentos assistidos.</p>
+                <ul class="list-inline d-flex flex-wrap gap-3">
+                  <li><i class="bi bi-lightning-charge"></i> Atalhos <kbd>N</kbd> / <kbd>/</kbd></li>
+                  <li><i class="bi bi-shield-check"></i> Campos obrigatórios</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </a>
+      </div>
+
+      <!-- Meus Formulários -->
+      <div class="col-12 col-md-6 col-xl-4">
+        <a class="text-decoration-none" href="{{ url_for('atacado_form_list') }}" aria-label="Acessar a lista de formulários">
+          <div class="atk-card p-4 h-100">
+            <div class="d-flex align-items-start gap-3">
+              <div class="icon-wrap"><i class="bi bi-list-task"></i></div>
+              <div class="flex-grow-1">
+                <h2 class="h5 fw-bold mb-1">Meus Formulários</h2>
+                <p class="mb-3 text-body-secondary">Filtre por status, ordene por data ou operadora, busque rapidamente.</p>
+                <ul class="list-inline d-flex flex-wrap gap-3">
+                  <li><i class="bi bi-funnel"></i> Filtros</li>
+                  <li><i class="bi bi-sort-alpha-down"></i> Ordenação</li>
+                  <li><i class="bi bi-search"></i> Busca</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </a>
+      </div>
+
+      <!-- Boas práticas -->
+      <div class="col-12 col-md-12 col-xl-4">
+        <div class="atk-card p-4 h-100">
+          <div class="d-flex align-items-start gap-3">
+            <div class="icon-wrap"><i class="bi bi-stars"></i></div>
+            <div class="flex-grow-1">
+              <h2 class="h5 fw-bold mb-1">Boas práticas</h2>
+              <p class="mb-3 text-body-secondary">Algumas dicas para agilizar sua rotina e evitar retrabalho.</p>
+              <ul class="mb-0 text-body-secondary">
+                <li class="mb-1">Use o <strong>RN1</strong> correto e preencha <strong>Contatos</strong> completos.</li>
+                <li class="mb-1">Na seção <strong>Escopo</strong>, marque os tipos de tráfego que se aplicam.</li>
+                <li class="mb-1">Finalize quando estiver seguro: o status muda para <em>Enviado</em> e segue para Engenharia.</li>
+                <li class="mb-0">Exportações Excel ficam registradas (lado Engenharia) e o download local é facilitado.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- row -->
+  </div>
+</section>
+
+<!-- Ajuda e atalhos -->
+<section class="pb-5">
+  <div class="container">
+    <div class="atk-card p-4">
+      <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
+        <div class="d-flex align-items-center gap-3">
+          <div class="icon-wrap"><i class="bi bi-keyboard"></i></div>
+          <div>
+            <h3 class="h6 fw-bold mb-1">Atalhos úteis</h3>
+            <div class="text-body-secondary small">
+              <span class="me-3"><kbd>N</kbd> Novo Pré-PTI</span>
+              <span class="me-3"><kbd>/</kbd> Ir para busca (na lista)</span>
+              <span><kbd>Ctrl</kbd> + <kbd>S</kbd> Salvar no formulário</span>
+            </div>
+          </div>
+        </div>
+        <div class="d-flex gap-2">
+          <a href="{{ url_for('atacado_form_list') }}" class="btn btn-outline-hub">
+            <i class="bi bi-search me-1"></i> Abrir lista
+          </a>
+          <a href="{{ url_for('atacado_form_new') }}" class="btn btn-hub">
+            <i class="bi bi-rocket-takeoff me-1"></i> Começar agora
+          </a>
+        </div>
       </div>
     </div>
-    {% endblock %}
-  </main>
+  </div>
+</section>
+{% endblock %}
 
-  <!-- Footer simples -->
-  <footer class="border-top mt-auto py-3">
-    <div class="container d-flex justify-content-between small text-body-secondary">
-      <span>© {{ (range(1)|length and '') or '' }}{{  '' }}</span>
-      <span>********</span>
-    </div>
-  </footer>
+{% block extra_scripts %}
+<script>
+  (function(){
+    // Prefetch de páginas frequentes para navegação fluida
+    try{
+      const prefetch = (href)=>{
+        const l = document.createElement('link');
+        l.rel = 'prefetch'; l.href = href; document.head.appendChild(l);
+      };
+      prefetch("{{ url_for('atacado_form_new') }}");
+      prefetch("{{ url_for('atacado_form_list') }}");
+    }catch(_){}
 
-  <!-- Bootstrap JS (defer) -->
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" crossorigin="anonymous"></script>
-
-  <!-- Acessibilidade: tooltips e foco em conteúdo -->
-  <script>
-    // Inicializa tooltips
-    document.addEventListener('DOMContentLoaded', function(){
-      document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(function(el){
-        new bootstrap.Tooltip(el);
-      });
+    // Atalhos globais
+    document.addEventListener('keydown', (e)=>{
+      const tag = (e.target && e.target.tagName) || '';
+      const typing = ['INPUT','TEXTAREA','SELECT'].includes(tag);
+      if (!typing && (e.key === 'n' || e.key === 'N')){
+        e.preventDefault();
+        window.location.href = "{{ url_for('atacado_form_new') }}";
+      }
+      if (!typing && e.key === '/'){
+        e.preventDefault();
+        window.location.href = "{{ url_for('atacado_form_list') }}?q="; // foca busca ao chegar
+      }
     });
-    // Link "pular para o conteúdo" se desejar (ex.: em páginas longas)
-    (function(){
-      const skip = document.createElement('a');
-      skip.href = '#main';
-      skip.className = 'visually-hidden-focusable position-absolute top-0 start-0 m-2';
-      skip.textContent = 'Pular para o conteúdo';
-      document.body.prepend(skip);
-    })();
-  </script>
-
-  {% block extra_scripts %}{% endblock %}
-</body>
-</html>
+  })();
+</script>
+{% endblock %}
