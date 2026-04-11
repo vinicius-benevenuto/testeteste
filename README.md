@@ -1,126 +1,120 @@
-"""ipam.py — Cliente para API phpIPAM."""
+"""cli.py — Comandos CLI do Flask (flask create-user, flask sbc-check, etc.)."""
 import logging
-from typing import Optional
+import sqlite3
 
-import requests
-from requests.exceptions import RequestException
+import click
+from flask import Flask
+from werkzeug.security import generate_password_hash
 
-from config import IPAM_BASE_URL, IPAM_SECTION_ID
+from db import _apply_cn_metadata, _seed_cns, get_db
+from sbc.analyzer import SBCAnalyzer
 
 logger = logging.getLogger(__name__)
 
 
-class IPAMClient:
-    """Encapsula autenticação e chamadas à API do phpIPAM."""
+def register_cli_commands(app: Flask) -> None:
 
-    def __init__(
-        self,
-        user: str,
-        password: str,
-        base_url: str = IPAM_BASE_URL,
-    ) -> None:
-        self.user = user
-        self.password = password
-        self.base_url = base_url
-        self.token: Optional[str] = None
-        self.session = requests.Session()
-
-    # ------------------------------------------------------------------
-    # URLs derivadas
-    # ------------------------------------------------------------------
-    @property
-    def url_auth(self) -> str:
-        return f"{self.base_url}/api/ctp/user/"
-
-    @property
-    def url_subnets_section(self) -> str:
-        return f"{self.base_url}/api/ctp/sections/{IPAM_SECTION_ID}/subnets/"
-
-    # ------------------------------------------------------------------
-    # Autenticação
-    # ------------------------------------------------------------------
-    def autenticar(self) -> None:
-        logger.info("Autenticando na API phpIPAM...")
+    # -------------------------------------------------------------------------
+    @app.cli.command("create-user")
+    @click.argument("email")
+    @click.argument("password")
+    @click.argument("role")
+    def create_user_cmd(email: str, password: str, role: str) -> None:
+        """Cria um novo usuário. ROLE deve ser 'engenharia' ou 'atacado'."""
+        role = role.strip().lower()
+        if role not in ("engenharia", "atacado"):
+            click.echo("Role inválida. Use: engenharia ou atacado.")
+            return
+        db = get_db()
         try:
-            resposta = self.session.post(
-                self.url_auth, auth=(self.user, self.password)
+            db.execute(
+                "INSERT INTO users (email, password_hash, role) VALUES (?, ?, ?)",
+                (email.strip().lower(), generate_password_hash(password), role),
             )
-            resposta.raise_for_status()
-        except RequestException as exc:
-            raise RuntimeError(f"Falha na autenticação: {exc}") from exc
+            db.commit()
+            click.echo(f"Usuário '{email}' criado com sucesso.")
+        except sqlite3.IntegrityError:
+            click.echo(f"E-mail '{email}' já cadastrado.")
 
-        dados = resposta.json()
-        self.token = dados["data"]["token"]
-        self.session.headers.update({"token": self.token})
-        logger.info("Autenticação bem-sucedida.")
+    # -------------------------------------------------------------------------
+    @app.cli.command("seed-cns")
+    def seed_cns_cmd() -> None:
+        """Aplica/atualiza o seed de CNs e metadados no banco."""
+        db = get_db()
+        _seed_cns(db)
+        _apply_cn_metadata(db)
+        click.echo("Seed de CNs aplicado/atualizado.")
 
-    # ------------------------------------------------------------------
-    # Requisições genéricas
-    # ------------------------------------------------------------------
-    def _get(self, url: str) -> dict:
-        try:
-            resposta = self.session.get(url)
-            resposta.raise_for_status()
-        except RequestException as exc:
-            raise RuntimeError(f"Erro GET [{url}]: {exc}") from exc
-        return resposta.json()
+    # -------------------------------------------------------------------------
+    @app.cli.command("sbc-check")
+    def sbc_check_cmd() -> None:
+        """Verifica o status do diretório e arquivo XLSX de SBCs."""
+        analyzer: SBCAnalyzer = app.config["SBC_ANALYZER"]
+        health = analyzer.health_check()
+        status_label = "OK" if health["data_dir_exists"] else "NÃO ENCONTRADO"
+        click.echo(f"Diretório: {health['data_dir']} ({status_label})")
+        click.echo(f"XLSX mais recente: {health.get('latest_file', 'Nenhum')}")
+        if health["file_info"].get("filename"):
+            info = health["file_info"]
+            click.echo(f"  Medições:         {info['total_measurements']}")
+            click.echo(f"  Linhas agregadas: {info['total_aggregated']}")
+            click.echo(f"  Modificado:       {info['modified_at']}")
 
-    def _post(self, url: str, payload: dict) -> requests.Response:
-        try:
-            return self.session.post(url, json=payload)
-        except RequestException as exc:
-            raise RuntimeError(f"Erro POST [{url}]: {exc}") from exc
+    # -------------------------------------------------------------------------
+    @app.cli.command("sbc-suggest")
+    @click.argument("cn")
+    def sbc_suggest_cmd(cn: str) -> None:
+        """Sugere SBCs para o CN informado."""
+        analyzer: SBCAnalyzer = app.config["SBC_ANALYZER"]
+        result = analyzer.suggest_for_cn(cn)
+        sep = "=" * 60
+        click.echo(f"\n{sep}")
+        click.echo(f"  SBC Suggestion para CN {result.cn} — {result.cidade} ({result.uf})")
+        click.echo(f"  Regional: {result.regional}")
+        click.echo(f"  Fonte:    {result.source_file} ({result.source_modificado_em})")
+        click.echo(f"  Medição:  {result.data_medicao}")
+        if result.fallback_usado:
+            click.echo(f"  ⚠️  Fallback: {result.fallback_origem}")
+        click.echo(sep)
+        click.echo(f"  {result.mensagem}")
+        click.echo(f"{sep}\n")
 
-    # ------------------------------------------------------------------
-    # Lógica de negócio
-    # ------------------------------------------------------------------
-    def buscar_id_cn(self, nome_cn: str) -> int:
-        nome_cn = nome_cn.strip()
-        if not nome_cn.upper().startswith("CN"):
-            nome_cn = f"CN {nome_cn.zfill(2)}"
-        logger.info("Buscando CN '%s'...", nome_cn)
-        dados = self._get(self.url_subnets_section)
-        for item in dados.get("data", []):
-            if item.get("description") == nome_cn:
-                logger.info("CN '%s' → ID %s", nome_cn, item["id"])
-                return int(item["id"])
-        raise ValueError(f"CN '{nome_cn}' não encontrado na seção {IPAM_SECTION_ID}.")
+        if not result.sbcs:
+            click.echo("  Nenhum SBC encontrado.")
+            return
 
-    def buscar_id_pool(self, id_cn: int, nome_pool: str) -> int:
-        logger.info("Buscando pool '%s' no CN ID %d...", nome_pool, id_cn)
-        url = f"{self.base_url}/api/ctp/subnets/{id_cn}/slaves/"
-        dados = self._get(url)
-        for item in dados.get("data", []):
-            if nome_pool.upper() in item.get("description", "").upper():
-                logger.info("Pool '%s' → ID %s", nome_pool, item["id"])
-                return int(item["id"])
-        raise ValueError(f"Pool '{nome_pool}' não encontrado no CN ID {id_cn}.")
+        for i, sbc in enumerate(result.sbcs):
+            saude = sbc.get("saude", "")
+            if sbc.get("recomendado"):
+                icon = "✅"
+            elif saude in ("moderado", "critico"):
+                icon = "⚠️"
+            else:
+                icon = "  "
 
-    def buscar_rede_pai(
-        self, id_cn: int, id_pool: int, mascara: str
-    ) -> Optional[int]:
-        logger.info("Verificando rede pai /%s no pool ID %d...", mascara, id_pool)
-        url = f"{self.base_url}/api/ctp/subnets/{id_cn}/slaves/{id_pool}"
-        try:
-            dados = self._get(url)
-        except RuntimeError as exc:
-            logger.warning("Não foi possível verificar rede pai: %s", exc)
-            return None
-        for item in dados.get("data", []):
-            if item.get("mask") == mascara:
-                logger.info("Rede pai (/%s) → ID %s", mascara, item["id"])
-                return int(item["id"])
-        logger.warning("Rede pai /%s não localizada no pool ID %d. Prosseguindo.", mascara, id_pool)
-        return None
-
-    def reservar_rede(self, id_pool: int, mascara: str, descricao: str) -> dict:
-        url = f"{self.base_url}/api/ctp/subnets/{id_pool}/first_subnet/{mascara}/"
-        logger.info("Reservando rede /%s no pool ID %d...", mascara, id_pool)
-        resposta = self._post(url, {"description": descricao})
-        if resposta.status_code in (200, 201):
-            nova_rede = resposta.json().get("data")
-            logger.info("Rede /%s reservada: %s", mascara, nova_rede)
-            return nova_rede
-        raise RuntimeError(
-            f"Falha ao reservar subnet (HTTP {resposta.status_code}): {resposta.text}"
-        )
+            click.echo(
+                f"  {icon} #{i+1} {sbc['nome']} — "
+                f"{sbc.get('cidade', '')} ({sbc['uf']})"
+            )
+            click.echo(
+                f"     Modelo: {sbc['modelo']} | "
+                f"Serviços: {', '.join(sbc.get('servicos', []))}"
+            )
+            click.echo(
+                f"     CAPS avg: {sbc['caps_avg']} | "
+                f"máx {sbc['caps_max']} | mín {sbc['caps_min']} | "
+                f"último {sbc['caps_ultimo']}"
+            )
+            click.echo(
+                f"     Tendência: {sbc['caps_tendencia']} | "
+                f"Medições: {sbc['total_medicoes']} | "
+                f"Status: {sbc['status_fonte']} | Saúde: {saude}"
+            )
+            rec_label = " 🏆 RECOMENDADO" if sbc.get("recomendado") else ""
+            click.echo(f"     Score: {sbc['score']}/100{rec_label}")
+            if sbc.get("responsavel"):
+                click.echo(f"     Responsável: {sbc['responsavel']}")
+            if sbc.get("prazo"):
+                click.echo(f"     Prazo: {sbc['prazo']}")
+            click.echo(f"     Motivo: {sbc['motivo']}")
+            click.echo()
