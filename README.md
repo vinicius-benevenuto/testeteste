@@ -1,215 +1,346 @@
 {% extends "base.html" %}
-{% block title %}Central Engenharia — VIVOHUB{% endblock %}
+{% block title %}VIVOHUB — Formulários do Atacado{% endblock %}
 
 {% block extra_head %}
 <style>
-  .eng-hero{
-    position:relative; isolation:isolate; overflow:hidden;
-    background:
-      radial-gradient(1200px 600px at -10% -20%, rgba(107,9,166,.14), transparent 60%),
-      radial-gradient(900px 500px at 120% 10%, rgba(107,9,166,.10), transparent 60%),
-      linear-gradient(180deg, #ffffff 0%, var(--vh-bg) 100%);
-  }
-  .eng-badge{
-    display:inline-flex; align-items:center; gap:.4rem;
-    padding:.35rem .6rem; border-radius:999px;
-    border:1px solid var(--vh-border); background:var(--vh-surface-0);
-    color:var(--vh-muted); font-weight:600; font-size:.85rem;
-  }
-  .eng-card{
+  .card-shell{
     border:1px solid var(--vh-border);
-    background:var(--vh-surface-0);
     border-radius: var(--vh-radius);
+    background:var(--vh-surface-0);
     box-shadow: var(--vh-shadow-md);
-    transition: transform .18s ease, box-shadow .18s ease;
-    height:100%;
   }
-  .eng-card:hover{ transform: translateY(-2px); box-shadow: var(--vh-shadow-lg); }
-  .eng-card .icon-wrap{
-    width:44px; height:44px; border-radius:12px;
-    display:grid; place-items:center;
-    background: rgba(107,9,166,.08);
-    color: var(--vh-primary);
-  }
-  .eng-chip{
+  .chip{
     display:inline-flex; align-items:center; gap:.45rem;
-    border:1px solid var(--vh-border); background:var(--vh-surface-0);
-    border-radius:999px; padding:.42rem .75rem; font-weight:600;
+    border-radius:999px; padding:.38rem .75rem; font-weight:600; line-height:1;
+    background:var(--vh-surface-0); border:1px solid var(--vh-border); color:var(--vh-muted);
+    transition: background .18s ease, color .18s ease, border-color .18s ease, transform .18s ease;
   }
-  .eng-chip:hover{ background:var(--vh-surface-1); text-decoration:none; }
-  @media (prefers-reduced-motion: reduce){ .eng-card{ transition:none; } }
+  .chip:hover{ background:var(--vh-surface-1); color:var(--vh-ink); text-decoration:none; }
+  .chip.active{ background:rgba(107,9,166,.08); border-color:rgba(107,9,166,.25); color:var(--vh-primary); }
+  .table thead th{ white-space:nowrap; font-weight:600; }
+  .table-hover tbody tr:hover{ background:#fbfbff; }
+  .op-name{ max-width:520px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .id-copy{ cursor:pointer; opacity:.65; }
+  .id-copy:hover{ opacity:1; }
+  .badge-status{ font-weight:600; border:1px solid transparent; }
+  .badge-status.rascunho  { background:#eef1f4; color:#2b2f32; border-color:#e1e6ea; }
+  .badge-status.enviado   { background:#cfe2ff; color:#084298; border-color:#b6d0ff; }
+  .badge-status.em-revisao{ background:#fff3cd; color:#664d03; border-color:#ffe29a; }
+  .badge-status.aprovado  { background:#d1e7dd; color:#0f5132; border-color:#bcd9cc; }
+  .actions-wrap{ gap:.75rem; }
+  @media (max-width:576px){
+    .actions-wrap{ flex-direction:column; align-items:stretch !important; }
+    .actions-left,.actions-right{ width:100%; }
+    .actions-right form{ width:100%; }
+    .actions-right .input-group{ width:100%; }
+  }
+  .modal-content{ border-radius: var(--vh-radius); box-shadow: var(--vh-shadow-lg); }
 </style>
 {% endblock %}
 
 {% block content %}
-<section class="eng-hero border-bottom">
-  <div class="container py-5 py-xl-6">
-    <div class="d-flex align-items-start justify-content-between flex-wrap gap-3">
-      <div>
-        <span class="eng-badge mb-2" aria-label="Área da Engenharia">
-          <i class="bi bi-cpu"></i> Engenharia
-        </span>
-        <h1 class="display-6 fw-bold mb-2">Central Engenharia</h1>
-        <p class="lead text-body-secondary mb-0">
-          Valide <strong>Pré-PTIs</strong>, gere o <strong>Excel (Índice/Versões/Diagrama)</strong>
-          e acompanhe os arquivos gerados — tudo padronizado.
-        </p>
-      </div>
-      <div class="d-flex gap-2 align-items-center">
-        <a class="btn btn-outline-hub" href="{{ url_for('auth.logout') }}">
-          <i class="bi bi-box-arrow-right me-1"></i> Sair
-        </a>
-      </div>
-    </div>
+<div class="container py-5" role="main">
+  <div class="card-shell">
+    <div class="p-4 p-xl-5">
 
-    <!-- CTAs -->
-    <div class="mt-4 d-flex flex-wrap gap-2">
-      <a href="{{ url_for('engenharia.form_list') }}"              class="btn btn-hub btn-lg">
-        <i class="bi bi-journal-check me-2"></i>Formulários para validar
-      </a>
-      <a href="{{ url_for('engenharia.form_list') }}?show_files=1" class="btn btn-outline-hub btn-lg">
-        <i class="bi bi-folder2-open me-2"></i>Biblioteca de exports
-      </a>
-    </div>
-
-    <!-- Chips de filtro rápido -->
-    <div class="mt-3">
-      <a class="eng-chip me-1" href="{{ url_for('engenharia.form_list') }}">
-        <i class="bi bi-collection"></i> Todos
-      </a>
-      <a class="eng-chip me-1" href="{{ url_for('engenharia.form_list') }}?status=enviado">
-        <i class="bi bi-send"></i> Enviados
-      </a>
-      <a class="eng-chip me-1" href="{{ url_for('engenharia.form_list') }}?status=em%20revis%C3%A3o">
-        <i class="bi bi-hourglass-split"></i> Em revisão
-      </a>
-      <a class="eng-chip me-1" href="{{ url_for('engenharia.form_list') }}?status=aprovado">
-        <i class="bi bi-check2-circle"></i> Aprovados
-      </a>
-      <a class="eng-chip" href="{{ url_for('engenharia.form_list') }}?status=rascunho">
-        <i class="bi bi-pencil-square"></i> Rascunhos
-      </a>
-    </div>
-  </div>
-</section>
-
-<!-- Painéis de ação -->
-<section class="py-5">
-  <div class="container">
-    <div class="row g-4">
-
-      <div class="col-12 col-md-6 col-xl-4">
-        <a class="text-decoration-none" href="{{ url_for('engenharia.form_list') }}">
-          <div class="eng-card p-4 h-100">
-            <div class="d-flex align-items-start gap-3">
-              <div class="icon-wrap"><i class="bi bi-clipboard-check"></i></div>
-              <div class="flex-grow-1">
-                <h2 class="h5 fw-bold mb-1">Validar Pré-PTIs</h2>
-                <p class="mb-3 text-body-secondary">Abra o formulário, preencha a <strong>Seção 9</strong> e salve a validação.</p>
-                <ul class="list-unstyled d-flex flex-wrap gap-3 mb-0 small text-body-secondary">
-                  <li><i class="bi bi-check2-square"></i> Checklist técnico</li>
-                  <li><i class="bi bi-lock"></i> Demais seções em leitura</li>
-                </ul>
-              </div>
-            </div>
-          </div>
-        </a>
-      </div>
-
-      <div class="col-12 col-md-6 col-xl-4">
-        <a class="text-decoration-none" href="{{ url_for('engenharia.form_list') }}?show_files=1">
-          <div class="eng-card p-4 h-100">
-            <div class="d-flex align-items-start gap-3">
-              <div class="icon-wrap"><i class="bi bi-file-earmark-spreadsheet"></i></div>
-              <div class="flex-grow-1">
-                <h2 class="h5 fw-bold mb-1">Biblioteca de Exports</h2>
-                <p class="mb-3 text-body-secondary">Baixe, filtre por formulário e limpe o histórico, quando necessário.</p>
-                <ul class="list-unstyled d-flex flex-wrap gap-3 mb-0 small text-body-secondary">
-                  <li><i class="bi bi-folder2"></i> Registro persistente</li>
-                  <li><i class="bi bi-cloud-arrow-down"></i> Download rápido</li>
-                </ul>
-              </div>
-            </div>
-          </div>
-        </a>
-      </div>
-
-      <div class="col-12 col-md-12 col-xl-4">
-        <div class="eng-card p-4 h-100">
-          <div class="d-flex align-items-start gap-3">
-            <div class="icon-wrap"><i class="bi bi-sliders2"></i></div>
-            <div class="flex-grow-1">
-              <h2 class="h5 fw-bold mb-1">Diretrizes técnicas</h2>
-              <p class="mb-3 text-body-secondary">Lembretes essenciais aplicados na Seção 9:</p>
-              <ul class="mb-0 text-body-secondary small">
-                <li class="mb-1"><strong>Codec</strong>: STFC/STFC e STFC/SMP — G.711A e G.729; SMP/SMP — AMR e G.711A. G.711u não suportado.</li>
-                <li class="mb-1"><strong>QoS RTP</strong>: CS5 / DSCP 46 / EF. <strong>Ptime/Maxptime</strong> múltiplos de 20 ms.</li>
-                <li class="mb-1"><strong>Identificação</strong>: ISUPBR em rede fixa; móvel ISUPBR (ITU-92 opcional).</li>
-                <li class="mb-0"><strong>SIP/RFCs</strong>: 3261, 3262, 3264/3266/2327/4566, 4028, 3389, 2833, 3960, 6337.</li>
-              </ul>
-            </div>
-          </div>
-        </div>
-      </div>
-
-    </div>
-  </div>
-</section>
-
-<!-- Atalhos -->
-<section class="pb-5">
-  <div class="container">
-    <div class="eng-card p-4">
-      <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
-        <div class="d-flex align-items-center gap-3">
-          <div class="icon-wrap"><i class="bi bi-keyboard"></i></div>
-          <div>
-            <h3 class="h6 fw-bold mb-1">Atalhos úteis</h3>
-            <div class="text-body-secondary small">
-              <span class="me-3"><kbd>L</kbd> Abrir lista</span>
-              <span class="me-3"><kbd>F</kbd> Abrir biblioteca de exports</span>
-              <span><kbd>Ctrl</kbd> + <kbd>S</kbd> Salvar validação (na Seção 9)</span>
-            </div>
+      <!-- Cabeçalho -->
+      <header class="d-flex align-items-center justify-content-between mb-3">
+        <div>
+          <h1 class="h4 fw-bold mb-1">Formulários — Atacado</h1>
+          <div class="text-body-secondary small">
+            Crie, edite e acompanhe seus Pré-PTIs.
+            <span class="ms-1">Atalhos: <kbd>N</kbd> novo • <kbd>/</kbd> buscar.</span>
           </div>
         </div>
         <div class="d-flex gap-2">
-          <a href="{{ url_for('engenharia.form_list') }}" class="btn btn-outline-hub">
-            <i class="bi bi-search me-1"></i> Abrir lista
+          <a href="{{ url_for('central.central_atacado') }}"
+             class="btn btn-outline-hub btn-sm"
+             data-bs-toggle="tooltip" data-bs-title="Voltar para a Central">
+            ← Central
           </a>
-          <a href="{{ url_for('engenharia.form_list') }}?show_files=1" class="btn btn-hub">
-            <i class="bi bi-folder-symlink me-1"></i> Ir para exports
+          <a href="{{ url_for('auth.logout') }}"
+             class="btn btn-outline-hub btn-sm"
+             data-bs-toggle="tooltip" data-bs-title="Encerrar sessão">
+            <i class="bi bi-box-arrow-right"></i> Sair
           </a>
         </div>
+      </header>
+
+      <!-- Contadores -->
+      {% if counters %}
+        {% set q    = request.args.get('q','') %}
+        {% set sort = request.args.get('sort','-created_at') %}
+        {% set s    = request.args.get('status','') %}
+        <section class="mb-3 small text-body-secondary" aria-label="Resumo por status">
+          <span class="me-2">Total:</span>
+          <a class="chip me-1 text-decoration-none {% if not s %}active{% endif %}"
+             href="?q={{ q }}&sort={{ sort }}">
+            <i class="bi bi-collection"></i> {{ counters.total or 0 }} Todos
+          </a>
+          <a class="chip me-1 text-decoration-none {% if s=='rascunho' %}active{% endif %}"
+             href="?status=rascunho&q={{ q }}&sort={{ sort }}">
+            <i class="bi bi-pencil-square"></i> {{ counters.rascunho or 0 }} Rascunhos
+          </a>
+          <a class="chip me-1 text-decoration-none {% if s=='enviado' %}active{% endif %}"
+             href="?status=enviado&q={{ q }}&sort={{ sort }}">
+            <i class="bi bi-send"></i> {{ counters.enviado or 0 }} Enviados
+          </a>
+          <a class="chip me-1 text-decoration-none {% if s=='em revisão' %}active{% endif %}"
+             href="?status=em revisão&q={{ q }}&sort={{ sort }}">
+            <i class="bi bi-hourglass-split"></i> {{ counters.em_revisao or 0 }} Em revisão
+          </a>
+          <a class="chip me-1 text-decoration-none {% if s=='aprovado' %}active{% endif %}"
+             href="?status=aprovado&q={{ q }}&sort={{ sort }}">
+            <i class="bi bi-check2-circle"></i> {{ counters.aprovado or 0 }} Aprovados
+          </a>
+        </section>
+      {% endif %}
+
+      <!-- Ações: criar | filtros | busca -->
+      <section class="d-flex align-items-center justify-content-between mb-4 actions-wrap">
+        <div class="actions-left d-flex align-items-center">
+          <a href="{{ url_for('atacado.form_new') }}"
+             class="btn btn-hub"
+             data-bs-toggle="tooltip"
+             data-bs-title="Criar um novo formulário de Pré-PTI (atalho: N)">
+            <i class="bi bi-file-earmark-plus me-2"></i> Novo formulário
+          </a>
+        </div>
+
+        <div class="actions-right d-flex align-items-center gap-2">
+          {% set q    = request.args.get('q','') %}
+          {% set s    = request.args.get('status','') %}
+          {% set sort = request.args.get('sort','-created_at') %}
+
+          <!-- Filtros -->
+          <form method="get" class="d-flex align-items-center gap-2" aria-label="Filtros">
+            <input type="hidden" name="q" value="{{ q }}">
+            <select name="status" class="form-select form-select-sm" aria-label="Filtro de status">
+              <option value=""          {{ 'selected' if s=='' }}>Todos os status</option>
+              <option value="rascunho"  {{ 'selected' if s=='rascunho' }}>Rascunho</option>
+              <option value="enviado"   {{ 'selected' if s=='enviado' }}>Enviado</option>
+              <option value="em revisão"{{ 'selected' if s=='em revisão' }}>Em revisão</option>
+              <option value="aprovado"  {{ 'selected' if s=='aprovado' }}>Aprovado</option>
+            </select>
+            <select name="sort" class="form-select form-select-sm" aria-label="Ordenação">
+              <option value="-created_at"    {{ 'selected' if sort=='-created_at' }}>Mais recentes</option>
+              <option value="created_at"     {{ 'selected' if sort=='created_at' }}>Mais antigos</option>
+              <option value="nome_operadora" {{ 'selected' if sort=='nome_operadora' }}>Operadora (A–Z)</option>
+              <option value="-nome_operadora"{{ 'selected' if sort=='-nome_operadora' }}>Operadora (Z–A)</option>
+              <option value="-id"            {{ 'selected' if sort=='-id' }}>ID (maior→menor)</option>
+              <option value="id"             {{ 'selected' if sort=='id' }}>ID (menor→maior)</option>
+            </select>
+            <button type="submit" class="btn btn-outline-hub btn-sm"
+                    data-bs-toggle="tooltip" data-bs-title="Aplicar filtros">
+              <i class="bi bi-funnel"></i>
+            </button>
+            <a class="btn btn-outline-hub btn-sm"
+               href="{{ url_for('atacado.form_list') }}"
+               data-bs-toggle="tooltip" data-bs-title="Limpar filtros">
+              Limpar
+            </a>
+          </form>
+
+          <!-- Busca -->
+          <form method="get" class="d-flex" style="max-width:280px;" aria-label="Busca por Operadora">
+            <input type="hidden" name="status" value="{{ s }}">
+            <input type="hidden" name="sort"   value="{{ sort }}">
+            <div class="input-group input-group-sm">
+              <span class="input-group-text"><i class="bi bi-search"></i></span>
+              <input type="text"
+                     id="searchInput"
+                     name="q"
+                     value="{{ q }}"
+                     class="form-control"
+                     placeholder="Buscar por operadora… (atalho: /)"
+                     aria-label="Buscar por operadora">
+              <button type="submit" class="btn btn-outline-hub">Buscar</button>
+            </div>
+          </form>
+        </div>
+      </section>
+
+      <!-- Lista -->
+      {% if forms and forms|length %}
+        <div class="table-responsive">
+          <table class="table align-middle table-hover">
+            <thead class="table-light">
+              <tr>
+                <th>ID</th>
+                <th>Operadora</th>
+                <th>Status</th>
+                <th class="text-nowrap">Criado em</th>
+                <th class="text-end">Ações</th>
+              </tr>
+            </thead>
+            <tbody id="resultsBody">
+              {% for f in forms %}
+                {% set st = (f.status or 'rascunho')|lower %}
+                <tr>
+                  <td class="fw-semibold">
+                    #{{ f.id }}
+                    <i class="bi bi-clipboard-check id-copy ms-1"
+                       data-id="{{ f.id }}"
+                       data-bs-toggle="tooltip" data-bs-title="Copiar ID"
+                       aria-label="Copiar ID"></i>
+                  </td>
+                  <td class="op-name" title="{{ f.nome_operadora or '—' }}">
+                    {{ f.nome_operadora or '—' }}
+                  </td>
+                  <td>
+                    <span class="badge badge-status
+                      {% if st=='aprovado' %}aprovado
+                      {% elif st=='em revisão' %}em-revisao
+                      {% elif st=='enviado' %}enviado
+                      {% else %}rascunho{% endif %}">
+                      {{ st|capitalize }}
+                    </span>
+                  </td>
+                  <td class="text-body-secondary">{{ (f.created_at or '')|date_br }}</td>
+                  <td class="text-end">
+                    <div class="btn-group btn-group-sm" role="group">
+                      <a class="btn btn-outline-hub"
+                         href="{{ url_for('atacado.form_edit', form_id=f.id) }}"
+                         data-bs-toggle="tooltip" data-bs-title="Editar formulário">
+                        <i class="bi bi-pencil-square"></i> Editar
+                      </a>
+                      <button type="button"
+                              class="btn btn-outline-hub"
+                              data-bs-toggle="modal"
+                              data-bs-target="#confirmDeleteModal"
+                              data-form-id="{{ f.id }}"
+                              data-op-name="{{ f.nome_operadora or '—' }}">
+                        <i class="bi bi-trash"></i> Excluir
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+
+      {% else %}
+        <!-- Estado vazio -->
+        <section class="text-center py-5">
+          <div class="mb-3"><i class="bi bi-inbox fs-1 text-secondary" aria-hidden="true"></i></div>
+          <h2 class="h5">Nenhum formulário encontrado</h2>
+          {% if request.args.get('q') %}
+            <p class="text-body-secondary mb-3">
+              Sua busca por <strong>{{ request.args.get('q') }}</strong> não retornou resultados.
+            </p>
+          {% else %}
+            <p class="text-body-secondary mb-3">Você ainda não criou formulários de Pré-PTI.</p>
+          {% endif %}
+          <a href="{{ url_for('atacado.form_new') }}" class="btn btn-hub">
+            <i class="bi bi-file-earmark-plus me-2"></i> Criar primeiro formulário
+          </a>
+        </section>
+      {% endif %}
+
+    </div>
+  </div>
+</div>
+
+<!-- Modal de confirmação de exclusão -->
+<div class="modal fade" id="confirmDeleteModal" tabindex="-1"
+     aria-labelledby="confirmDeleteLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title d-flex align-items-center gap-2" id="confirmDeleteLabel">
+          <i class="bi bi-trash3 text-danger"></i> Excluir formulário
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+      </div>
+      <div class="modal-body">
+        <p class="mb-0">
+          Tem certeza de que deseja excluir o formulário
+          <span class="fw-semibold" id="delFormId">#—</span>
+          (<span id="delOpName">—</span>)?
+        </p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-hub" data-bs-dismiss="modal">Cancelar</button>
+        <form method="post" id="deleteRealForm" action="#">
+          <button type="submit" class="btn btn-danger">
+            <i class="bi bi-trash"></i> Excluir
+          </button>
+        </form>
       </div>
     </div>
   </div>
-</section>
+</div>
 {% endblock %}
 
 {% block extra_scripts %}
 <script>
-  (function(){
-    try{
-      const prefetch = (href)=>{
-        const l = document.createElement('link');
-        l.rel = 'prefetch'; l.href = href; document.head.appendChild(l);
-      };
-      prefetch("{{ url_for('engenharia.form_list') }}");
-      prefetch("{{ url_for('engenharia.form_list') }}?show_files=1");
-    }catch(_){}
+  document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(el => new bootstrap.Tooltip(el));
 
-    document.addEventListener('keydown', (e)=>{
-      const tag = (e.target && e.target.tagName) || '';
-      if(['INPUT','TEXTAREA','SELECT'].includes(tag)) return;
-      if(e.key === 'l' || e.key === 'L'){
-        e.preventDefault();
-        window.location.href = "{{ url_for('engenharia.form_list') }}";
-      }
-      if(e.key === 'f' || e.key === 'F'){
-        e.preventDefault();
-        window.location.href = "{{ url_for('engenharia.form_list') }}?show_files=1";
-      }
+  // Live region (acessibilidade)
+  const live = document.createElement('div');
+  live.className = 'visually-hidden';
+  live.setAttribute('aria-live', 'polite');
+  document.body.appendChild(live);
+  const speak = (msg) => { live.textContent = msg || ''; };
+
+  // Copiar ID
+  document.querySelectorAll('.id-copy').forEach(el => {
+    el.addEventListener('click', async () => {
+      const id = el.getAttribute('data-id');
+      try{
+        await navigator.clipboard.writeText(id);
+        el.setAttribute('data-bs-title', 'Copiado!');
+        bootstrap.Tooltip.getInstance(el)?.show();
+        speak(`ID ${id} copiado.`);
+        setTimeout(()=>{
+          el.setAttribute('data-bs-title', 'Copiar ID');
+          bootstrap.Tooltip.getInstance(el)?.hide();
+        }, 900);
+      }catch(_){ speak('Não foi possível copiar o ID.'); }
+    });
+  });
+
+  // Realçar busca
+  (function(){
+    const q = new URLSearchParams(window.location.search).get('q');
+    if(!q) return;
+    const regex = new RegExp('(' + q.replace(/[.*+?^${}()|[\]\\]/g,'\\$&') + ')','gi');
+    document.querySelectorAll('#resultsBody .op-name').forEach(td => {
+      td.innerHTML = td.textContent.replace(regex, '<mark>$1</mark>');
     });
   })();
+
+  // Atalhos de teclado
+  document.addEventListener('keydown', (e) => {
+    const tag = (e.target && e.target.tagName) || '';
+    if(['INPUT','TEXTAREA','SELECT'].includes(tag)) return;
+    if(e.key === 'n' || e.key === 'N'){
+      e.preventDefault();
+      window.location.href = "{{ url_for('atacado.form_new') }}";
+    }
+    if(e.key === '/'){
+      e.preventDefault();
+      const si = document.getElementById('searchInput');
+      if(si){ si.focus(); si.select(); }
+    }
+  });
+
+  // Modal de exclusão
+  const modalEl = document.getElementById('confirmDeleteModal');
+  if(modalEl){
+    modalEl.addEventListener('show.bs.modal', (ev) => {
+      const btn  = ev.relatedTarget;
+      const id   = btn?.getAttribute('data-form-id');
+      const op   = btn?.getAttribute('data-op-name') || '—';
+      document.getElementById('delFormId').textContent  = `#${id}`;
+      document.getElementById('delOpName').textContent  = op;
+      const form = document.getElementById('deleteRealForm');
+      form.setAttribute(
+        'action',
+        "{{ url_for('atacado.form_delete', form_id=0) }}".replace('0', id)
+      );
+    });
+  }
 </script>
 {% endblock %}
