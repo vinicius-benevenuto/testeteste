@@ -1,187 +1,206 @@
 {% extends "base.html" %}
-{% block title %}VIVOHUB — Criar usuário{% endblock %}
+{% block title %}Central Atacado — VIVOHUB{% endblock %}
 
 {% block extra_head %}
 <style>
-  .reg-hero{
-    position:relative; isolation:isolate;
+  .atk-hero{
+    position:relative; isolation:isolate; overflow:hidden;
     background:
       radial-gradient(1200px 600px at -10% -20%, rgba(107,9,166,.14), transparent 60%),
       radial-gradient(900px 500px at 120% 10%, rgba(107,9,166,.10), transparent 60%),
       linear-gradient(180deg, #ffffff 0%, var(--vh-bg) 100%);
   }
-  .reg-card{
+  .atk-card{
     border:1px solid var(--vh-border);
+    background:var(--vh-surface-0);
     border-radius: var(--vh-radius);
-    background: var(--vh-surface-0);
     box-shadow: var(--vh-shadow-md);
+    transition: transform .18s ease, box-shadow .18s ease;
+    height:100%;
   }
-  .reg-card .form-control:focus, .reg-card .form-select:focus{
-    border-color: var(--vh-primary);
-    box-shadow: 0 0 0 .2rem rgba(107,9,166,.15);
+  .atk-card:hover{ transform: translateY(-2px); box-shadow: var(--vh-shadow-lg); }
+  .atk-card .icon-wrap{
+    width:44px; height:44px; border-radius:12px;
+    display:grid; place-items:center;
+    background: rgba(107,9,166,.08);
+    color: var(--vh-primary);
   }
-  .btn-create{ padding:.75rem 1rem; font-weight:700; border-radius:.9rem; }
-  .hint{ font-size:.9rem; color:var(--vh-muted); }
-  .pw-meter{ height:.375rem; border-radius:999px; background:#e9ecef; overflow:hidden; }
-  .pw-meter > span{ display:block; height:100%; width:0%; transition:width .25s ease; background:var(--vh-primary); }
-  .req-list li{ margin:.15rem 0; }
+  .atk-chip{
+    display:inline-flex; align-items:center; gap:.4rem;
+    border:1px solid var(--vh-border); background:var(--vh-surface-0);
+    border-radius:999px; padding:.4rem .7rem; font-weight:600;
+  }
+  .atk-chip:hover{ background:var(--vh-surface-1); text-decoration:none; }
+  @media (prefers-reduced-motion: reduce){ .atk-card{ transition:none; } }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="reg-hero">
+<section class="atk-hero border-bottom">
   <div class="container py-5 py-xl-6">
-    <div class="row justify-content-center">
-      <div class="col-lg-8 col-xl-7">
-        <div class="reg-card p-4 p-lg-5">
-          <div class="d-flex align-items-center justify-content-between mb-3">
-            <div class="d-inline-flex align-items-center gap-2">
-              <i class="bi bi-person-plus-fill" style="color:var(--vh-primary);font-size:1.4rem"></i>
-              <h1 class="h5 fw-bold mb-0">Criar novo usuário</h1>
-            </div>
-            <div class="d-flex gap-2">
-              <a href="{{ url_for('central.central_engenharia') }}" class="btn btn-outline-hub btn-sm d-none d-md-inline">Ir para Engenharia</a>
-              <a href="{{ url_for('central.central_atacado') }}"    class="btn btn-outline-hub btn-sm d-none d-md-inline">Ir para Atacado</a>
-              <a href="{{ url_for('auth.admin_login') }}"           class="btn btn-outline-hub btn-sm">Sair do modo Admin</a>
-            </div>
-          </div>
+    <div class="d-flex align-items-start justify-content-between flex-wrap gap-3">
+      <div>
+        <h1 class="display-6 fw-bold mb-2">Central Atacado</h1>
+        <p class="lead text-body-secondary mb-0">
+          Crie e acompanhe seus <strong>Pré-PTIs</strong>. Tudo padronizado, rápido e com foco na melhor experiência.
+        </p>
+      </div>
+      <div class="d-flex gap-2 align-items-center">
+        <a class="btn btn-outline-hub" href="{{ url_for('auth.logout') }}">
+          <i class="bi bi-box-arrow-right me-1"></i> Sair
+        </a>
+      </div>
+    </div>
 
-          <p class="hint mb-4">
-            Preencha os dados abaixo para criar um usuário. Apenas administradores autenticados podem acessar esta página.
-          </p>
+    <!-- CTAs -->
+    <div class="mt-4 d-flex flex-wrap gap-2">
+      <a href="{{ url_for('atacado.form_new') }}"  class="btn btn-hub btn-lg">
+        <i class="bi bi-file-earmark-plus me-2"></i>Novo Pré-PTI
+      </a>
+      <a href="{{ url_for('atacado.form_list') }}" class="btn btn-outline-hub btn-lg">
+        <i class="bi bi-journal-text me-2"></i>Meus Formulários
+      </a>
+    </div>
 
-          <form method="post" action="{{ url_for('auth.register_post') }}" novalidate id="regForm" autocomplete="off">
-            <div class="row g-3">
+    <!-- Chips de filtro -->
+    <div class="mt-3">
+      <a class="atk-chip me-1" href="{{ url_for('atacado.form_list') }}">
+        <i class="bi bi-collection"></i> Todos
+      </a>
+      <a class="atk-chip me-1" href="{{ url_for('atacado.form_list') }}?status=rascunho">
+        <i class="bi bi-pencil-square"></i> Rascunhos
+      </a>
+      <a class="atk-chip me-1" href="{{ url_for('atacado.form_list') }}?status=enviado">
+        <i class="bi bi-send"></i> Enviados
+      </a>
+      <a class="atk-chip me-1" href="{{ url_for('atacado.form_list') }}?status=em%20revis%C3%A3o">
+        <i class="bi bi-hourglass-split"></i> Em revisão
+      </a>
+      <a class="atk-chip" href="{{ url_for('atacado.form_list') }}?status=aprovado">
+        <i class="bi bi-check2-circle"></i> Aprovados
+      </a>
+    </div>
+  </div>
+</section>
 
-              <div class="col-12">
-                <label for="email" class="form-label fw-semibold">E-mail corporativo</label>
-                <input
-                  type="email"
-                  class="form-control form-control-lg"
-                  id="email"
-                  name="email"
-                  placeholder="nome.sobrenome@empresa.com.br"
-                  required
-                  autocomplete="off"
-                  inputmode="email"
-                >
-                <div class="invalid-feedback">Informe um e-mail válido.</div>
-              </div>
+<!-- Cards de ação rápida -->
+<section class="py-5">
+  <div class="container">
+    <div class="row g-4">
 
-              <div class="col-12">
-                <label for="password"
-                       class="form-label fw-semibold d-flex align-items-center justify-content-between">
-                  <span>Senha</span>
-                  <button class="btn btn-outline-hub btn-sm" type="button" id="togglePw"
-                          aria-controls="password" aria-pressed="false">
-                    <i class="bi bi-eye"></i>
-                  </button>
-                </label>
-                <input
-                  type="password"
-                  class="form-control form-control-lg"
-                  id="password"
-                  name="password"
-                  placeholder="Crie uma senha forte"
-                  required
-                  minlength="8"
-                  autocomplete="new-password"
-                >
-                <div class="pw-meter mt-2" aria-hidden="true"><span id="pwBar"></span></div>
-                <div class="form-text">Use no mínimo 8 caracteres. Recomenda-se combinar letras, números e símbolos.</div>
-                <div class="invalid-feedback">Crie uma senha com pelo menos 8 caracteres.</div>
-              </div>
-
-              <div class="col-md-6">
-                <label for="role" class="form-label fw-semibold">Perfil de acesso</label>
-                <select id="role" name="role" class="form-select form-select-lg" required>
-                  <option value="" selected disabled>Selecione…</option>
-                  <option value="engenharia">Engenharia</option>
-                  <option value="atacado">Atacado</option>
-                </select>
-                <div class="invalid-feedback">Selecione um perfil.</div>
-              </div>
-
-              <div class="col-md-6">
-                <label class="form-label fw-semibold">Requisitos recomendados</label>
-                <ul class="req-list small text-body-secondary mb-0">
-                  <li>Senha única (não reutilizar de outros sistemas)</li>
-                  <li>Ativar MFA no e-mail (se disponível)</li>
-                  <li>Uso pessoal e intransferível</li>
+      <div class="col-12 col-md-6 col-xl-4">
+        <a class="text-decoration-none" href="{{ url_for('atacado.form_new') }}">
+          <div class="atk-card p-4 h-100">
+            <div class="d-flex align-items-start gap-3">
+              <div class="icon-wrap"><i class="bi bi-plus-lg"></i></div>
+              <div class="flex-grow-1">
+                <h2 class="h5 fw-bold mb-1">Criar Pré-PTI</h2>
+                <p class="mb-3 text-body-secondary">Formulário claro, com validações e preenchimentos assistidos.</p>
+                <ul class="list-unstyled d-flex flex-wrap gap-3 mb-0 small text-body-secondary">
+                  <li><i class="bi bi-lightning-charge"></i> Atalhos <kbd>N</kbd> / <kbd>/</kbd></li>
+                  <li><i class="bi bi-shield-check"></i> Campos obrigatórios</li>
                 </ul>
               </div>
-
-              <div class="col-12 d-flex gap-2 mt-2">
-                <a href="{{ url_for('auth.register') }}" class="btn btn-outline-hub">Limpar</a>
-                <button type="submit" class="btn btn-hub btn-create flex-grow-1" id="btnSubmit">
-                  <span class="spinner-border spinner-border-sm me-2 d-none" role="status" aria-hidden="true"></span>
-                  Criar usuário
-                </button>
-              </div>
-
             </div>
-          </form>
-
-          <div class="mt-4 small text-body-secondary">
-            <i class="bi bi-shield-lock me-1"></i>
-            O cadastro é registrado para auditoria. Ao criar usuários, você concorda com as políticas internas da plataforma.
           </div>
+        </a>
+      </div>
+
+      <div class="col-12 col-md-6 col-xl-4">
+        <a class="text-decoration-none" href="{{ url_for('atacado.form_list') }}">
+          <div class="atk-card p-4 h-100">
+            <div class="d-flex align-items-start gap-3">
+              <div class="icon-wrap"><i class="bi bi-list-task"></i></div>
+              <div class="flex-grow-1">
+                <h2 class="h5 fw-bold mb-1">Meus Formulários</h2>
+                <p class="mb-3 text-body-secondary">Filtre por status, ordene por data ou operadora, busque rapidamente.</p>
+                <ul class="list-unstyled d-flex flex-wrap gap-3 mb-0 small text-body-secondary">
+                  <li><i class="bi bi-funnel"></i> Filtros</li>
+                  <li><i class="bi bi-sort-alpha-down"></i> Ordenação</li>
+                  <li><i class="bi bi-search"></i> Busca</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </a>
+      </div>
+
+      <div class="col-12 col-md-12 col-xl-4">
+        <div class="atk-card p-4 h-100">
+          <div class="d-flex align-items-start gap-3">
+            <div class="icon-wrap"><i class="bi bi-stars"></i></div>
+            <div class="flex-grow-1">
+              <h2 class="h5 fw-bold mb-1">Boas práticas</h2>
+              <p class="mb-3 text-body-secondary">Dicas para agilizar sua rotina e evitar retrabalho.</p>
+              <ul class="mb-0 text-body-secondary small">
+                <li class="mb-1">Use o <strong>RN1</strong> correto e preencha <strong>Contatos</strong> completos.</li>
+                <li class="mb-1">Na seção <strong>Escopo</strong>, marque os tipos de tráfego que se aplicam.</li>
+                <li class="mb-1">Finalize quando estiver seguro: o status muda para <em>Enviado</em> e segue para Engenharia.</li>
+                <li class="mb-0">Exportações Excel ficam registradas (lado Engenharia).</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- Atalhos -->
+<section class="pb-5">
+  <div class="container">
+    <div class="atk-card p-4">
+      <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
+        <div class="d-flex align-items-center gap-3">
+          <div class="icon-wrap"><i class="bi bi-keyboard"></i></div>
+          <div>
+            <h3 class="h6 fw-bold mb-1">Atalhos úteis</h3>
+            <div class="text-body-secondary small">
+              <span class="me-3"><kbd>N</kbd> Novo Pré-PTI</span>
+              <span class="me-3"><kbd>/</kbd> Ir para busca (na lista)</span>
+              <span><kbd>Ctrl</kbd> + <kbd>S</kbd> Salvar no formulário</span>
+            </div>
+          </div>
+        </div>
+        <div class="d-flex gap-2">
+          <a href="{{ url_for('atacado.form_list') }}" class="btn btn-outline-hub">
+            <i class="bi bi-search me-1"></i> Abrir lista
+          </a>
+          <a href="{{ url_for('atacado.form_new') }}" class="btn btn-hub">
+            <i class="bi bi-rocket-takeoff me-1"></i> Começar agora
+          </a>
         </div>
       </div>
     </div>
   </div>
-</div>
+</section>
 {% endblock %}
 
 {% block extra_scripts %}
 <script>
   (function(){
-    const form   = document.getElementById('regForm');
-    const email  = document.getElementById('email');
-    const pw     = document.getElementById('password');
-    const role   = document.getElementById('role');
-    const btn    = document.getElementById('btnSubmit');
-    const bar    = document.getElementById('pwBar');
-    const toggle = document.getElementById('togglePw');
+    try{
+      const prefetch = (href)=>{
+        const l = document.createElement('link');
+        l.rel = 'prefetch'; l.href = href; document.head.appendChild(l);
+      };
+      prefetch("{{ url_for('atacado.form_new') }}");
+      prefetch("{{ url_for('atacado.form_list') }}");
+    }catch(_){}
 
-    toggle?.addEventListener('click', ()=>{
-      const show = pw.type === 'password';
-      pw.type = show ? 'text' : 'password';
-      toggle.setAttribute('aria-pressed', String(show));
-      toggle.innerHTML = show ? '<i class="bi bi-eye-slash"></i>' : '<i class="bi bi-eye"></i>';
-      pw.focus({preventScroll:true});
-    });
-
-    function score(s){
-      if(!s) return 0;
-      let n = 0;
-      if(s.length>=8) n++;
-      if(/[A-Z]/.test(s)) n++;
-      if(/[a-z]/.test(s)) n++;
-      if(/\d/.test(s)) n++;
-      if(/[^A-Za-z0-9]/.test(s)) n++;
-      return Math.min(n, 5);
-    }
-    function updateMeter(){
-      const perc = [0,20,40,60,80,100][score(pw.value)] || 0;
-      bar.style.width = perc + '%';
-    }
-    pw.addEventListener('input', updateMeter);
-    updateMeter();
-
-    form.addEventListener('submit', (e)=>{
-      if(!form.checkValidity()){
-        e.preventDefault(); e.stopPropagation();
-        form.classList.add('was-validated');
-        (email.value ? (pw.value ? role : pw) : email).focus();
-        return;
+    document.addEventListener('keydown', (e)=>{
+      const tag = (e.target && e.target.tagName) || '';
+      if(['INPUT','TEXTAREA','SELECT'].includes(tag)) return;
+      if(e.key === 'n' || e.key === 'N'){
+        e.preventDefault();
+        window.location.href = "{{ url_for('atacado.form_new') }}";
       }
-      const spn = btn.querySelector('.spinner-border');
-      btn.disabled = true;
-      if(spn) spn.classList.remove('d-none');
+      if(e.key === '/'){
+        e.preventDefault();
+        window.location.href = "{{ url_for('atacado.form_list') }}?q=";
+      }
     });
-
-    email?.focus();
   })();
 </script>
 {% endblock %}
