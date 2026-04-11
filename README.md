@@ -1,1086 +1,241 @@
-{% extends "base.html" %}
-{% set engineer_mode = (session.get('role') == 'engenharia') %}
-{% set is_edit = form is not none %}
-{% set st = ((form.status if form else 'rascunho') or 'rascunho')|lower %}
-{% block title %}VIVOHUB — {{ 'Pré-PTI (Engenharia)' if engineer_mode else 'Formulário Pré-PTI' }}{% endblock %}
+<!doctype html>
+<html lang="pt-br" data-color-scheme="auto">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta http-equiv="x-ua-compatible" content="ie=edge">
 
-{% block extra_head %}
-<style>
-  body.bg-plain, html{ background:#fff !important; }
-  .nav-white{ background:#fff; border-bottom:1px solid var(--vh-border); }
-  .section-card{ border:1px solid var(--vh-border); border-radius:var(--vh-radius); overflow:hidden; background:var(--vh-surface-0); }
-  .section-card .card-header{
-    background:linear-gradient(180deg,#fafafa,#fff);
-    border-bottom:1px solid var(--vh-border);
-    font-weight:600; letter-spacing:.2px;
-  }
-  .form-label{ font-weight:500; }
-  .required::after{ content:" *"; color:var(--vh-danger); font-weight:700; margin-left:2px; }
-  .table thead th{ white-space:nowrap; font-weight:600; }
-  .table-sm td,.table-sm th{ vertical-align:middle; }
-  .table-hover tbody tr:hover{ background:#fbfbff; }
-  .table-actions button{ width:2.2rem; height:2.2rem; padding:0; }
-  .cap-counter{ font-size:.85rem; color:var(--vh-muted); }
-  .action-bar{
-    position:sticky; bottom:0; z-index:1020;
-    background:#fff; border-top:1px solid var(--vh-border);
-    box-shadow:0 -4px 18px rgba(0,0,0,.04);
-  }
-  .action-bar .btn{ min-width:120px; }
-  .status-badge{ font-weight:600; }
-  .status-badge.st-rascunho { background:#e9ecef; color:#343a40; }
-  .status-badge.st-enviado  { background:#cfe2ff; color:#084298; }
-  .status-badge.st-em-revisao{ background:#fff3cd; color:#664d03; }
-  .status-badge.st-aprovado { background:#d1e7dd; color:#0f5132; }
-  .help-text{ font-size:.85rem; color:var(--vh-muted); }
-  .scope-chips .form-check{ margin-right:.75rem; }
-  .scope-chips .form-check-input{ cursor:pointer; }
-  .scope-chips .form-check-label{ cursor:pointer; font-weight:500; }
-  .readonly-mask input:not([type="hidden"]), .readonly-mask select, .readonly-mask textarea{
-    background:#fbfbfb !important;
-  }
-  /* ===== PAINEL SBC ===== */
-  .sbc-panel{ border:1px solid #d4c5f9; border-radius:.65rem; background:linear-gradient(135deg,#faf8ff 0%,#fff 100%); padding:1rem 1.25rem; margin-top:.75rem; }
-  .sbc-panel-header{ display:flex; align-items:center; justify-content:space-between; margin-bottom:.65rem; gap:.5rem; }
-  .sbc-panel-title{ font-weight:700; font-size:.9rem; color:var(--vh-primary,#6b09a6); display:flex; align-items:center; gap:.4rem; }
-  .sbc-panel-meta{ font-size:.75rem; color:var(--vh-muted,#6c757d); }
-  #sbcCardList{ max-height:480px; overflow-y:auto; scrollbar-width:thin; scrollbar-color:#d4c5f9 transparent; }
-  #sbcCardList::-webkit-scrollbar{ width:5px; }
-  #sbcCardList::-webkit-scrollbar-thumb{ background:#d4c5f9; border-radius:3px; }
-  .sbc-card{ border:1px solid var(--vh-border,#dee2e6); border-radius:.5rem; background:#fff; padding:.65rem .75rem; margin-bottom:.5rem; transition:border-color .15s,box-shadow .15s; }
-  .sbc-card:hover{ border-color:#b39ddb; box-shadow:0 2px 8px rgba(107,9,166,.08); }
-  .sbc-card.recommended{ border-color:#198754; border-width:2px; }
-  .sbc-card-header{ display:flex; align-items:center; justify-content:space-between; gap:.5rem; margin-bottom:.35rem; }
-  .sbc-card-name{ font-weight:700; font-size:.88rem; }
-  .sbc-card-cidade{ font-size:.78rem; color:#666; font-weight:400; margin-left:.35rem; }
-  .sbc-card-badge{ font-size:.7rem; font-weight:600; padding:.15rem .5rem; border-radius:999px; line-height:1.2; }
-  .sbc-badge-disponivel{ background:#d1e7dd; color:#0f5132; }
-  .sbc-badge-moderado  { background:#fff3cd; color:#664d03; }
-  .sbc-badge-critico   { background:#f8d7da; color:#842029; }
-  .sbc-card.sbc-critico{ border-color:#dc3545; border-width:2px; border-style:dashed; background:linear-gradient(135deg,#fff5f5 0%,#fff 100%); }
-  .sbc-card.sbc-critico:hover{ border-color:#b02a37; box-shadow:0 2px 8px rgba(220,53,69,.15); }
-  .sbc-card.sbc-critico .sbc-card-name{ color:#842029; }
-  .sbc-card.sbc-critico .sbc-use-btn{ color:#dc3545; border-color:#dc3545; }
-  .sbc-card.sbc-critico .sbc-use-btn:hover{ background:#dc3545; color:#fff; }
-  .sbc-section-divider{ display:flex; align-items:center; gap:.5rem; margin:.6rem 0 .4rem; font-size:.78rem; font-weight:700; }
-  .sbc-section-divider::before,.sbc-section-divider::after{ content:''; flex:1; height:1px; }
-  .sbc-section-divider.disp-divider{ color:#0f5132; }
-  .sbc-section-divider.disp-divider::before,.sbc-section-divider.disp-divider::after{ background:#b7dfc9; }
-  .sbc-section-divider.crit-divider{ color:#842029; }
-  .sbc-section-divider.crit-divider::before,.sbc-section-divider.crit-divider::after{ background:#f1aeb5; }
-  .sbc-summary-bar{ display:flex; gap:.75rem; align-items:center; flex-wrap:wrap; font-size:.78rem; margin-bottom:.5rem; padding:.35rem .5rem; background:#f8f9fa; border-radius:.4rem; border:1px solid #e9ecef; }
-  .sbc-summary-chip{ display:inline-flex; align-items:center; gap:.25rem; padding:.15rem .45rem; border-radius:999px; font-weight:600; font-size:.72rem; }
-  .sbc-summary-chip.disp{ background:#d1e7dd; color:#0f5132; }
-  .sbc-summary-chip.crit{ background:#f8d7da; color:#842029; }
-  .sbc-card-details{ display:grid; grid-template-columns:1fr 1fr; gap:.2rem .75rem; font-size:.78rem; color:#555; }
-  .sbc-caps-bar-wrap{ height:6px; background:#e9ecef; border-radius:3px; overflow:hidden; margin:.3rem 0; }
-  .sbc-caps-bar{ height:100%; border-radius:3px; transition:width .3s ease; }
-  .sbc-caps-bar.low{ background:#198754; }
-  .sbc-caps-bar.mid{ background:#ffc107; }
-  .sbc-caps-bar.crit{ background:#dc3545; }
-  .sbc-tendencia{ font-size:.72rem; font-weight:600; display:inline-flex; align-items:center; gap:.2rem; }
-  .sbc-tendencia.subindo{ color:#dc3545; }
-  .sbc-tendencia.descendo{ color:#198754; }
-  .sbc-tendencia.estavel{ color:#6c757d; }
-  .sbc-card-meta{ display:flex; gap:.5rem; flex-wrap:wrap; font-size:.72rem; color:var(--vh-muted); margin-top:.25rem; }
-  .sbc-card-meta span{ display:inline-flex; align-items:center; gap:.2rem; }
-  .sbc-card-footer{ display:flex; align-items:center; justify-content:space-between; margin-top:.4rem; gap:.5rem; }
-  .sbc-score{ font-weight:700; font-size:.85rem; }
-  .sbc-reason{ font-size:.72rem; color:var(--vh-muted); flex:1; }
-  .sbc-use-btn{ font-size:.75rem; padding:.2rem .6rem; white-space:nowrap; }
-  .sbc-loading{ text-align:center; padding:.75rem; color:var(--vh-muted); font-size:.85rem; }
-  .sbc-empty{ text-align:center; padding:.75rem; color:var(--vh-muted); font-size:.85rem; }
-  .sbc-fallback-note{ font-size:.75rem; padding:.35rem .6rem; margin-bottom:.5rem; background:#fff3cd; border:1px solid #ffe29a; border-radius:.4rem; color:#664d03; }
-  /* ===== GRID ENGENHARIA ===== */
-  .eng-grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:.75rem; margin-bottom:.75rem; }
-  .eng-grid-card{ border:1px solid var(--vh-border,#dee2e6); border-radius:.5rem; background:#fff; overflow:hidden; display:flex; flex-direction:column; }
-  .eng-grid-card-title{ font-weight:700; font-size:.82rem; padding:.5rem .65rem; background:var(--vh-primary,#6b09a6); color:#fff; height:42px; display:flex; align-items:center; flex-shrink:0; }
-  .eng-grid-card-body{ padding:.4rem .5rem; flex:1; }
-  .eng-grid-card-body .row-line{ display:grid; grid-template-columns:28px 1fr; margin-bottom:.25rem; align-items:start; }
-  .eng-grid-card-body .row-line .form-check-input{ width:14px; height:14px; margin-top:.35rem; }
-  .eng-grid-card-body .row-line p{ margin:0; font-size:.76rem; line-height:1.35; }
-  .eng-grid-card.eng-invalid{ border-color:#dc3545; border-width:2px; }
-  .eng-grid-card.eng-invalid .eng-grid-card-title{ background:#dc3545; }
-  @media (prefers-reduced-motion:reduce){ .btn,.btn-hub,.btn-outline-hub{ transition:none !important; } }
-</style>
-{% endblock %}
+  <title>{% block title %}VIVOHUB{% endblock %}</title>
+  <meta name="description" content="VIVOHUB — Gestão de Pré-PTI (Atacado/Engenharia)">
+  <meta name="theme-color" content="#6b09a6">
 
-{% block content %}
-{% set plain_bg = true %}
+  <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}">
 
-<datalist id="cnList">
-  {% for cn in CN_FULL %}
-    <option value="{{ cn.codigo }}">{{ cn.codigo }} — {{ cn.nome }}{% if cn.uf %}/{{ cn.uf }}{% endif %}</option>
-  {% endfor %}
-</datalist>
+  <!-- Bootstrap 5 + Icons (CDN) -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet" crossorigin="anonymous">
 
-<!-- Nav do formulário -->
-<nav class="navbar nav-white">
-  <div class="container-fluid py-2">
-    <div class="d-flex align-items-center gap-2">
-      {% if engineer_mode %}
-        <a class="btn btn-outline-hub btn-sm" href="{{ url_for('engenharia.form_list') }}">
-          <i class="bi bi-arrow-left"></i> Voltar
-        </a>
-        <span class="fw-semibold">Pré-PTI <span class="badge text-bg-primary">Engenharia</span></span>
-      {% else %}
-        <a class="btn btn-outline-hub btn-sm" href="{{ url_for('atacado.form_list') }}">
-          <i class="bi bi-arrow-left"></i> Voltar
-        </a>
-        <span class="fw-semibold">Formulário Pré-PTI</span>
-      {% endif %}
+  <!-- Design System — VIVO Purple -->
+  <style>
+    :root{
+      /* Brand */
+      --vh-primary:       #6b09a6;
+      --vh-primary-600:   #5f0895;
+      --vh-primary-700:   #520781;
+      --vh-primary-050:   #f6effb;
 
-      {% if is_edit %}
-        <span class="ms-2 badge status-badge
-          {% if st=='aprovado' %}st-aprovado
-          {% elif st=='em revisão' %}st-em-revisao
-          {% elif st=='enviado' %}st-enviado
-          {% else %}st-rascunho{% endif %}">
-          {{ st|capitalize }}
-        </span>
-        <span class="ms-1 small text-body-secondary">ID {{ form.id }}</span>
-      {% endif %}
+      /* Semântica */
+      --vh-success:  #17a673;
+      --vh-warning:  #ffcc00;
+      --vh-danger:   #d93c65;
+
+      /* Superfícies e texto */
+      --vh-bg:        #f6f7fb;
+      --vh-surface-0: #ffffff;
+      --vh-surface-1: #fafafa;
+      --vh-text:      #1f2430;
+      --vh-text-sub:  #656b78;
+      --vh-border:    #e5e7eb;
+
+      /* Aliases (usados nos sub-templates) */
+      --vh-muted:  var(--vh-text-sub);
+      --vh-ink:    var(--vh-text);
+
+      /* Elevação e bordas */
+      --vh-shadow-sm: 0 4px 12px rgba(17,17,26,.07);
+      --vh-shadow-md: 0 10px 34px rgba(17,17,26,.12);
+      --vh-shadow-lg: 0 20px 60px rgba(17,17,26,.18);
+      --vh-radius:    16px;
+    }
+
+    /* Estrutura */
+    html, body { height: 100%; }
+    body {
+      font-feature-settings: "cv11","ss01";
+      background: linear-gradient(180deg, var(--vh-bg), #ffffff);
+      color: var(--vh-text);
+    }
+    body.bg-plain { background: #fff !important; }
+
+    /* Navbar */
+    .vh-navbar {
+      background: var(--vh-surface-0);
+      border-bottom: 1px solid var(--vh-border);
+    }
+    .vh-brand {
+      display: inline-flex; align-items: center; gap: .5rem;
+      font-weight: 800; letter-spacing: .2px;
+      color: var(--vh-primary) !important; text-decoration: none;
+    }
+    .vh-brand-dot {
+      width: 10px; height: 10px; border-radius: 999px;
+      background: var(--vh-primary);
+      box-shadow: 0 0 0 3px var(--vh-primary-050);
+    }
+
+    /* Botões padrão */
+    .btn-hub {
+      --bs-btn-color: #fff;
+      --bs-btn-bg: var(--vh-primary);
+      --bs-btn-border-color: var(--vh-primary);
+      --bs-btn-hover-color: #000;
+      --bs-btn-hover-bg: #ffffff;
+      --bs-btn-hover-border-color: var(--vh-primary);
+      --bs-btn-focus-shadow-rgb: 107,9,166;
+      font-weight: 700; border: 0; border-radius: .85rem; padding: .6rem 1.05rem;
+      box-shadow: var(--vh-shadow-sm);
+      transition: box-shadow .18s ease, transform .18s ease;
+    }
+    .btn-hub:hover { transform: translateY(-1px); box-shadow: var(--vh-shadow-md); }
+
+    .btn-outline-hub {
+      border-radius: .85rem; font-weight: 700;
+      border: 1px solid var(--vh-primary); color: var(--vh-primary);
+      background: transparent;
+      transition: background .18s ease, color .18s ease, transform .18s ease;
+    }
+    .btn-outline-hub:hover {
+      background: var(--vh-primary-050); color: #000; transform: translateY(-1px);
+    }
+
+    /* Chips */
+    .chip {
+      display: inline-flex; align-items: center; gap: .4rem;
+      border-radius: 999px; padding: .35rem .7rem;
+      font-weight: 600; line-height: 1;
+      background: var(--vh-surface-0); border: 1px solid var(--vh-border);
+    }
+    .chip.active { background: #eef3ff; border-color: #bfd0ff; color: #0d6efd; }
+
+    /* Badges de status */
+    .badge-status { font-weight: 600; border: 1px solid transparent; }
+    .badge-status.rascunho { background: #eef1f4; color: #2b2f32; border-color: #e1e6ea; }
+    .badge-status.enviado  { background: #cfe2ff; color: #084298; border-color: #b6d0ff; }
+    .badge-status.em-revisao { background: #fff3cd; color: #664d03; border-color: #ffe29a; }
+    .badge-status.aprovado { background: #d1e7dd; color: #0f5132; border-color: #bcd9cc; }
+
+    /* Tabelas e cartões */
+    .table-hover tbody tr:hover { background: #f8fbff; }
+    .table thead th { font-weight: 600; white-space: nowrap; }
+    .vh-card {
+      border: 1px solid var(--vh-border);
+      border-radius: var(--vh-radius);
+      box-shadow: var(--vh-shadow-sm);
+      background: var(--vh-surface-0);
+    }
+
+    /* Utilitários */
+    .vh-divider { height: 1px; background: var(--vh-border); margin: 1rem 0; }
+    .vh-flash {
+      position: fixed; top: 12px; left: 50%; transform: translateX(-50%);
+      z-index: 1080; width: min(680px, 96vw);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .btn, .btn-hub, .btn-outline-hub { transition: none !important; }
+    }
+  </style>
+
+  {% block extra_head %}{% endblock %}
+</head>
+
+<body class="{{ 'bg-plain' if plain_bg else '' }}">
+
+  <!-- Navbar -->
+  <nav class="navbar navbar-expand-lg vh-navbar">
+    <div class="container-fluid">
+
+      <button class="navbar-toggler" type="button"
+              data-bs-toggle="collapse" data-bs-target="#vhNav"
+              aria-controls="vhNav" aria-expanded="false"
+              aria-label="Alternar navegação">
+        <span class="navbar-toggler-icon"></span>
+      </button>
+
+      <div class="collapse navbar-collapse" id="vhNav">
+        <ul class="navbar-nav ms-auto align-items-lg-center">
+          {% set _role = session.get('role') %}
+
+          {% if _role == 'atacado' %}
+            <li class="nav-item me-1">
+              <a class="btn btn-outline-hub btn-sm" href="{{ url_for('central.central_atacado') }}">Central Atacado</a>
+            </li>
+            <li class="nav-item me-1">
+              <a class="btn btn-outline-hub btn-sm" href="{{ url_for('atacado.form_list') }}">Formulários</a>
+            </li>
+          {% elif _role == 'engenharia' %}
+            <li class="nav-item me-1">
+              <a class="btn btn-outline-hub btn-sm" href="{{ url_for('central.central_engenharia') }}">Central Engenharia</a>
+            </li>
+            <li class="nav-item me-1">
+              <a class="btn btn-outline-hub btn-sm" href="{{ url_for('engenharia.form_list') }}">Formulários</a>
+            </li>
+          {% endif %}
+
+          {% if session.get('user_id') %}
+            <li class="nav-item ms-lg-2">
+              <a class="btn btn-hub btn-sm" href="{{ url_for('auth.logout') }}">
+                <i class="bi bi-box-arrow-right"></i> Sair
+              </a>
+            </li>
+          {% endif %}
+        </ul>
+      </div>
     </div>
-    <div class="d-flex align-items-center gap-2">
-      {% if is_edit %}
-        <a class="btn btn-outline-hub btn-sm"
-           href="{{ url_for('engenharia.exportar_excel', form_id=form.id) }}"
-           data-bs-toggle="tooltip" data-bs-title="Exportar Excel (Índice, Versões, Diagrama)">
-          <i class="bi bi-file-earmark-spreadsheet"></i> Gerar PTI
-        </a>
+  </nav>
+
+  <!-- Flash messages -->
+  <div class="vh-flash">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, msg in messages %}
+          <div class="alert alert-{{ category }} alert-dismissible fade show shadow-sm mb-2" role="alert">
+            {{ msg }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Fechar"></button>
+          </div>
+        {% endfor %}
       {% endif %}
-      <a href="{{ url_for('auth.logout') }}" class="btn btn-outline-hub btn-sm">
-        <i class="bi bi-box-arrow-right"></i> Sair
-      </a>
-    </div>
+    {% endwith %}
   </div>
-</nav>
 
-<main class="container py-4">
-  <form
-    id="formTecnico"
-    method="post"
-    action="{% if form and not engineer_mode %}{{ url_for('atacado.form_update', form_id=form.id) }}{% elif form and engineer_mode %}{{ url_for('engenharia.form_view', form_id=form.id) }}{% else %}{{ url_for('atacado.form_create') }}{% endif %}"
-    novalidate
-    data-form-id="{{ form.id if form else 'new' }}"
-    data-vivo-json="{{ form.dados_vivo_json if form else '[]' }}"
-    data-operadora-json="{{ form.dados_operadora_json if form else '[]' }}"
-    data-engenharia-json="{{ form.engenharia_params_json if form else '{}' }}"
-    class="{% if engineer_mode %}readonly-mask{% endif %}"
-  >
-    <!-- Campos ocultos -->
-    <input type="hidden" id="dados_vivo_json"      name="dados_vivo_json"      value="{{ form.dados_vivo_json      if form and form.dados_vivo_json      else '[]' }}">
-    <input type="hidden" id="dados_operadora_json" name="dados_operadora_json" value="{{ form.dados_operadora_json if form and form.dados_operadora_json else '[]' }}">
-    <input type="hidden" id="engenharia_params_json" name="engenharia_params_json" value="{{ form.engenharia_params_json if form and form.engenharia_params_json else '{}' }}">
-    {% if not engineer_mode %}
-      <input type="hidden" id="status"           name="status"           value="{{ (form.status if form else '') or 'rascunho' }}">
-      <input type="hidden" id="escopo_flags_json" name="escopo_flags_json" value="{{ form.escopo_flags_json if form and form.escopo_flags_json else '[]' }}">
-    {% endif %}
-
-    <!-- Meta topo -->
-    <div class="d-flex flex-wrap align-items-center justify-content-between mb-3">
-      <div class="small text-body-secondary">
-        {% if is_edit %}
-          <i class="bi bi-clock-history me-1"></i>
-          Atualizado: {{ (form.updated_at or form.created_at or '')|date_br }}
-        {% endif %}
-      </div>
-      <div class="small">
-        <span class="text-body-secondary">Campos marcados com <span class="text-danger">*</span> são obrigatórios.</span>
+  <!-- Conteúdo -->
+  <main id="main" class="min-vh-100">
+    {% block content %}
+    <div class="container py-5">
+      <div class="text-center text-body-secondary">
+        <p class="mb-0">Conteúdo não definido.</p>
       </div>
     </div>
+    {% endblock %}
+  </main>
 
-    <!-- ============================================================= -->
-    <!-- 1) Identificação Operadora                                    -->
-    <!-- ============================================================= -->
-    <section class="card section-card mb-3" aria-labelledby="sec-ident">
-      <div class="card-header" id="sec-ident">1) Identificação da Operadora</div>
-      <div class="card-body">
-        <div class="row g-3">
-          <div class="col-md-6">
-            <label class="form-label required" for="nome_operadora">Nome da Operadora</label>
-            <input type="text" class="form-control form-control-sm" id="nome_operadora" name="nome_operadora"
-                   value="{{ form.nome_operadora if form else '' }}" required>
-            <div class="invalid-feedback">Informe o nome da operadora.</div>
-          </div>
-          <div class="col-md-6">
-            <label class="form-label" for="rn1">RN1</label>
-            <input type="text" class="form-control form-control-sm" id="rn1" name="rn1"
-                   value="{{ form.rn1 if form else '' }}" placeholder="Ex.: RN1-123">
-          </div>
-          <div class="col-md-6">
-            <div class="d-flex flex-wrap gap-3">
-              <div class="form-check"><input class="form-check-input" type="checkbox" id="csp" name="csp" {% if form and form.csp %}checked{% endif %}><label class="form-check-label" for="csp">CSP</label></div>
-              <div class="form-check"><input class="form-check-input" type="checkbox" id="servicos_especiais" name="servicos_especiais" {% if form and form.servicos_especiais %}checked{% endif %}><label class="form-check-label" for="servicos_especiais">Serviços Especiais</label></div>
-              <div class="form-check"><input class="form-check-input" type="checkbox" id="cng" name="cng" {% if form and form.cng %}checked{% endif %}><label class="form-check-label" for="cng">CNG</label></div>
-            </div>
-            <label class="form-label mt-3" for="atendimento">Atendimento</label>
-            {% set atend = (form.atendimento if form else '') %}
-            <select id="atendimento" name="atendimento" class="form-select form-select-sm">
-              <option value=""       {{ 'selected' if not atend }}>Selecione</option>
-              <option value="UF"     {{ 'selected' if atend=='UF' }}>UF</option>
-              <option value="CN"     {{ 'selected' if atend=='CN' }}>CN</option>
-              <option value="REG I"  {{ 'selected' if atend=='REG I' }}>REG I</option>
-              <option value="REG II" {{ 'selected' if atend=='REG II' }}>REG II</option>
-              <option value="REG III"{{ 'selected' if atend=='REG III' }}>REG III</option>
-            </select>
-            <div class="help-text">Selecione REG I/II/III para exibir o campo "Qual?".</div>
-          </div>
-          <div class="col-md-6">
-            <label class="form-label" for="redes">Redes</label>
-            {% set redesv = (form.redes if form else '') %}
-            <select id="redes" name="redes" class="form-select form-select-sm mb-2">
-              <option value=""     {{ 'selected' if not redesv }}>Selecione</option>
-              <option value="STFC" {{ 'selected' if redesv=='STFC' }}>STFC</option>
-              <option value="SMP"  {{ 'selected' if redesv=='SMP' }}>SMP</option>
-            </select>
-            {% set qualv = (form.qual if form else '') %}
-            <div id="qualGroup" class="mb-2 {% if not atend or not atend.startswith('REG') %}d-none{% endif %}">
-              <label class="form-label" for="qual">Qual? (se aplicável)</label>
-              <input type="text" class="form-control form-control-sm" id="qual" name="qual"
-                     value="{{ qualv }}" placeholder="Ex.: Região II — Sul">
-            </div>
-            <label class="form-label" for="tmr">TMR</label>
-            <input type="text" class="form-control form-control-sm" id="tmr" name="tmr"
-                   value="{{ form.tmr if form else '' }}" placeholder="Ex.: 15s">
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- ============================================================= -->
-    <!-- 2) Contatos e Responsáveis                                    -->
-    <!-- ============================================================= -->
-    <section class="card section-card mb-3" aria-labelledby="sec-contatos">
-      <div class="card-header" id="sec-contatos">2) Contatos e Responsáveis</div>
-      <div class="card-body">
-        <div class="row g-3">
-          <div class="col-md-6">
-            <label class="form-label required" for="responsavel_operadora">Responsável Operadora</label>
-            <input type="text" class="form-control form-control-sm" id="responsavel_operadora" name="responsavel_operadora"
-                   value="{{ form.responsavel_operadora if form else '' }}" required>
-            <div class="invalid-feedback">Informe o responsável da operadora.</div>
-          </div>
-          <div class="col-md-6">
-            <label class="form-label required" for="responsavel_vivo">Responsável Vivo (Atacado)</label>
-            <input type="text" class="form-control form-control-sm" id="responsavel_vivo" name="responsavel_vivo"
-                   value="{{ form.responsavel_vivo if form else '' }}" required>
-            <div class="invalid-feedback">Informe o responsável da Vivo.</div>
-          </div>
-          <div class="col-md-6">
-            <div class="d-flex flex-wrap gap-3">
-              <div class="form-check"><input class="form-check-input" type="checkbox" id="sbc_ativo"    name="sbc_ativo"    {% if form and form.sbc_ativo %}checked{% endif %}><label class="form-check-label" for="sbc_ativo">Possui SBC ativo?</label></div>
-              <div class="form-check"><input class="form-check-input" type="checkbox" id="ip_reservado" name="ip_reservado" {% if form and form.ip_reservado %}checked{% endif %}><label class="form-check-label" for="ip_reservado">Possui IP reservado?</label></div>
-              <div class="form-check"><input class="form-check-input" type="checkbox" id="vivo_reserva" name="vivo_reserva" {% if form and form.vivo_reserva %}checked{% endif %}><label class="form-check-label" for="vivo_reserva">Deseja que a Vivo reserve?</label></div>
-            </div>
-          </div>
-          <div class="col-md-6">
-            <label class="form-label" for="asn">ASN (Operadora)</label>
-            <input type="text" class="form-control form-control-sm" id="asn" name="asn"
-                   value="{{ form.asn if form else '' }}" placeholder="Ex.: ASXXXXX">
-            <div class="help-text">Informe o número AS do parceiro, se aplicável.</div>
-          </div>
-          <div class="col-md-6">
-            <label class="form-label required" for="responsavel_itx_gestao">Responsável Gestão de ITX (Atacado)</label>
-            <input type="text" class="form-control form-control-sm" id="responsavel_itx_gestao" name="responsavel_atacado"
-                   value="{{ form.responsavel_atacado if form else preset_responsavel_atacado or '' }}" required>
-            <div class="invalid-feedback">Informe o responsável de gestão de ITX.</div>
-          </div>
-          <div class="col-md-6">
-            <label class="form-label" for="responsavel_itx_eng">Responsável Eng de ITX (Engenharia)</label>
-            <input type="text" class="form-control form-control-sm" id="responsavel_itx_eng" name="responsavel_engenharia"
-                   value="{{ form.responsavel_engenharia if form else '' }}">
-            <div class="help-text">Campo preenchido pela Engenharia durante a validação.</div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- ============================================================= -->
-    <!-- 3) Escopo (Atacado) OU  3) Dados VIVO (Engenharia)            -->
-    <!-- ============================================================= -->
-    {% if not engineer_mode %}
-    <section class="card section-card mb-3" aria-labelledby="sec-escopo">
-      <div class="card-header" id="sec-escopo">3) Escopo</div>
-      <div class="card-body">
-        <label for="escopo_texto" class="form-label required">Detalhar o Escopo do Tráfego:</label>
-        <textarea class="form-control" id="escopo_texto" name="escopo_text" rows="3" required
-          placeholder="Ex.: Considerar LC nos CNs 31/11; LD15 + CNG nacional…">{{ form.escopo_text if form else '' }}</textarea>
-        <div class="invalid-feedback">Descreva o escopo do tráfego.</div>
-        <div class="mt-3">
-          <div class="form-label mb-1">Selecione os tipos de tráfego incluídos:</div>
-          <div class="scope-chips d-flex flex-wrap">
-            <div class="form-check me-3"><input class="form-check-input esc-flag" type="checkbox" value="LC"           id="esc_lc"     data-flag="LC"           ><label class="form-check-label" for="esc_lc">LC</label></div>
-            <div class="form-check me-3"><input class="form-check-input esc-flag" type="checkbox" value="LD15 + CNG"   id="esc_ld15"   data-flag="LD15 + CNG"   ><label class="form-check-label" for="esc_ld15">LD15 + CNG</label></div>
-            <div class="form-check me-3"><input class="form-check-input esc-flag" type="checkbox" value="LDS/CSP + CNG" id="esc_ldscsp" data-flag="LDS/CSP + CNG"><label class="form-check-label" for="esc_ldscsp">LDS/CSP + CNG</label></div>
-            <div class="form-check me-3"><input class="form-check-input esc-flag" type="checkbox" value="Transporte"   id="esc_transp" data-flag="Transporte"   ><label class="form-check-label" for="esc_transp">Transporte</label></div>
-            <div class="form-check me-3"><input class="form-check-input esc-flag" type="checkbox" value="VC1"          id="esc_vc1"    data-flag="VC1"          ><label class="form-check-label" for="esc_vc1">VC1</label></div>
-            <div class="form-check me-3"><input class="form-check-input esc-flag" type="checkbox" value="Concentração" id="esc_conc"   data-flag="Concentração" ><label class="form-check-label" for="esc_conc">Concentração</label></div>
-          </div>
-          <div class="help-text mt-1">As seleções alimentam a "Ponta B — Tráfego" do diagrama no Excel.</div>
-        </div>
-      </div>
-    </section>
-    {% else %}
-    <section class="card section-card mb-3" aria-labelledby="sec-vivo">
-      <div class="card-header d-flex align-items-center justify-content-between" id="sec-vivo">
-        <span>3) Dados VIVO</span>
-        <div class="d-flex gap-2 align-items-center">
-          <span class="cap-counter"><span id="vivoCount">0</span>/10</span>
-          <button type="button" class="btn btn-sm btn-outline-hub" id="addRowVivo"><i class="bi bi-plus-lg"></i> Linha</button>
-          <button type="button" class="btn btn-sm btn-outline-hub" id="clearRowsVivo">Limpar</button>
-        </div>
-      </div>
-      <div class="card-body">
-        <div class="table-responsive">
-          <table class="table table-bordered table-sm table-hover align-middle" id="tableVivo">
-            <thead class="table-light">
-              <tr>
-                <th>Ref</th><th>Data</th><th>Escopo</th><th>Localidade</th><th>CN</th><th>SBC</th><th>Mask</th>
-                <th>Endereço LINK</th><th>Cidade</th><th>UF</th><th>LAT.</th><th>LONG</th><th class="text-center">Ação</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
-          <div class="help-text">Máximo de 10 linhas.</div>
-        </div>
-
-        <!-- PAINEL DE SUGESTÃO DE SBC -->
-        <div id="sbcSuggestionPanel" class="sbc-panel" style="display:none;" role="region" aria-label="Sugestão de SBC">
-          <div class="sbc-panel-header">
-            <div class="sbc-panel-title"><i class="bi bi-broadcast-pin"></i><span id="sbcPanelTitle">SBCs sugeridos</span></div>
-            <div class="sbc-panel-meta" id="sbcPanelMeta"></div>
-          </div>
-          <div id="sbcFallbackNote" class="sbc-fallback-note" style="display:none;"></div>
-          <div id="sbcCardList"></div>
-          <div id="sbcLoading" class="sbc-loading" style="display:none;">Buscando SBCs disponíveis...</div>
-          <div id="sbcEmpty"   class="sbc-empty"   style="display:none;"></div>
-        </div>
-      </div>
-    </section>
-    {% endif %}
-
-    <!-- ============================================================= -->
-    <!-- 4) Dados Operadora                                            -->
-    <!-- ============================================================= -->
-    <section class="card section-card mb-3" aria-labelledby="sec-op">
-      <div class="card-header d-flex align-items-center justify-content-between" id="sec-op">
-        <span>4) Dados Operadora</span>
-        {% if not engineer_mode %}
-        <div class="d-flex gap-2 align-items-center">
-          <span class="cap-counter"><span id="opCount">0</span>/10</span>
-          <button type="button" class="btn btn-sm btn-outline-hub" id="addRowOperadora"><i class="bi bi-plus-lg"></i> Linha</button>
-          <button type="button" class="btn btn-sm btn-outline-hub" id="clearRowsOperadora">Limpar</button>
-        </div>
-        {% endif %}
-      </div>
-      <div class="card-body">
-        <div class="table-responsive">
-          <table class="table table-bordered table-sm table-hover align-middle" id="tableOperadora">
-            <thead class="table-light">
-              <tr>
-                <th>Ref</th><th>Localidade</th><th>ETO LC</th><th>EOT LD</th><th>CN</th><th>SBC</th><th>Faixa de IP</th>
-                <th>Concentração?</th><th>Endereço LINK</th><th>Cidade</th><th>UF</th><th>LAT.</th><th>LONG</th>
-                {% if not engineer_mode %}<th class="text-center">Ação</th>{% endif %}
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
-          <div class="help-text">Máximo de 10 linhas.</div>
-        </div>
-      </div>
-    </section>
-
-    <!-- ============================================================= -->
-    <!-- 5) Infraestrutura                                             -->
-    <!-- ============================================================= -->
-    <section class="card section-card mb-3" aria-labelledby="sec-infra">
-      <div class="card-header" id="sec-infra">5) Infraestrutura</div>
-      <div class="card-body">
-        <p class="mb-3"><strong>A Operadora será responsável pela construção da infraestrutura até a caixa Zero do prédio da VIVO.</strong></p>
-        <div class="row g-3">
-          <div class="col-md-4">
-            <div class="form-check">
-              <input class="form-check-input" type="checkbox" id="operadora_ciente" name="operadora_ciente"
-                     {% if form and form.operadora_ciente %}checked{% endif %}>
-              <label class="form-check-label" for="operadora_ciente">Operadora ciente?</label>
-            </div>
-          </div>
-          <div class="col-md-8">
-            <label class="form-label" for="responsavel_infra">Nome do responsável</label>
-            <input type="text" class="form-control form-control-sm" id="responsavel_infra" name="responsavel_infra"
-                   value="{{ form.responsavel_infra if form else '' }}">
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- ============================================================= -->
-    <!-- 6) LCR Nacional                                               -->
-    <!-- ============================================================= -->
-    <section class="card section-card mb-3" aria-labelledby="sec-lcr">
-      <div class="card-header" id="sec-lcr">6) Transporte de Chamadas via LCR Nacional</div>
-      <div class="card-body">
-        <div class="form-check">
-          <input class="form-check-input" type="checkbox" id="lcr_nacional" name="lcr_nacional"
-                 {% if form and form.lcr_nacional %}checked{% endif %}>
-          <label class="form-check-label" for="lcr_nacional">LCR Nacional?</label>
-        </div>
-        <div class="form-check mt-2">
-          <input class="form-check-input" type="checkbox" id="white_list" name="white_list"
-                 {% if form and form.white_list %}checked{% endif %}>
-          <label class="form-check-label" for="white_list">Cadastro White List?</label>
-        </div>
-      </div>
-    </section>
-
-    <!-- ============================================================= -->
-    <!-- 7) Faixa de Numeração                                         -->
-    <!-- ============================================================= -->
-    <section class="card section-card mb-3" aria-labelledby="sec-faixa">
-      <div class="card-header" id="sec-faixa">7) Faixa de Numeração da Operadora</div>
-      <div class="card-body">
-        <div class="form-check">
-          <input class="form-check-input" type="checkbox" id="prefixos_liberados_abr" name="prefixos_liberados_abr"
-                 {% if form and form.prefixos_liberados_abr %}checked{% endif %}>
-          <label class="form-check-label" for="prefixos_liberados_abr">Prefixos liberados na ABR?</label>
-        </div>
-      </div>
-    </section>
-
-    <!-- ============================================================= -->
-    <!-- 8) Premissas de Abordagem                                     -->
-    <!-- ============================================================= -->
-    <section class="card section-card mb-3" aria-labelledby="sec-premissas">
-      <div class="card-header" id="sec-premissas">8) Premissas de Abordagem</div>
-      <div class="card-body">
-        <div class="row g-3 align-items-center mb-3">
-          <div class="col-md-8 d-flex align-items-center">
-            <input class="form-check-input me-2" type="checkbox" id="premissas_ok" name="premissas_ok"
-                   {% if form and form.premissas_ok %}checked{% endif %}>
-            <label class="form-check-label fw-semibold mb-0" for="premissas_ok">
-              A aprovação está de acordo com as informações apresentadas, bem como às 29 Pendências de Programação.
-            </label>
-          </div>
-          <div class="col-md-4 d-flex align-items-center">
-            <label class="form-label fw-semibold me-2 mb-0" for="aprovado_por">Aprovado por:</label>
-            <input type="text" class="form-control form-control-sm" id="aprovado_por" name="aprovado_por"
-                   value="{{ form.aprovado_por if form else '' }}" placeholder="Nome do responsável">
-          </div>
-        </div>
-        <p class="mb-2"><strong>Premissas SIP:</strong> link (ex.: 1Gb com banda 100Mb e QoS 80%); ~100kb por canal; com dois links de 100Mb a soma deve ser 400 canais.</p>
-        <p class="mb-2">Na Reunião de PTI a Operadora deverá informar a faixa de IP para as rotas do projeto, ou solicitar à Telefônica a designação de uma faixa de IP /29.</p>
-        <p class="mb-3">A Operadora é responsável pela construção da infraestrutura até a caixa Zero do prédio da VIVO.</p>
-        <div class="table-responsive">
-          <table class="table table-bordered table-sm">
-            <thead class="table-light"><tr><th>Tráfego</th><th>Descrição</th></tr></thead>
-            <tbody>
-              <tr><td>LC / TR LC (CNs1X)</td><td>Chamadas entre operadoras dentro da mesma Área Local; devoluções na mesma AL.</td></tr>
-              <tr><td>LD 15 / CNG VIVO / SE</td><td>Encaminhamentos entre Vivo-STFC e operadora contratada (LD15, SE e CNG).</td></tr>
-              <tr><td>LD Oper CSP XY / LD s/ CSP / CNG</td><td>Tráfego LD com/sem CSP e CNG conforme acordado.</td></tr>
-              <tr><td>Transporte</td><td>Chamadas entregues pela operadora contratada de qualquer CN para qualquer operadora.</td></tr>
-              <tr><td>VC1</td><td>Chamadas entre AL e VIVO-SMP no CN, destinadas aos prefixos da operadora.</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </section>
-
-    <!-- ============================================================= -->
-    <!-- 9) Parâmetros Técnicos — Engenharia                           -->
-    <!-- ============================================================= -->
-    {% if engineer_mode %}
-    <section class="card section-card mb-3" id="eng-section" aria-labelledby="sec-eng">
-      <div class="card-header d-flex align-items-center justify-content-between" id="sec-eng">
-        <span>9) Parâmetros Técnicos — Engenharia</span>
-        <div class="toolbar d-flex gap-2 flex-wrap">
-          <button type="button" class="btn btn-outline-hub btn-sm" id="engCheckAll"><i class="bi bi-check2-square"></i> Marcar tudo</button>
-          <button type="button" class="btn btn-outline-hub btn-sm" id="engUncheckAll"><i class="bi bi-x-square"></i> Limpar tudo</button>
-        </div>
-      </div>
-      <div class="card-body">
-        <div class="eng-grid">
-
-          <div class="eng-grid-card" data-eng-group="tratamento">
-            <div class="eng-grid-card-title">Dados do Tratamento das chamadas</div>
-            <div class="eng-grid-card-body">
-              {% for key, text in [
-                ("tratamento.reinvite_obrigatorio", "É mandatório a utilização de re-invites pela Origem para definição de codecs quando o destino não define um único codec (envia lista)."),
-                ("tratamento.ptime_maxptime_20ms",  "<strong>Ptime/Maxptime</strong>: no SDP answer, devem ser múltiplos inteiros de 20 para codecs móveis (3GPP 26.114)."),
-                ("tratamento.qos_marcacoes_rtp",    "Para RTP em rede IP, espera-se marcação <strong>CS5 / DSCP 46 / EF</strong>.")
-              ] %}
-              <div class="row-line">
-                <div class="d-grid place-items-center"><input class="form-check-input eng-flag" type="checkbox" data-key="{{ key }}"></div>
-                <div><p>{{ text|safe }}</p></div>
-              </div>
-              {% endfor %}
-            </div>
-          </div>
-
-          <div class="eng-grid-card" data-eng-group="codec">
-            <div class="eng-grid-card-title">Negociação de CODEC / Modo</div>
-            <div class="eng-grid-card-body">
-              {% for key, text in [
-                ("codec.sipi_sem_rn3_portado",   "Chamadas <strong>SIP-I</strong> trocadas <em>sem RN3 (060)</em> para tráfego portado."),
-                ("codec.oferta_g711a_g729_stfc",  "SIP-I STFC/STFC e STFC/SMP: oferta mandatória dos codecs <strong>G.711A</strong> e <strong>G.729</strong>."),
-                ("codec.amr_g711a_smp",           "SIP-I SMP/SMP: <strong>AMR</strong> e <strong>G.711A</strong>."),
-                ("codec.g711u_nao_suportado",     "Codec <strong>G.711u</strong> não é suportado.")
-              ] %}
-              <div class="row-line">
-                <div class="d-grid place-items-center"><input class="form-check-input eng-flag" type="checkbox" data-key="{{ key }}"></div>
-                <div><p>{{ text|safe }}</p></div>
-              </div>
-              {% endfor %}
-            </div>
-          </div>
-
-          <div class="eng-grid-card" data-eng-group="id">
-            <div class="eng-grid-card-title">Identificação e Interconexão</div>
-            <div class="eng-grid-card-body">
-              {% for key, text in [
-                ("id.originador_fixo_isupbr_regiao3",         "Originador válido (Rede Fixa): <strong>ISUPBR</strong> (Região III)."),
-                ("id.originador_movel_isupbr_itu92_opcional", "Originador válido (Rede Móvel): <strong>ISUPBR</strong> (opcional <em>ITU-92</em>)."),
-                ("id.fax_t38_nao_suportado",                  "<strong>FAX T.38</strong>: protocolo não suportado."),
-                ("id.bgp_ip30_mpls_contingencia",             "Configuração BGP em <strong>IP/30</strong> com <strong>MPLS</strong> e link de contingência.")
-              ] %}
-              <div class="row-line">
-                <div class="d-grid place-items-center"><input class="form-check-input eng-flag" type="checkbox" data-key="{{ key }}"></div>
-                <div><p>{{ text|safe }}</p></div>
-              </div>
-              {% endfor %}
-            </div>
-          </div>
-
-          <div class="eng-grid-card" data-eng-group="rfc">
-            <div class="eng-grid-card-title">Principais RFC e SIP headers</div>
-            <div class="eng-grid-card-body">
-              {% for key, text in [
-                ("rfc.3261_base",         "<strong>RFC 3261</strong> — SIP (base)."),
-                ("rfc.3262_100rel_prack", "<strong>RFC 3262</strong> — 100rel / PRACK."),
-                ("rfc.sdp_3264_3266_2327_4566","<strong>RFC 3264 / 3266 / 2327 / 4566</strong> — SDP."),
-                ("rfc.4028_timers",       "<strong>RFC 4028</strong> — SIP Timers.")
-              ] %}
-              <div class="row-line">
-                <div class="d-grid place-items-center"><input class="form-check-input eng-flag" type="checkbox" data-key="{{ key }}"></div>
-                <div><p>{{ text|safe }}</p></div>
-              </div>
-              {% endfor %}
-            </div>
-          </div>
-
-          <div class="eng-grid-card" data-eng-group="habilitadas">
-            <div class="eng-grid-card-title">RFCs habilitadas/suportadas</div>
-            <div class="eng-grid-card-body">
-              {% for key, text in [
-                ("habilitadas.3389_cn",   "<strong>RFC 3389</strong> — Comfort Noise."),
-                ("habilitadas.2833_dtmf", "<strong>RFC 2833</strong> — Transporte DTMF."),
-                ("habilitadas.3264_hold", "<strong>RFC 3264</strong> — Suporte à função Hold.")
-              ] %}
-              <div class="row-line">
-                <div class="d-grid place-items-center"><input class="form-check-input eng-flag" type="checkbox" data-key="{{ key }}"></div>
-                <div><p>{{ text|safe }}</p></div>
-              </div>
-              {% endfor %}
-            </div>
-          </div>
-
-          <div class="eng-grid-card" data-eng-group="early">
-            <div class="eng-grid-card-title">Early Media / RBT / Offer-Answer</div>
-            <div class="eng-grid-card-body">
-              {% for key, text in [
-                ("early.3960_early_media",      "<strong>RFC 3960</strong> — Early Media e Ring Tone Generation."),
-                ("early.180ring_proxy_rbt_local","<strong>OBS:</strong> Em <em>SIP 180 Ring</em> puro, o Proxy deve gerar o RBT localmente."),
-                ("early.6337_offer_answer",     "<strong>RFC 6337</strong> — Modelo de oferta-resposta (offer–answer).")
-              ] %}
-              <div class="row-line">
-                <div class="d-grid place-items-center"><input class="form-check-input eng-flag" type="checkbox" data-key="{{ key }}"></div>
-                <div><p>{{ text|safe }}</p></div>
-              </div>
-              {% endfor %}
-            </div>
-          </div>
-
-        </div><!-- /eng-grid -->
-
-        <div class="fw-semibold mt-1 mb-2">Observações da Engenharia (opcional)</div>
-        <textarea class="form-control" id="eng_notes"
-                  placeholder="Ex.: particularidades do parceiro, exceções de RFC…"
-                  rows="3">{{ (form.engenharia_params_json or '{}') }}</textarea>
-        <small class="text-body-secondary">Salvo em <code>engenharia_params_json</code> como <code>notes</code>.</small>
-      </div>
-    </section>
-    {% endif %}
-
-    <!-- Barra de ações -->
-    <div class="action-bar py-3">
-      <div class="container d-flex justify-content-end gap-2">
-        {% if engineer_mode %}
-          <a class="btn btn-outline-hub" href="{{ url_for('engenharia.form_list') }}">Voltar</a>
-          <button type="submit" id="btnSaveEng" class="btn btn-primary">
-            <span class="spinner-border spinner-border-sm me-2 d-none" aria-hidden="true"></span>Salvar
-          </button>
-        {% else %}
-          <button type="button" class="btn btn-outline-hub" id="resetForm">Limpar</button>
-          <button type="submit" id="btnSave" class="btn btn-outline-hub" onclick="setStatus('rascunho')">
-            <span class="spinner-border spinner-border-sm me-2 d-none" aria-hidden="true"></span>Salvar
-          </button>
-          <button type="submit" id="btnFinish" class="btn btn-success" onclick="return finalizeSubmit();">
-            <span class="spinner-border spinner-border-sm me-2 d-none" aria-hidden="true"></span>Finalizar
-          </button>
-        {% endif %}
-      </div>
+  <!-- Footer -->
+  <footer class="border-top mt-auto py-3">
+    <div class="container d-flex justify-content-between small text-body-secondary">
+      <span>VIVOHUB</span>
+      <span>Gestão de PTI — Interno</span>
     </div>
-  </form>
-</main>
+  </footer>
 
-<!-- ================================================================= -->
-<!-- JAVASCRIPT                                                        -->
-<!-- ================================================================= -->
-<script data-engineer="{{ 'true' if engineer_mode else 'false' }}">
-const engineerMode = document.currentScript.getAttribute('data-engineer') === 'true';
-const ROW_CAP = 10;
+  <!-- Bootstrap JS -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" crossorigin="anonymous"></script>
 
-/* ===== CN MAP (via API) ===== */
-let CN_MAP = {};
-fetch('/api/cns')
-  .then(r => r.json())
-  .then(data => {
-    data.forEach(({codigo, nome, uf}) => {
-      CN_MAP[String(codigo||'').padStart(2,'0')] = { cidade: nome||'', uf: uf||'' };
+  <script>
+    document.addEventListener('DOMContentLoaded', function(){
+      document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(function(el){
+        new bootstrap.Tooltip(el);
+      });
     });
-  })
-  .catch(err => console.error('Erro ao carregar CNs:', err));
+    // Link "pular para conteúdo"
+    (function(){
+      const skip = document.createElement('a');
+      skip.href = '#main';
+      skip.className = 'visually-hidden-focusable position-absolute top-0 start-0 m-2';
+      skip.textContent = 'Pular para o conteúdo';
+      document.body.prepend(skip);
+    })();
+  </script>
 
-function resolveCityUF(cn){
-  return CN_MAP[String(cn||'').trim().padStart(2,'0')] || { cidade:'', uf:'' };
-}
-
-/* ===== HELPERS ===== */
-let isDirty = false, submitting = false;
-function setDirty(){ isDirty = true; }
-
-const mkInput = (ph='', attrs={}) => {
-  const i = document.createElement('input');
-  i.type='text'; i.placeholder=ph; i.className='form-control form-control-sm';
-  Object.entries(attrs||{}).forEach(([k,v])=>{ if(v!=null) i.setAttribute(k,v); });
-  i.addEventListener('input', setDirty);
-  i.addEventListener('change', setDirty);
-  return i;
-};
-const mkCheck = () => {
-  const w=document.createElement('div'); w.className='form-check d-flex justify-content-center mb-0';
-  const c=document.createElement('input'); c.type='checkbox'; c.className='form-check-input';
-  c.addEventListener('change', setDirty); w.appendChild(c); return w;
-};
-const mkRemoveBtn = () => {
-  const b=document.createElement('button'); b.type='button'; b.className='btn btn-outline-danger btn-sm';
-  b.innerHTML='<i class="bi bi-dash-lg"></i>';
-  b.addEventListener('click', e=>{
-    e.currentTarget.closest('tr')?.remove();
-    updateCounters(); setDirty();
-  });
-  return b;
-};
-
-function updateCounters(){
-  const tv=document.querySelector('#tableVivo tbody');
-  const to=document.querySelector('#tableOperadora tbody');
-  const vEl=document.getElementById('vivoCount'); if(vEl) vEl.textContent = tv ? tv.children.length : 0;
-  const oEl=document.getElementById('opCount');   if(oEl) oEl.textContent = to ? to.children.length : 0;
-}
-
-/* ===== SERIALIZAÇÃO ===== */
-function serializeTableVivo(){
-  const rows=[];
-  document.querySelectorAll('#tableVivo tbody tr').forEach(tr=>{
-    const c=tr.querySelectorAll('td');
-    rows.push({
-      ref:c[0]?.querySelector('input')?.value||'', data:c[1]?.querySelector('input')?.value||'',
-      escopo:c[2]?.querySelector('input')?.value||'', localidade:c[3]?.querySelector('input')?.value||'',
-      cn:c[4]?.querySelector('input')?.value||'', sbc:c[5]?.querySelector('input')?.value||'',
-      mask:c[6]?.querySelector('input')?.value||'', endereco_link:c[7]?.querySelector('input')?.value||'',
-      cidade:c[8]?.querySelector('input')?.value||'', uf:c[9]?.querySelector('input')?.value||'',
-      lat:c[10]?.querySelector('input')?.value||'', long:c[11]?.querySelector('input')?.value||''
-    });
-  });
-  return rows;
-}
-function serializeTableOperadora(){
-  const rows=[];
-  document.querySelectorAll('#tableOperadora tbody tr').forEach(tr=>{
-    const c=tr.querySelectorAll('td');
-    rows.push({
-      ref:c[0]?.querySelector('input')?.value||'', localidade:c[1]?.querySelector('input')?.value||'',
-      eto_lc:c[2]?.querySelector('input')?.value||'', eot_ld:c[3]?.querySelector('input')?.value||'',
-      cn:c[4]?.querySelector('input')?.value||'', sbc:c[5]?.querySelector('input')?.value||'',
-      faixa_ip:c[6]?.querySelector('input')?.value||'',
-      concentracao:c[7]?.querySelector('input')?.checked||false,
-      endereco_link:c[8]?.querySelector('input')?.value||'',
-      cidade:c[9]?.querySelector('input')?.value||'', uf:c[10]?.querySelector('input')?.value||'',
-      lat:c[11]?.querySelector('input')?.value||'', long:c[12]?.querySelector('input')?.value||''
-    });
-  });
-  return rows;
-}
-
-/* ================================================================= */
-/* SBC SUGGESTION PANEL                                              */
-/* ================================================================= */
-const SBC = (function(){
-  const panel   = document.getElementById('sbcSuggestionPanel');
-  const titleEl = document.getElementById('sbcPanelTitle');
-  const metaEl  = document.getElementById('sbcPanelMeta');
-  const fallEl  = document.getElementById('sbcFallbackNote');
-  const listEl  = document.getElementById('sbcCardList');
-  const loadEl  = document.getElementById('sbcLoading');
-  const emptyEl = document.getElementById('sbcEmpty');
-
-  if(!panel || !engineerMode) return { fetch:()=>{}, fillSbc:()=>{} };
-
-  let _activeRowIndex = -1, _lastCn = '', _fetchTimeout = null;
-
-  function scoreBarClass(score){
-    if(score>=70) return 'low';
-    if(score>=40) return 'mid';
-    return 'crit';
-  }
-  function badgeClass(saude){
-    const map={disponivel:'sbc-badge-disponivel',moderado:'sbc-badge-moderado',critico:'sbc-badge-critico'};
-    return map[saude] || 'sbc-badge-moderado';
-  }
-  function saudeLabel(s){ return {disponivel:'Disponível',moderado:'Moderado',critico:'Crítico'}[s] || (s||'—'); }
-  function statusFonteBadge(st){
-    if(!st) return '';
-    const key=st.toLowerCase();
-    let cls='background:#e9ecef;color:#333';
-    if(key.includes('norm')) cls='background:#d1e7dd;color:#0f5132';
-    else if(key.includes('aten')) cls='background:#fff3cd;color:#664d03';
-    else if(key.includes('crít')||key.includes('crit')) cls='background:#f8d7da;color:#842029';
-    return `<span style="font-size:.7rem;font-weight:600;padding:.12rem .4rem;border-radius:4px;${cls}">${st}</span>`;
-  }
-  function tendenciaHTML(t){
-    if(!t||t==='estavel') return '<span class="sbc-tendencia estavel">→ estável</span>';
-    if(t==='subindo') return '<span class="sbc-tendencia subindo">↗ subindo</span>';
-    return '<span class="sbc-tendencia descendo">↘ descendo</span>';
-  }
-  function num(v,fb){ const n=Number(v); return isNaN(n)?fb:n; }
-  function fmt1(v){ return num(v,0).toFixed?num(v,0).toFixed(1):num(v,0); }
-
-  function renderCards(data){
-    listEl.innerHTML=''; loadEl.style.display='none'; emptyEl.style.display='none';
-    const uf=data.uf||'??', cidade=data.cidade||'', cn=data.cn||'';
-    titleEl.textContent=`SBCs para ${uf}${cidade?' ('+cidade+')':''} — CN ${cn}`;
-    const srcFile=data.source_file||'', srcMod=data.source_modificado_em||'';
-    metaEl.innerHTML=srcFile?`Fonte: <strong>${srcFile}</strong>${srcMod?' · '+srcMod:''}` : '';
-    if(data.fallback_usado){
-      fallEl.style.display='block';
-      fallEl.innerHTML=`<i class="bi bi-info-circle me-1"></i> Sem SBCs na UF ${uf}. Usando dados de <strong>${data.fallback_origem||'vizinhança'}</strong>.`;
-    } else { fallEl.style.display='none'; }
-    if(!data.sbcs||data.sbcs.length===0){
-      emptyEl.style.display='block'; emptyEl.textContent=data.mensagem||'Nenhum SBC encontrado.';
-      panel.style.display='block'; return;
-    }
-    const disponiveis=data.sbcs.filter(s=>s.saude!=='critico');
-    const criticos=data.sbcs.filter(s=>s.saude==='critico');
-    const nDisp=data.total_disponiveis||disponiveis.length, nCrit=data.total_criticos||criticos.length;
-    const sb=document.createElement('div'); sb.className='sbc-summary-bar';
-    sb.innerHTML=`<span style="font-weight:600">${data.sbcs.length} SBC(s)</span>${nDisp>0?`<span class="sbc-summary-chip disp">✔ ${nDisp} disponível(is)</span>`:''} ${nCrit>0?`<span class="sbc-summary-chip crit">⚠ ${nCrit} crítico(s)</span>`:''}`;
-    listEl.appendChild(sb);
-    if(disponiveis.length>0){
-      const d=document.createElement('div'); d.className='sbc-section-divider disp-divider';
-      d.innerHTML=`✔ Disponíveis (${disponiveis.length})`; listEl.appendChild(d);
-      disponiveis.forEach(sbc=>listEl.appendChild(buildCard(sbc,false,uf)));
-    }
-    if(criticos.length>0){
-      const d=document.createElement('div'); d.className='sbc-section-divider crit-divider';
-      d.innerHTML=`⚠ Críticos (${criticos.length})`; listEl.appendChild(d);
-      criticos.forEach(sbc=>listEl.appendChild(buildCard(sbc,true,uf)));
-    }
-    panel.style.display='block';
-  }
-
-  function buildCard(sbc,isCritico,uf){
-    const card=document.createElement('div');
-    const classes=['sbc-card'];
-    if(isCritico) classes.push('sbc-critico');
-    if(sbc.recomendado&&!isCritico) classes.push('recommended');
-    card.className=classes.join(' ');
-    const recBadge=sbc.recomendado&&!isCritico?'<span class="sbc-card-badge sbc-badge-disponivel">✅ RECOMENDADO</span>':'';
-    const critWarn=isCritico?'<span class="sbc-card-badge" style="background:#dc3545;color:#fff;font-size:.65rem">⚠ CRÍTICO</span>':'';
-    const capsAvg=fmt1(sbc.caps_avg), capsMax=num(sbc.caps_max,0), capsMin=num(sbc.caps_min,0);
-    const capsUltimo=num(sbc.caps_ultimo,0), scoreVal=num(sbc.score,0), medCount=num(sbc.total_medicoes,0);
-    const saude=sbc.saude||'moderado', statusFonte=sbc.status_fonte||'—', tendencia=sbc.caps_tendencia||'estavel';
-    const modelo=sbc.modelo||'—', servicos=Array.isArray(sbc.servicos)?sbc.servicos.join(', '):(sbc.servicos||'—');
-    const sbcCidade=sbc.cidade||'', sbcResp=sbc.responsavel||'', sbcPrazo=sbc.prazo||'', sbcNome=sbc.nome||'—';
-    let metaItems='';
-    if(sbcCidade) metaItems+=`<span><i class="bi bi-geo-alt"></i> ${sbcCidade}/${sbc.uf||uf}</span>`;
-    if(sbcResp) metaItems+=`<span><i class="bi bi-person"></i> ${sbcResp}</span>`;
-    if(sbcPrazo) metaItems+=`<span><i class="bi bi-calendar-event"></i> ${sbcPrazo}</span>`;
-    if(sbc.dia_mais_recente) metaItems+=`<span><i class="bi bi-clock"></i> ${sbc.dia_mais_recente}</span>`;
-    const metaBlock=metaItems?`<div class="sbc-card-meta">${metaItems}</div>`:'';
-    const btnClass=isCritico?'btn-outline-danger':'btn-outline-hub';
-    const btnLabel=isCritico?`⚠ Usar na linha ${_activeRowIndex+1}`:`Usar na linha ${_activeRowIndex+1}`;
-    card.innerHTML=`
-      <div class="sbc-card-header">
-        <span class="sbc-card-name">${sbcNome}${sbcCidade?'<span class="sbc-card-cidade">'+sbcCidade+'</span>':''}</span>
-        <div class="d-flex gap-1 align-items-center">${statusFonteBadge(statusFonte)}<span class="sbc-card-badge ${badgeClass(saude)}">${saudeLabel(saude)}</span>${recBadge}${critWarn}</div>
-      </div>
-      <div class="sbc-caps-bar-wrap"><div class="sbc-caps-bar ${scoreBarClass(scoreVal)}" style="width:${Math.min(100,Math.max(2,scoreVal))}%"></div></div>
-      <div class="sbc-card-details">
-        <span>Modelo: <strong>${modelo}</strong></span>
-        <span>Serviços: ${servicos||'—'}</span>
-        <span>CAPS avg: <strong>${capsAvg}</strong> · máx: <strong>${capsMax}</strong> · mín: ${capsMin}</span>
-        <span>CAPS último: <strong>${capsUltimo}</strong> · ${tendenciaHTML(tendencia)}</span>
-        <span>Medições: ${medCount} ${statusFonte!=='—'?'· Status XLSX: <strong>'+statusFonte+'</strong>':''}</span>
-        <span>Score: <strong>${scoreVal}/100</strong></span>
-      </div>
-      ${metaBlock}
-      <div class="sbc-card-footer">
-        <span class="sbc-score" style="color:${scoreVal>=70?'#198754':scoreVal>=40?'#997404':'#dc3545'}">Score: ${scoreVal}/100</span>
-        <span class="sbc-reason">${sbc.motivo||''}</span>
-        <button type="button" class="btn btn-sm ${btnClass} sbc-use-btn" data-sbc-name="${sbcNome}" data-critico="${isCritico?'1':'0'}">${btnLabel}</button>
-      </div>`;
-    card.querySelector('.sbc-use-btn').addEventListener('click', function(){
-      const nome=this.dataset.sbcName, crit=this.dataset.critico==='1';
-      if(crit&&!confirm(`⚠️ ATENÇÃO: O SBC "${nome}" está em estado CRÍTICO.\n\nDeseja usá-lo mesmo assim?`)) return;
-      fillSbc(nome, _activeRowIndex);
-    });
-    return card;
-  }
-
-  function fillSbc(sbcName, rowIdx){
-    const rows=document.querySelectorAll('#tableVivo tbody tr');
-    if(rowIdx>=0&&rowIdx<rows.length){
-      const inp=rows[rowIdx].querySelectorAll('td')[5]?.querySelector('input');
-      if(inp){ inp.value=sbcName; inp.style.transition='background .3s'; inp.style.background='#d1e7dd'; setTimeout(()=>{ inp.style.background=''; },1200); setDirty(); }
-    }
-  }
-
-  async function fetchSuggestion(cn, rowIndex, uf){
-    cn=cn?String(cn).trim().replace(/\D/g,'').slice(0,2):'';
-    uf=uf?String(uf).trim().toUpperCase().replace(/[^A-Z]/g,'').slice(0,2):'';
-    if(cn.length<2&&uf.length<2){ panel.style.display='none'; return; }
-    const queryKey=cn.length>=2?`cn=${cn}`:`uf=${uf}`;
-    const cacheKey=queryKey+':'+rowIndex;
-    if(cacheKey===_lastCn&&_activeRowIndex===rowIndex) return;
-    _lastCn=cacheKey; _activeRowIndex=rowIndex;
-    if(_fetchTimeout) clearTimeout(_fetchTimeout);
-    _fetchTimeout=setTimeout(async ()=>{
-      panel.style.display='block'; loadEl.style.display='block';
-      listEl.innerHTML=''; emptyEl.style.display='none'; fallEl.style.display='none';
-      try{
-        const resp=await fetch(`/api/sbc/suggest?${queryKey}`);
-        if(!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        renderCards(await resp.json());
-      }catch(err){
-        loadEl.style.display='none'; emptyEl.style.display='block';
-        emptyEl.textContent='Erro ao buscar SBCs. Verifique o diretório de dados.';
-        console.warn('SBC fetch error:', err);
-      }
-    }, 350);
-  }
-
-  return { fetch: fetchSuggestion, fillSbc };
-})();
-
-/* ===== AUTO-FILL CN → Cidade/UF + SBC ===== */
-function wireCnAutoFill(tr){
-  const cnInp=tr.querySelector('input[data-field="cn"]');
-  const ufInp=tr.querySelector('input[data-field="uf"]');
-  const cidInp=tr.querySelector('input[data-field="cidade"]');
-  if(!cnInp||!ufInp||!cidInp) return;
-  let _cnTimer=null, _ufTimer=null;
-  const cnHandler=()=>{
-    const v=(cnInp.value||'').replace(/\D/g,'').slice(0,2); cnInp.value=v;
-    const info=resolveCityUF(v);
-    if(info.cidade) cidInp.value=info.cidade;
-    if(info.uf) ufInp.value=info.uf;
-    setDirty();
-    if(engineerMode&&v.length===2){ clearTimeout(_cnTimer); _cnTimer=setTimeout(()=>{ const rowIdx=Array.from(tr.parentElement.children).indexOf(tr); SBC.fetch(v,rowIdx,info.uf||''); },120); }
-  };
-  const ufHandler=()=>{
-    const ufVal=(ufInp.value||'').toUpperCase().replace(/[^A-Z]/g,'').slice(0,2); ufInp.value=ufVal; setDirty();
-    if(engineerMode&&ufVal.length===2){ clearTimeout(_ufTimer); _ufTimer=setTimeout(()=>{ const cnVal=(cnInp.value||'').replace(/\D/g,''); const rowIdx=Array.from(tr.parentElement.children).indexOf(tr); SBC.fetch(cnVal.length>=2?cnVal:'',rowIdx,ufVal); },120); }
-  };
-  cnInp.addEventListener('input',cnHandler); cnInp.addEventListener('change',cnHandler); cnInp.addEventListener('blur',cnHandler);
-  ufInp.addEventListener('input',ufHandler); ufInp.addEventListener('change',ufHandler); ufInp.addEventListener('blur',ufHandler);
-  if((cnInp.value||'').trim().length>=2) cnHandler();
-  else if((ufInp.value||'').trim().length>=2) ufHandler();
-}
-
-/* ===== TABELAS DINÂMICAS ===== */
-(function(){
-  let vivoInit=[], opInit=[];
-  const fe=document.getElementById('formTecnico');
-  if(fe){
-    try{ vivoInit=JSON.parse(fe.getAttribute('data-vivo-json')||'[]'); }catch(_){}
-    try{ opInit=JSON.parse(fe.getAttribute('data-operadora-json')||'[]'); }catch(_){}
-  }
-  const tv=document.querySelector('#tableVivo tbody');
-  const to=document.querySelector('#tableOperadora tbody');
-
-  function addRowVivo(v={}){
-    if(!tv) return;
-    if(tv.children.length>=ROW_CAP){ alert('Máximo de '+ROW_CAP+' linhas.'); return; }
-    const tr=document.createElement('tr');
-    const cols=[
-      {k:'ref'},{k:'data'},{k:'escopo'},{k:'localidade'},
-      {k:'cn',attrs:{'data-field':'cn',list:'cnList',inputmode:'numeric',pattern:'\\d{2}',maxlength:'2'}},
-      {k:'sbc'},{k:'mask'},{k:'endereco_link'},
-      {k:'cidade',attrs:{'data-field':'cidade'}},
-      {k:'uf',attrs:{'data-field':'uf',maxlength:'2'}},
-      {k:'lat'},{k:'long'}
-    ];
-    cols.forEach(({k,attrs})=>{
-      const td=document.createElement('td'); const inp=mkInput(k.toUpperCase(),attrs||{});
-      inp.value=(v[k]??''); td.appendChild(inp); tr.appendChild(td);
-    });
-    const a=document.createElement('td'); a.className='text-center table-actions'; a.appendChild(mkRemoveBtn()); tr.appendChild(a);
-    tv.appendChild(tr); wireCnAutoFill(tr); updateCounters(); setDirty();
-  }
-
-  function addRowOperadora(v={}){
-    if(!to) return;
-    if(to.children.length>=ROW_CAP){ alert('Máximo de '+ROW_CAP+' linhas.'); return; }
-    const tr=document.createElement('tr');
-    ['ref','localidade','eto_lc','eot_ld'].forEach(k=>{
-      const td=document.createElement('td'); const inp=mkInput(k.toUpperCase()); inp.value=v[k]??''; td.appendChild(inp); tr.appendChild(td);
-    });
-    [{k:'cn',attrs:{'data-field':'cn',list:'cnList',inputmode:'numeric',pattern:'\\d{2}',maxlength:'2'}},{k:'sbc'},{k:'faixa_ip'}].forEach(({k,attrs})=>{
-      const td=document.createElement('td'); const inp=mkInput(k.toUpperCase(),attrs||{}); inp.value=v[k]??''; td.appendChild(inp); tr.appendChild(td);
-    });
-    const tdC=document.createElement('td'); tdC.appendChild(mkCheck()); tdC.querySelector('input').checked=!!v.concentracao; tr.appendChild(tdC);
-    [{k:'endereco_link'},{k:'cidade',attrs:{'data-field':'cidade'}},{k:'uf',attrs:{'data-field':'uf',maxlength:'2'}},{k:'lat'},{k:'long'}].forEach(({k,attrs})=>{
-      const td=document.createElement('td'); const inp=mkInput(k.toUpperCase(),attrs||{}); inp.value=v[k]??''; td.appendChild(inp); tr.appendChild(td);
-    });
-    if(!engineerMode){ const a=document.createElement('td'); a.className='text-center table-actions'; a.appendChild(mkRemoveBtn()); tr.appendChild(a); }
-    to.appendChild(tr); wireCnAutoFill(tr); updateCounters(); setDirty();
-  }
-
-  (Array.isArray(vivoInit)?vivoInit:[]).forEach(addRowVivo);
-  (Array.isArray(opInit)?opInit:[]).forEach(addRowOperadora);
-  document.getElementById('addRowVivo')?.addEventListener('click',()=>addRowVivo({}));
-  document.getElementById('clearRowsVivo')?.addEventListener('click',()=>{ if(tv){ tv.innerHTML=''; updateCounters(); setDirty(); } });
-  document.getElementById('addRowOperadora')?.addEventListener('click',()=>addRowOperadora({}));
-  document.getElementById('clearRowsOperadora')?.addEventListener('click',()=>{ if(to){ to.innerHTML=''; updateCounters(); setDirty(); } });
-  updateCounters();
-})();
-
-/* ===== ENGENHARIA CHECKLIST HYDRATE ===== */
-(function(){
-  if(!engineerMode) return;
-  let saved={};
-  const fe=document.getElementById('formTecnico');
-  if(fe){ try{ saved=JSON.parse(fe.getAttribute('data-engenharia-json')||'{}'); }catch(_){} }
-  document.querySelectorAll('#eng-section .eng-flag[data-key]').forEach(chk=>{
-    const key=chk.getAttribute('data-key');
-    if(Object.prototype.hasOwnProperty.call(saved,key)) chk.checked=!!saved[key];
-  });
-  if(typeof saved.notes==='string'){ const n=document.getElementById('eng_notes'); if(n) n.value=saved.notes; }
-  document.getElementById('engCheckAll')?.addEventListener('click',()=>{ document.querySelectorAll('#eng-section .eng-flag').forEach(c=>c.checked=true); document.querySelectorAll('.eng-grid-card').forEach(c=>c.classList.remove('eng-invalid')); setDirty(); });
-  document.getElementById('engUncheckAll')?.addEventListener('click',()=>{ document.querySelectorAll('#eng-section .eng-flag').forEach(c=>c.checked=false); setDirty(); });
-})();
-
-/* ===== QUAL? TOGGLE ===== */
-(function(){
-  const at=document.getElementById('atendimento'), qg=document.getElementById('qualGroup');
-  function toggle(){ if(qg) qg.classList.toggle('d-none',!(at?.value||'').startsWith('REG')); }
-  if(at){ at.addEventListener('change',toggle); toggle(); }
-})();
-
-/* ===== ESCOPO FLAGS (Atacado) ===== */
-(function(){
-  if(engineerMode) return;
-  const h=document.getElementById('escopo_flags_json'); if(!h) return;
-  const flags=(function(){ try{ return JSON.parse(h.value||'[]'); }catch(_){ return[]; } })();
-  document.querySelectorAll('.esc-flag').forEach(chk=>{
-    if(flags.includes(chk.getAttribute('data-flag'))) chk.checked=true;
-    chk.addEventListener('change',()=>{
-      const cur=[]; document.querySelectorAll('.esc-flag:checked').forEach(c=>cur.push(c.getAttribute('data-flag')));
-      h.value=JSON.stringify(cur); setDirty();
-    });
-  });
-})();
-
-/* ===== VALIDAÇÃO E SUBMIT ===== */
-const form=document.getElementById('formTecnico');
-function setStatus(v){ const s=document.getElementById('status'); if(s) s.value=v; }
-function finalizeSubmit(){
-  if(!confirm('Confirmar finalização do Pré-PTI? Após enviar, ele seguirá para revisão da Engenharia.')) return false;
-  setStatus('enviado'); return true;
-}
-function showSpinner(id,show){
-  const b=document.getElementById(id),s=b?.querySelector('.spinner-border');
-  if(b) b.disabled=!!show; if(s) s.classList.toggle('d-none',!show);
-}
-
-window.addEventListener('beforeunload',(e)=>{
-  if(isDirty&&!submitting){ e.preventDefault(); e.returnValue=''; }
-});
-
-document.getElementById('resetForm')?.addEventListener('click',()=>{
-  form.reset(); form.classList.remove('was-validated');
-  const tv=document.querySelector('#tableVivo tbody'); if(tv) tv.innerHTML='';
-  const to=document.querySelector('#tableOperadora tbody'); if(to) to.innerHTML='';
-  const qg=document.getElementById('qualGroup'); if(qg) qg.classList.add('d-none');
-  updateCounters(); setDirty(); window.scrollTo({top:0,behavior:'smooth'});
-});
-
-document.querySelectorAll('#formTecnico input:not([type="hidden"]),#formTecnico select,#formTecnico textarea').forEach(el=>{
-  el.addEventListener('input',setDirty); el.addEventListener('change',setDirty);
-});
-
-form.addEventListener('submit',(e)=>{
-  const vivoH=document.getElementById('dados_vivo_json');
-  const opH=document.getElementById('dados_operadora_json');
-  if(engineerMode&&document.getElementById('tableVivo'))  vivoH.value=JSON.stringify(serializeTableVivo());
-  if(!engineerMode&&document.getElementById('tableOperadora')) opH.value=JSON.stringify(serializeTableOperadora());
-
-  if(engineerMode){
-    const data={};
-    document.querySelectorAll('#eng-section .eng-flag[data-key]').forEach(chk=>{ data[chk.getAttribute('data-key')]=!!chk.checked; });
-    const n=document.getElementById('eng_notes'); if(n&&n.value.trim()) data.notes=n.value.trim();
-    document.getElementById('engenharia_params_json').value=JSON.stringify(data);
-    const groups=document.querySelectorAll('#eng-section .eng-grid-card[data-eng-group]');
-    let engValid=true;
-    groups.forEach(card=>{
-      card.classList.remove('eng-invalid');
-      if(card.querySelectorAll('.eng-flag:checked').length===0){ card.classList.add('eng-invalid'); engValid=false; }
-    });
-    if(!engValid){
-      e.preventDefault(); e.stopPropagation();
-      alert('Preencha todas as respostas da seção Parâmetros Técnicos – Engenharia antes de salvar.');
-      document.querySelector('#eng-section .eng-grid-card.eng-invalid')?.scrollIntoView({behavior:'smooth',block:'center'});
-      return;
-    }
-  }
-
-  if(!form.checkValidity()){
-    e.preventDefault(); e.stopPropagation(); form.classList.add('was-validated');
-    const inv=form.querySelector(':invalid');
-    if(inv){ inv.scrollIntoView({behavior:'smooth',block:'center'}); inv.focus({preventScroll:true}); }
-    return;
-  }
-  submitting=true; form.classList.add('was-validated');
-  if(engineerMode) showSpinner('btnSaveEng',true);
-  else if(document.activeElement?.id==='btnFinish') showSpinner('btnFinish',true);
-  else showSpinner('btnSave',true);
-});
-
-/* ===== HOTKEYS ===== */
-document.addEventListener('keydown',(e)=>{
-  if(e.target&&['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName)){
-    if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='s'){
-      e.preventDefault();
-      if(engineerMode) document.getElementById('btnSaveEng')?.click();
-      else{ setStatus('rascunho'); document.getElementById('btnSave')?.click(); }
-    }
-    return;
-  }
-  if(e.key==='g'||e.key==='G') window.scrollTo({top:0,behavior:'smooth'});
-});
-
-/* ===== TOOLTIPS ===== */
-document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(el=>new bootstrap.Tooltip(el));
-</script>
-{% endblock %}
+  {% block extra_scripts %}{% endblock %}
+</body>
+</html>
