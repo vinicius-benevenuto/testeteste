@@ -1,224 +1,334 @@
-"""sbc/processor.py — Lê, limpa e cacheia dados de SBC a partir de planilhas XLSX."""
-import glob
+"""sbc/analyzer.py — Motor de análise e recomendação de SBCs."""
 import logging
 import os
-import time
-from datetime import datetime
+from collections import defaultdict
+from dataclasses import asdict
 from typing import Optional
 
-from config import SBC_CACHE_TTL_SECONDS
-from sbc.models import SBCMeasurement
+from config import (
+    CN_METADATA,
+    SBC_STATUS_BASE_SCORE,
+    SBC_STATUS_TO_HEALTH,
+    UF_NEIGHBORS,
+    UF_TO_REGIONAL,
+)
+from sbc.models import SBCAnalysisResult, SBCMeasurement, SBCSuggestionResponse
+from sbc.processor import SBCDataProcessor
 
 logger = logging.getLogger(__name__)
 
-# Importação opcional
-try:
-    from openpyxl import load_workbook
-    OPENPYXL_AVAILABLE = True
-except ImportError:
-    OPENPYXL_AVAILABLE = False
 
+class SBCAnalyzer:
+    """Motor de análise e recomendação de SBCs."""
 
-class SBCDataProcessor:
-    """
-    Lê, limpa e cacheia dados de SBC a partir de planilhas XLSX.
-
-    Estrutura esperada:
-      SEMANA | DIA | CIDADE | UF | REGIONAL | SBC | CAPS | STATUS |
-      MOD/FORNEC | SERVIÇO | RESPONSÁVEL | PRAZO
-    """
-
-    COLUMN_MAP: dict[str, str] = {
-        "SEMANA": "semana", "ANO SEMANA": "semana",
-        "DIA": "dia",
-        "CIDADE": "cidade", "UF": "uf", "REGIONAL": "regional",
-        "SBC": "sbc", "CAPS": "caps",
-        "ST": "status", "STATUS": "status",
-        "MOD/ FORNEC": "modelo", "MOD/FORNEC": "modelo",
-        "MOD / FORNEC": "modelo", "MODELO": "modelo",
-        "FORNECEDOR": "modelo", "FABRICANTE": "modelo",
-        "SERVIÇO": "servico", "SERVICO": "servico",
-        "RESPONSÁVEL": "responsavel", "RESPONSAVEL": "responsavel",
-        "PRAZO": "prazo",
-    }
-
-    def __init__(self, data_dir: str, cache_ttl: int = SBC_CACHE_TTL_SECONDS) -> None:
-        self.data_dir = data_dir
-        self.cache_ttl = cache_ttl
-        self._cache_data: list[SBCMeasurement] = []
-        self._cache_aggregated: list[dict] = []
-        self._cache_timestamp: float = 0.0
-        self._cache_file_path: str = ""
-        self._cache_file_mtime: float = 0.0
+    def __init__(self, processor: SBCDataProcessor) -> None:
+        self.processor = processor
 
     # ------------------------------------------------------------------
-    # Arquivo
+    # Classificação de saúde e status
     # ------------------------------------------------------------------
-    def find_latest_file(self) -> Optional[str]:
-        if not os.path.isdir(self.data_dir):
-            logger.warning("Diretório de SBC não encontrado: %s", self.data_dir)
-            return None
-        files: list[str] = []
-        for pattern in ("*.xlsx", "*.XLSX", "*.xls", "*.XLS"):
-            files.extend(glob.glob(os.path.join(self.data_dir, pattern)))
-        if not files:
-            logger.warning("Nenhum XLSX encontrado em: %s", self.data_dir)
-            return None
-        files.sort(key=lambda f: os.path.getmtime(f), reverse=True)
-        latest = files[0]
-        logger.info(
-            "Arquivo SBC mais recente: %s (%d total)",
-            os.path.basename(latest), len(files),
-        )
-        return latest
+    def _classify_health(self, status: str) -> str:
+        key = status.strip().lower()
+        result = SBC_STATUS_TO_HEALTH.get(key)
+        if result:
+            return result
+        if "crít" in key or "crit" in key:
+            return "critico"
+        if "aten" in key:
+            return "moderado"
+        if "norm" in key or "ok" in key or "disp" in key:
+            return "disponivel"
+        return "moderado"
 
-    # ------------------------------------------------------------------
-    # Leitura e normalização
-    # ------------------------------------------------------------------
-    def _normalize_column_name(self, raw_name: str) -> str:
-        clean = raw_name.strip().upper()
-        return self.COLUMN_MAP.get(
-            clean, clean.lower().replace(" ", "_").replace("/", "_")
-        )
-
-    def _parse_int(self, value, default: int = 0) -> int:
-        try:
-            cleaned = str(value).strip().replace(",", ".").replace(" ", "")
-            return int(float(cleaned)) if cleaned else default
-        except (ValueError, TypeError):
-            return default
-
-    def _read_xlsx(
-        self, filepath: str
-    ) -> tuple[list[SBCMeasurement], list[dict]]:
-        measurements: list[SBCMeasurement] = []
-        aggregated: list[dict] = []
-
-        if not OPENPYXL_AVAILABLE:
-            logger.error("openpyxl não disponível.")
-            return [], []
-
-        try:
-            wb = load_workbook(filepath, read_only=True, data_only=True)
-            ws = wb.active
-            rows_iter = ws.iter_rows(values_only=True)
-
-            try:
-                header_raw = next(rows_iter)
-            except StopIteration:
-                logger.error("XLSX vazio: %s", filepath)
-                wb.close()
-                return [], []
-
-            headers = [
-                self._normalize_column_name(
-                    str(v).strip() if v is not None else ""
-                )
-                for v in header_raw
-            ]
-            logger.info("Colunas detectadas: %s", headers)
-
-            required = {
-                "semana", "dia", "cidade", "uf", "regional", "sbc",
-                "caps", "status", "modelo", "servico", "responsavel", "prazo",
-            }
-            missing = required - set(headers)
-            if missing:
-                logger.warning("Colunas ausentes: %s", sorted(missing))
-
-            for row_num, row_values in enumerate(rows_iter, start=2):
-                row: dict[str, str] = {}
-                for idx, cell_val in enumerate(row_values):
-                    if idx < len(headers):
-                        row[headers[idx]] = (
-                            str(cell_val).strip() if cell_val is not None else ""
-                        )
-
-                sbc_name = row.get("sbc", "").strip()
-                uf = row.get("uf", "").strip().upper()
-
-                if sbc_name and uf:
-                    measurements.append(SBCMeasurement(
-                        semana=row.get("semana", ""),
-                        dia=row.get("dia", ""),
-                        cidade=row.get("cidade", "").strip().title(),
-                        uf=uf,
-                        sbc=sbc_name,
-                        regional=row.get("regional", "").strip().upper(),
-                        caps=self._parse_int(row.get("caps", "0")),
-                        status=row.get("status", "Normal").strip(),
-                        modelo=row.get("modelo", "").strip(),
-                        servico=row.get("servico", "").strip(),
-                        responsavel=row.get("responsavel", "").strip(),
-                        prazo=row.get("prazo", "").strip(),
-                    ))
+    def _worst_status(self, statuses: list[str]) -> str:
+        severity_map: dict[str, int] = {
+            "normal": 0,
+            "atenção": 1, "atencao": 1, "atencion": 1,
+            "crítico": 2, "critico": 2,
+        }
+        canonical = {0: "Normal", 1: "Atenção", 2: "Crítico"}
+        worst_score = -1
+        for s in statuses:
+            key = s.strip().lower()
+            s_score = severity_map.get(key, -1)
+            if s_score < 0:
+                if "crít" in key or "crit" in key:
+                    s_score = 2
+                elif "aten" in key:
+                    s_score = 1
                 else:
-                    aggregated.append({
-                        "row_num": row_num, "raw_data": row,
-                        "nota": "Linha sem SBC/UF (dado agregado ou total)",
-                    })
+                    s_score = 0
+            if s_score > worst_score:
+                worst_score = s_score
+        return canonical.get(max(worst_score, 0), "Normal")
 
-            wb.close()
-            logger.info(
-                "XLSX lido: %d medições, %d agregadas",
-                len(measurements), len(aggregated),
+    # ------------------------------------------------------------------
+    # Métricas
+    # ------------------------------------------------------------------
+    def _calc_tendencia(self, caps_values: list[int]) -> str:
+        if len(caps_values) < 2:
+            return "estavel"
+        mid = len(caps_values) // 2
+        avg_first = sum(caps_values[:mid]) / mid if mid else 0
+        avg_second = (
+            sum(caps_values[mid:]) / len(caps_values[mid:])
+            if caps_values[mid:] else 0
+        )
+        if avg_first == 0:
+            return "estavel"
+        variation = (avg_second - avg_first) / avg_first
+        if variation > 0.10:
+            return "subindo"
+        if variation < -0.10:
+            return "descendo"
+        return "estavel"
+
+    def _calculate_score(
+        self,
+        saude: str,
+        tendencia: str,
+        caps_values: list[int],
+        num_servicos: int,
+        total_medicoes: int,
+    ) -> int:
+        base = SBC_STATUS_BASE_SCORE.get(saude, 45)
+        bonus = 0
+        if caps_values:
+            mn, mx = min(caps_values), max(caps_values)
+            avg = sum(caps_values) / len(caps_values)
+            if avg > 0 and (mx - mn) / avg < 0.10:
+                bonus += 10
+        if total_medicoes >= 5:
+            bonus += 5
+        if num_servicos > 1:
+            bonus += 3
+        penalty = 10 if tendencia == "subindo" else 0
+        return max(0, min(100, int(base + bonus - penalty)))
+
+    def _generate_reason(self, result: SBCAnalysisResult) -> str:
+        labels = {
+            "disponivel": "capacidade disponível",
+            "moderado":   "ocupação moderada, monitorar",
+            "critico":    "capacidade crítica, evitar",
+        }
+        parts = [
+            f"Status XLSX: {result.status_fonte} — {labels.get(result.saude, result.saude)}",
+            (
+                f"CAPS avg {result.caps_avg} "
+                f"(mín {result.caps_min}, máx {result.caps_max}, "
+                f"último {result.caps_ultimo})"
+            ),
+        ]
+        if result.caps_tendencia and result.caps_tendencia != "estavel":
+            icon = "📈" if result.caps_tendencia == "subindo" else "📉"
+            parts.append(f"Tendência: {icon} {result.caps_tendencia}")
+        else:
+            parts.append("Tendência: → estável")
+        if result.total_medicoes > 1:
+            parts.append(f"{result.total_medicoes} medições")
+        if len(result.servicos) > 1:
+            parts.append(f"Serviços: {', '.join(result.servicos)}")
+        if result.cidade:
+            parts.append(f"Local: {result.cidade}/{result.uf}")
+        return " | ".join(parts)
+
+    # ------------------------------------------------------------------
+    # Agregação
+    # ------------------------------------------------------------------
+    def _aggregate_sbc_measurements(
+        self, measurements: list[SBCMeasurement]
+    ) -> list[SBCAnalysisResult]:
+        groups: dict[str, list[SBCMeasurement]] = defaultdict(list)
+        for m in measurements:
+            groups[m.sbc].append(m)
+
+        results: list[SBCAnalysisResult] = []
+        for sbc_name, sbc_m in groups.items():
+            caps_values = [m.caps for m in sbc_m]
+            caps_avg = sum(caps_values) / len(caps_values) if caps_values else 0
+            caps_tendencia = self._calc_tendencia(caps_values)
+            worst_status = self._worst_status([m.status for m in sbc_m])
+            saude = self._classify_health(worst_status)
+            servicos = list(dict.fromkeys(m.servico for m in sbc_m if m.servico))
+            first = sbc_m[0]
+            dias = [m.dia for m in sbc_m if m.dia]
+            score = self._calculate_score(
+                saude, caps_tendencia, caps_values, len(servicos), len(sbc_m)
+            )
+            result = SBCAnalysisResult(
+                nome=sbc_name,
+                cidade=first.cidade, uf=first.uf, regional=first.regional,
+                modelo=first.modelo, servicos=servicos,
+                caps_avg=round(caps_avg, 1),
+                caps_max=max(caps_values) if caps_values else 0,
+                caps_min=min(caps_values) if caps_values else 0,
+                caps_ultimo=caps_values[-1] if caps_values else 0,
+                caps_tendencia=caps_tendencia,
+                total_medicoes=len(sbc_m),
+                status_fonte=worst_status, saude=saude, score=score,
+                recomendado=False, motivo="",
+                responsavel=next((m.responsavel for m in sbc_m if m.responsavel), ""),
+                prazo=next((m.prazo for m in sbc_m if m.prazo), ""),
+                dia_mais_recente=dias[-1] if dias else "",
+                semana=first.semana,
+            )
+            results.append(result)
+
+        results.sort(key=lambda r: r.score, reverse=True)
+        for i, r in enumerate(results):
+            r.recomendado = (i == 0)
+            r.motivo = self._generate_reason(r)
+        return results
+
+    # ------------------------------------------------------------------
+    # API pública
+    # ------------------------------------------------------------------
+    def suggest_for_cn(self, cn: str) -> SBCSuggestionResponse:
+        cn = str(cn).strip().zfill(2)
+        meta = CN_METADATA.get(cn)
+        if not meta:
+            return SBCSuggestionResponse(
+                cn=cn, uf="", cidade="", regional="",
+                source_file="", source_modificado_em="", data_medicao="",
+                total_sbcs=0, sbcs=[], fallback_usado=False, fallback_origem="",
+                mensagem=f"CN {cn} não encontrado no cadastro.",
+            )
+        cidade, uf = meta
+        result = self.suggest_for_uf(uf)
+        result.cn = cn
+        result.cidade = cidade
+        return result
+
+    def suggest_for_uf(self, uf: str) -> SBCSuggestionResponse:
+        uf = uf.strip().upper()
+        if len(uf) != 2:
+            return SBCSuggestionResponse(
+                cn="", uf=uf, cidade="", regional="",
+                source_file="", source_modificado_em="", data_medicao="",
+                total_sbcs=0, sbcs=[], fallback_usado=False, fallback_origem="",
+                mensagem=f"UF inválida: '{uf}'.",
             )
 
-        except FileNotFoundError:
-            logger.error("XLSX não encontrado: %s", filepath)
-        except Exception as exc:
-            logger.error("Erro ao ler XLSX %s: %s", filepath, exc)
+        regional = UF_TO_REGIONAL.get(uf, "")
+        cidade = next(
+            (c for c, u in CN_METADATA.values() if u == uf), uf
+        )
+        cn_found = next(
+            (code for code, (_, u) in CN_METADATA.items() if u == uf), ""
+        )
 
-        return measurements, aggregated
+        measurements, _ = self.processor.get_data()
+        file_info = self.processor.get_file_info()
 
-    # ------------------------------------------------------------------
-    # Cache
-    # ------------------------------------------------------------------
-    def get_data(
-        self, force_reload: bool = False
-    ) -> tuple[list[SBCMeasurement], list[dict]]:
-        now = time.time()
-        cache_expired = (now - self._cache_timestamp) > self.cache_ttl
+        if not measurements:
+            return SBCSuggestionResponse(
+                cn=cn_found, uf=uf, cidade=cidade, regional=regional,
+                source_file=file_info.get("filename", ""),
+                source_modificado_em=file_info.get("modified_at", ""),
+                data_medicao="", total_sbcs=0, sbcs=[],
+                fallback_usado=False, fallback_origem="",
+                mensagem="Nenhum dado de SBC disponível.",
+            )
 
-        if force_reload or not self._cache_data or cache_expired:
-            latest_file = self.find_latest_file()
-            if not latest_file:
-                return [], []
+        uf_measurements = [m for m in measurements if m.uf == uf]
+        fallback_usado = False
+        fallback_origem = ""
 
-            current_mtime = os.path.getmtime(latest_file)
-            if (
-                latest_file == self._cache_file_path
-                and current_mtime == self._cache_file_mtime
-                and self._cache_data
-                and not force_reload
-            ):
-                self._cache_timestamp = now
-                return self._cache_data, self._cache_aggregated
+        if not uf_measurements:
+            for neighbor_uf in UF_NEIGHBORS.get(uf, []):
+                uf_measurements = [m for m in measurements if m.uf == neighbor_uf]
+                if uf_measurements:
+                    fallback_usado = True
+                    fallback_origem = f"UF vizinha: {neighbor_uf}"
+                    break
 
-            logger.info("Carregando do disco: %s", os.path.basename(latest_file))
-            ext = os.path.splitext(latest_file)[1].lower()
-            if ext in (".xlsx", ".xls"):
-                measurements, aggregated = self._read_xlsx(latest_file)
-            else:
-                logger.warning("Formato não suportado: %s", ext)
-                return [], []
+        if not uf_measurements and regional:
+            regional_ufs = [u for u, r in UF_TO_REGIONAL.items() if r == regional]
+            uf_measurements = [m for m in measurements if m.uf in regional_ufs]
+            if uf_measurements:
+                fallback_usado = True
+                fallback_origem = f"Regional: {regional}"
 
-            self._cache_data = measurements
-            self._cache_aggregated = aggregated
-            self._cache_timestamp = now
-            self._cache_file_path = latest_file
-            self._cache_file_mtime = current_mtime
+        if not uf_measurements:
+            return SBCSuggestionResponse(
+                cn=cn_found, uf=uf, cidade=cidade, regional=regional,
+                source_file=file_info.get("filename", ""),
+                source_modificado_em=file_info.get("modified_at", ""),
+                data_medicao="", total_sbcs=0, sbcs=[],
+                fallback_usado=False, fallback_origem="",
+                mensagem=f"Nenhum SBC para {uf}, vizinhos ou regional {regional}.",
+            )
 
-        return self._cache_data, self._cache_aggregated
+        all_results = self._aggregate_sbc_measurements(uf_measurements)
+        nao_criticos = sorted(
+            [r for r in all_results if r.saude != "critico"],
+            key=lambda r: r.score, reverse=True,
+        )
+        criticos = sorted(
+            [r for r in all_results if r.saude == "critico"],
+            key=lambda r: r.score, reverse=True,
+        )
+        ordered = nao_criticos + criticos
 
-    def get_file_info(self) -> dict:
-        if self._cache_file_path and os.path.exists(self._cache_file_path):
-            mtime = datetime.fromtimestamp(self._cache_file_mtime)
+        for i, r in enumerate(ordered):
+            r.recomendado = (i == 0)
+            r.motivo = self._generate_reason(r)
+
+        n_disp = len(nao_criticos)
+        n_crit = len(criticos)
+        msg_parts = [f"{len(ordered)} SBC(s) para {uf} ({cidade})"]
+        if n_disp:
+            msg_parts.append(f"{n_disp} disponível(is)")
+        if n_crit:
+            msg_parts.append(f"{n_crit} crítico(s)")
+        if fallback_usado:
+            msg_parts.append(f"Dados de {fallback_origem}")
+
+        return SBCSuggestionResponse(
+            cn=cn_found, uf=uf, cidade=cidade, regional=regional,
+            source_file=file_info.get("filename", ""),
+            source_modificado_em=file_info.get("modified_at", ""),
+            data_medicao=all_results[0].dia_mais_recente if all_results else "",
+            total_sbcs=len(ordered),
+            sbcs=[asdict(r) for r in ordered],
+            fallback_usado=fallback_usado, fallback_origem=fallback_origem,
+            todos_criticos=(n_disp == 0 and n_crit > 0),
+            total_disponiveis=n_disp, total_criticos=n_crit,
+            mensagem=" · ".join(msg_parts),
+        )
+
+    def get_overview(self) -> dict:
+        measurements, aggregated = self.processor.get_data()
+        file_info = self.processor.get_file_info()
+        if not measurements:
             return {
-                "filename": os.path.basename(self._cache_file_path),
-                "modified_at": mtime.strftime("%d/%m/%Y %H:%M"),
-                "total_measurements": len(self._cache_data),
-                "total_aggregated": len(self._cache_aggregated),
-                "cache_age_seconds": int(time.time() - self._cache_timestamp),
+                "file_info": file_info, "total_sbcs": 0,
+                "por_regional": {}, "por_saude": {},
+                "por_status_fonte": {}, "dados_agregados": len(aggregated),
             }
-        return {"filename": None, "modified_at": None, "total_measurements": 0}
+        all_results = self._aggregate_sbc_measurements(measurements)
+        por_regional: dict[str, int] = defaultdict(int)
+        por_saude:    dict[str, int] = defaultdict(int)
+        por_status:   dict[str, int] = defaultdict(int)
+        for r in all_results:
+            por_regional[r.regional] += 1
+            por_saude[r.saude] += 1
+            por_status[r.status_fonte] += 1
+        return {
+            "file_info": file_info, "total_sbcs": len(all_results),
+            "por_regional": dict(por_regional), "por_saude": dict(por_saude),
+            "por_status_fonte": dict(por_status),
+            "dados_agregados": len(aggregated),
+            "sbcs": [asdict(r) for r in all_results],
+        }
+
+    def health_check(self) -> dict:
+        file_info = self.processor.get_file_info()
+        file_path = self.processor.find_latest_file()
+        return {
+            "data_dir_exists": os.path.isdir(self.processor.data_dir),
+            "data_dir": self.processor.data_dir,
+            "latest_file": os.path.basename(file_path) if file_path else None,
+            "file_info": file_info,
+            "status": "ok" if file_path else "no_file_found",
+        }
