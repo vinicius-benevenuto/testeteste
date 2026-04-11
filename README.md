@@ -1,148 +1,93 @@
-"""db.py — Conexão, schema e seeds do banco SQLite."""
-import sqlite3
+"""helpers.py — Funções utilitárias, context processors e template filters."""
+import json
 import logging
-from flask import Flask, g
+from datetime import datetime
+from typing import Optional
 
-from config import _CN_SEED_RAW, CN_METADATA
+from flask import Flask
+
+from config import MAX_TABLE_ROWS
+from db import get_db
 
 logger = logging.getLogger(__name__)
 
 
 # =============================================================================
-# CONEXÃO
+# UTILITÁRIOS GERAIS
 # =============================================================================
-def get_db() -> sqlite3.Connection:
-    if "db" not in g:
-        from flask import current_app
-        g.db = sqlite3.connect(current_app.config["DATABASE"])
-        g.db.row_factory = sqlite3.Row
-        g.db.execute("PRAGMA foreign_keys = ON;")
-    return g.db
+def row_get(row, key: str, default=""):
+    """Acessa uma linha de DB com fallback seguro."""
+    try:
+        v = row[key]
+        return default if v is None else v
+    except (KeyError, IndexError):
+        return default
 
 
-def _register_db_hooks(app: Flask) -> None:
-    @app.teardown_appcontext
-    def close_db(exception=None):
-        db = g.pop("db", None)
-        if db is not None:
-            db.close()
-
-    @app.before_request
-    def ensure_schema():
-        _init_db()
+def safe_filename(name: str) -> str:
+    """Remove caracteres inválidos de um nome de arquivo."""
+    name = (name or "").strip().replace(" ", "_")
+    for ch in ("..", "/", "\\", ":", "*", "?", '"', "<", ">", "|"):
+        name = name.replace(ch, "_")
+    return name or "Operadora"
 
 
-# =============================================================================
-# SCHEMA E MIGRAÇÕES
-# =============================================================================
-def _init_db() -> None:
-    db = get_db()
-    db.executescript("""
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            email TEXT UNIQUE NOT NULL,
-            password_hash TEXT NOT NULL,
-            role TEXT NOT NULL CHECK (role IN ('engenharia', 'atacado')),
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
-        CREATE TABLE IF NOT EXISTS atacado_forms (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            owner_id INTEGER NOT NULL,
-            status TEXT DEFAULT 'rascunho',
-            nome_operadora TEXT, rn1 TEXT,
-            csp INTEGER DEFAULT 0, servicos_especiais INTEGER DEFAULT 0,
-            cng INTEGER DEFAULT 0, atendimento TEXT, redes TEXT,
-            qual TEXT, tmr TEXT,
-            responsavel_operadora TEXT, responsavel_vivo TEXT,
-            sbc_ativo INTEGER DEFAULT 0, ip_reservado INTEGER DEFAULT 0,
-            vivo_reserva INTEGER DEFAULT 0, asn TEXT,
-            escopo_text TEXT, escopo_flags_json TEXT, dados_vivo_json TEXT,
-            dados_operadora_json TEXT,
-            operadora_ciente INTEGER DEFAULT 0, responsavel_infra TEXT,
-            lcr_nacional INTEGER DEFAULT 0, white_list INTEGER DEFAULT 0,
-            prefixos_liberados_abr INTEGER DEFAULT 0,
-            premissas_ok INTEGER DEFAULT 0, aprovado_por TEXT,
-            engenharia_params_json TEXT,
-            responsavel_atacado TEXT, responsavel_engenharia TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY(owner_id) REFERENCES users(id)
-        );
-        CREATE TABLE IF NOT EXISTS exports (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            form_id INTEGER NOT NULL,
-            filename TEXT NOT NULL, filepath TEXT NOT NULL,
-            size_bytes INTEGER DEFAULT 0,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY(form_id) REFERENCES atacado_forms(id)
-        );
-    """)
-    for table, col, coldef in [
-        ("atacado_forms", "owner_id",               "INTEGER NOT NULL DEFAULT 0"),
-        ("atacado_forms", "engenharia_params_json",  "TEXT"),
-        ("atacado_forms", "dados_vivo_json",         "TEXT"),
-        ("atacado_forms", "dados_operadora_json",    "TEXT"),
-        ("atacado_forms", "escopo_text",             "TEXT"),
-        ("atacado_forms", "escopo_flags_json",       "TEXT"),
-        ("atacado_forms", "responsavel_atacado",     "TEXT"),
-        ("atacado_forms", "responsavel_engenharia",  "TEXT"),
-    ]:
-        _ensure_column(db, table, col, coldef)
-    db.commit()
-    _seed_cns(db)
-    _apply_cn_metadata(db)
+def parse_db_datetime(value) -> Optional[datetime]:
+    """Converte string ISO ou similar para datetime."""
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value).replace("T", " "))
+    except (ValueError, TypeError):
+        return None
 
 
-def _ensure_column(
-    db: sqlite3.Connection, table: str, column: str, coldef: str
-) -> None:
-    existing = {
-        r["name"]
-        for r in db.execute(f"PRAGMA table_info({table});").fetchall()
-    }
-    if column not in existing:
-        db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {coldef};")
+def truncate_json_list(raw, default: str = "[]") -> str:
+    """Limita uma lista JSON a MAX_TABLE_ROWS itens."""
+    if not raw:
+        return default
+    try:
+        parsed = json.loads(raw) if isinstance(raw, str) else raw
+        if not isinstance(parsed, list):
+            return default
+        return json.dumps(parsed[:MAX_TABLE_ROWS], ensure_ascii=False)
+    except (json.JSONDecodeError, TypeError):
+        return default
+
+
+def parse_bool_field(value) -> int:
+    return 1 if str(value).lower() in ("on", "1", "true", "sim") else 0
 
 
 # =============================================================================
-# SEEDS
+# CONTEXT PROCESSORS E TEMPLATE FILTERS
 # =============================================================================
-def _parse_cn_seed(raw: str) -> list[str]:
-    seen: set[str] = set()
-    result: list[str] = []
-    for tok in raw.split():
-        code = tok.strip().zfill(2)
-        if code.isdigit() and code not in seen:
-            seen.add(code)
-            result.append(code)
-    return result
+def _register_context_processors(app: Flask) -> None:
+    @app.context_processor
+    def inject_cn_codes():
+        db = get_db()
+        rows = db.execute(
+            "SELECT codigo, COALESCE(nome,'') AS nome, COALESCE(uf,'') AS uf "
+            "FROM cns WHERE ativo = 1 ORDER BY codigo ASC"
+        ).fetchall()
+        return {
+            "CN_CODES": [r["codigo"] for r in rows],
+            "CN_FULL": [
+                {"codigo": r["codigo"], "nome": r["nome"], "uf": r["uf"]}
+                for r in rows
+            ],
+        }
 
 
-def _seed_cns(db: sqlite3.Connection) -> None:
-    db.execute("""
-        CREATE TABLE IF NOT EXISTS cns (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            codigo TEXT UNIQUE NOT NULL, nome TEXT, uf TEXT,
-            ativo INTEGER NOT NULL DEFAULT 1
-        )
-    """)
-    if db.execute("SELECT COUNT(*) AS c FROM cns").fetchone()["c"] == 0:
-        codes = _parse_cn_seed(_CN_SEED_RAW)
-        db.executemany(
-            "INSERT OR IGNORE INTO cns (codigo, ativo) VALUES (?, 1)",
-            [(c,) for c in codes],
-        )
-        db.commit()
-
-
-def _apply_cn_metadata(db: sqlite3.Connection) -> None:
-    for code, (nome, uf) in CN_METADATA.items():
-        db.execute(
-            """
-            INSERT INTO cns (codigo, nome, uf, ativo) VALUES (?, ?, ?, 1)
-            ON CONFLICT(codigo) DO UPDATE
-                SET nome=excluded.nome, uf=excluded.uf, ativo=1
-            """,
-            (code, nome, uf),
-        )
-    db.commit()
+def _register_template_filters(app: Flask) -> None:
+    @app.template_filter("date_br")
+    def date_br_filter(value) -> str:
+        if not value:
+            return ""
+        if hasattr(value, "strftime"):
+            try:
+                return value.strftime("%d/%m/%Y %H:%M")
+            except (ValueError, OSError):
+                return str(value)
+        dt = parse_db_datetime(value)
+        return dt.strftime("%d/%m/%Y %H:%M") if dt else str(value)
