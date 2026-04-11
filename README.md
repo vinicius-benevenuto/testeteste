@@ -1,93 +1,89 @@
-"""helpers.py — Funções utilitárias, context processors e template filters."""
+"""forms.py — Extração e validação de dados de formulários Flask."""
 import json
 import logging
-from datetime import datetime
-from typing import Optional
 
-from flask import Flask
+from flask import request
 
-from config import MAX_TABLE_ROWS
-from db import get_db
+from config import (
+    ALLOWED_SCOPE_FLAGS,
+    BOOLEAN_FIELDS,
+    JSON_FIELDS,
+    MAX_TABLE_ROWS,
+    TEXT_FIELDS,
+)
+from helpers import parse_bool_field, truncate_json_list
 
 logger = logging.getLogger(__name__)
 
 
 # =============================================================================
-# UTILITÁRIOS GERAIS
+# ESCOPO / FLAGS
 # =============================================================================
-def row_get(row, key: str, default=""):
-    """Acessa uma linha de DB com fallback seguro."""
-    try:
-        v = row[key]
-        return default if v is None else v
-    except (KeyError, IndexError):
-        return default
+def extract_scope_flags_from_request() -> str:
+    """
+    Lê flags de escopo do request.
 
+    Tentativa 1: checkboxes com name="escopo_flags".
+    Tentativa 2: hidden input "escopo_flags_json" atualizado pelo JavaScript.
+    """
+    raw = request.form.getlist("escopo_flags") or []
 
-def safe_filename(name: str) -> str:
-    """Remove caracteres inválidos de um nome de arquivo."""
-    name = (name or "").strip().replace(" ", "_")
-    for ch in ("..", "/", "\\", ":", "*", "?", '"', "<", ">", "|"):
-        name = name.replace(ch, "_")
-    return name or "Operadora"
-
-
-def parse_db_datetime(value) -> Optional[datetime]:
-    """Converte string ISO ou similar para datetime."""
-    if not value:
-        return None
-    try:
-        return datetime.fromisoformat(str(value).replace("T", " "))
-    except (ValueError, TypeError):
-        return None
-
-
-def truncate_json_list(raw, default: str = "[]") -> str:
-    """Limita uma lista JSON a MAX_TABLE_ROWS itens."""
     if not raw:
-        return default
+        json_raw = request.form.get("escopo_flags_json", "[]")
+        try:
+            parsed = json.loads(json_raw) if isinstance(json_raw, str) else []
+            if isinstance(parsed, list):
+                raw = [str(x).strip() for x in parsed if str(x).strip()]
+        except (json.JSONDecodeError, TypeError):
+            raw = []
+
+    valid = [f for f in raw if f in ALLOWED_SCOPE_FLAGS]
+    return json.dumps(list(dict.fromkeys(valid)), ensure_ascii=False)
+
+
+def _parse_json_dict(raw) -> str:
+    if not raw:
+        return "{}"
     try:
         parsed = json.loads(raw) if isinstance(raw, str) else raw
-        if not isinstance(parsed, list):
-            return default
-        return json.dumps(parsed[:MAX_TABLE_ROWS], ensure_ascii=False)
+        if isinstance(parsed, dict):
+            return json.dumps(parsed, ensure_ascii=False)
     except (json.JSONDecodeError, TypeError):
-        return default
-
-
-def parse_bool_field(value) -> int:
-    return 1 if str(value).lower() in ("on", "1", "true", "sim") else 0
+        pass
+    return "{}"
 
 
 # =============================================================================
-# CONTEXT PROCESSORS E TEMPLATE FILTERS
+# PAYLOAD COMPLETO
 # =============================================================================
-def _register_context_processors(app: Flask) -> None:
-    @app.context_processor
-    def inject_cn_codes():
-        db = get_db()
-        rows = db.execute(
-            "SELECT codigo, COALESCE(nome,'') AS nome, COALESCE(uf,'') AS uf "
-            "FROM cns WHERE ativo = 1 ORDER BY codigo ASC"
-        ).fetchall()
-        return {
-            "CN_CODES": [r["codigo"] for r in rows],
-            "CN_FULL": [
-                {"codigo": r["codigo"], "nome": r["nome"], "uf": r["uf"]}
-                for r in rows
-            ],
-        }
+def extract_form_payload() -> dict:
+    payload: dict = {}
+    for f in TEXT_FIELDS:
+        payload[f] = (request.form.get(f) or "").strip()
+    for f in BOOLEAN_FIELDS:
+        payload[f] = parse_bool_field(request.form.get(f))
+    payload["escopo_flags_json"] = extract_scope_flags_from_request()
+    for f in JSON_FIELDS:
+        if f == "escopo_flags_json":
+            continue
+        raw = request.form.get(f, "")
+        payload[f] = (
+            _parse_json_dict(raw)
+            if f == "engenharia_params_json"
+            else truncate_json_list(raw, "[]")
+        )
+    return payload
 
 
-def _register_template_filters(app: Flask) -> None:
-    @app.template_filter("date_br")
-    def date_br_filter(value) -> str:
-        if not value:
-            return ""
-        if hasattr(value, "strftime"):
-            try:
-                return value.strftime("%d/%m/%Y %H:%M")
-            except (ValueError, OSError):
-                return str(value)
-        dt = parse_db_datetime(value)
-        return dt.strftime("%d/%m/%Y %H:%M") if dt else str(value)
+def validate_table_rows(payload: dict) -> bool:
+    """Trunca tabelas que excedam MAX_TABLE_ROWS. Retorna True se truncou."""
+    truncated = False
+    for key in ("dados_vivo_json", "dados_operadora_json"):
+        try:
+            rows = json.loads(payload[key])
+            if isinstance(rows, list) and len(rows) > MAX_TABLE_ROWS:
+                payload[key] = json.dumps(rows[:MAX_TABLE_ROWS], ensure_ascii=False)
+                truncated = True
+        except (json.JSONDecodeError, TypeError, KeyError):
+            payload[key] = "[]"
+    return truncated
