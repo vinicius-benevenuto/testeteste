@@ -1,38 +1,63 @@
 {% extends "base.html" %}
-{% block title %}VIVOHUB — Admin{% endblock %}
+{% block title %}VIVOHUB — Criar usuário{% endblock %}
 {% block content %}
-<div class="page-sm" style="padding-top:4rem">
-  <div class="card" style="padding:2rem 2rem 1.75rem">
+<div class="page-md" style="padding-top:3rem">
+  <div class="card" style="padding:2rem">
 
-    <div style="margin-bottom:1.5rem">
-      <p style="font-size:.75rem;font-weight:600;color:var(--p);letter-spacing:.08em;text-transform:uppercase;margin:0 0 .5rem">Administrador</p>
-      <h1 style="font-size:1.4rem;font-weight:700;letter-spacing:-.3px;margin:0">Código de acesso</h1>
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:1.5rem;gap:1rem">
+      <div>
+        <h1 style="font-size:1.2rem;font-weight:700;letter-spacing:-.2px;margin:0">Novo usuário</h1>
+        <p style="font-size:.85rem;color:var(--sub);margin:.2rem 0 0">Acesso restrito a administradores autenticados.</p>
+      </div>
+      <a href="{{ url_for('auth.admin_login') }}" class="btn-g btn-sm" style="flex-shrink:0">Sair do modo admin</a>
     </div>
 
-    <form method="post" action="{{ url_for('auth.admin_login_post') }}" novalidate id="adminForm">
-      <div style="margin-bottom:1.5rem">
-        <label class="v-label" for="code">Código</label>
-        <div style="display:flex;gap:.4rem">
-          <input class="v-input" type="password" id="code" name="code"
-                 placeholder="Digite o código" required autofocus>
-          <button type="button" id="toggleCode"
-                  class="btn-g" style="flex-shrink:0;padding:.5rem .75rem;border-radius:8px">
-            <i class="bi bi-eye" id="eyeIcon"></i>
+    <form method="post" action="{{ url_for('auth.register_post') }}" novalidate id="regForm" autocomplete="off">
+      <div style="display:grid;gap:1rem">
+
+        <div>
+          <label class="v-label" for="email">E-mail corporativo</label>
+          <input class="v-input" type="email" id="email" name="email"
+                 placeholder="nome@empresa.com.br" required autocomplete="off" inputmode="email" autofocus>
+        </div>
+
+        <div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.3rem">
+            <label class="v-label" for="password" style="margin:0">Senha</label>
+            <button type="button" id="togglePw"
+                    style="font-size:.75rem;color:var(--sub);background:none;border:none;cursor:pointer;padding:0">Mostrar</button>
+          </div>
+          <input class="v-input" type="password" id="password" name="password"
+                 placeholder="Mínimo 8 caracteres" required minlength="8" autocomplete="new-password">
+          <div style="height:4px;border-radius:999px;background:#e5e7eb;margin-top:.5rem;overflow:hidden">
+            <div id="pwBar" style="height:100%;border-radius:999px;background:var(--p);width:0%;transition:width .25s"></div>
+          </div>
+        </div>
+
+        <div>
+          <label class="v-label" for="role">Perfil</label>
+          <select class="v-input" id="role" name="role" required>
+            <option value="" disabled selected>Selecione o perfil…</option>
+            <option value="engenharia">Engenharia</option>
+            <option value="atacado">Atacado</option>
+          </select>
+        </div>
+
+        <div style="display:flex;gap:.5rem;padding-top:.5rem">
+          <a href="{{ url_for('auth.register') }}" class="btn-g" style="flex-shrink:0">Limpar</a>
+          <button type="submit" class="btn-p" id="btnCreate" style="flex:1;justify-content:center;padding:.6rem">
+            <span class="spinner-border spinner-border-sm d-none me-1" id="spin"></span>
+            Criar usuário
           </button>
         </div>
-      </div>
 
-      <button type="submit" class="btn-p" id="btnAdmin"
-              style="width:100%;justify-content:center;padding:.65rem">
-        <span class="spinner-border spinner-border-sm d-none me-1" id="spin"></span>
-        Entrar
-      </button>
+      </div>
     </form>
 
-    <div style="margin-top:1.25rem;padding-top:1.25rem;border-top:1px solid var(--bdr);text-align:center">
-      <a href="{{ url_for('auth.login') }}" style="font-size:.78rem;color:var(--sub);text-decoration:none">
-        ← Voltar ao login
-      </a>
+    <div style="margin-top:1.25rem;padding-top:1.25rem;border-top:1px solid var(--bdr);display:flex;gap:.75rem;flex-wrap:wrap">
+      <a href="{{ url_for('central.central_engenharia') }}" style="font-size:.78rem;color:var(--sub);text-decoration:none">Ir para Engenharia</a>
+      <span style="color:var(--bdr)">·</span>
+      <a href="{{ url_for('central.central_atacado') }}"    style="font-size:.78rem;color:var(--sub);text-decoration:none">Ir para Atacado</a>
     </div>
   </div>
 </div>
@@ -40,18 +65,35 @@
 {% block extra_scripts %}
 <script>
 (function(){
-  const form   = document.getElementById('adminForm');
-  const code   = document.getElementById('code');
-  const btn    = document.getElementById('btnAdmin');
+  const form   = document.getElementById('regForm');
+  const pw     = document.getElementById('password');
+  const btn    = document.getElementById('btnCreate');
   const spin   = document.getElementById('spin');
-  const toggle = document.getElementById('toggleCode');
-  const eye    = document.getElementById('eyeIcon');
+  const bar    = document.getElementById('pwBar');
+  const toggle = document.getElementById('togglePw');
 
   toggle.addEventListener('click',()=>{
-    const show = code.type==='password';
-    code.type = show?'text':'password';
-    eye.className = show?'bi bi-eye-slash':'bi bi-eye';
-    code.focus();
+    const show = pw.type==='password';
+    pw.type = show?'text':'password';
+    toggle.textContent = show?'Ocultar':'Mostrar';
+    pw.focus();
+  });
+
+  function score(s){
+    if(!s) return 0;
+    let n=0;
+    if(s.length>=8) n++;
+    if(/[A-Z]/.test(s)) n++;
+    if(/[a-z]/.test(s)) n++;
+    if(/\d/.test(s)) n++;
+    if(/[^A-Za-z0-9]/.test(s)) n++;
+    return n;
+  }
+  pw.addEventListener('input',()=>{
+    const sc = score(pw.value);
+    const colors = ['#e5e7eb','#dc2626','#f59e0b','#3b82f6','#16a34a','#16a34a'];
+    bar.style.width = (sc*20)+'%';
+    bar.style.background = colors[sc];
   });
 
   form.addEventListener('submit',e=>{
