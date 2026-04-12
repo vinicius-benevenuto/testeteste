@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Central Atacado — VIVOHUB{% endblock %}
+{% block title %}Central Engenharia — VIVOHUB{% endblock %}
 {% block extra_head %}
 <style>
   .action-card {
@@ -24,43 +24,43 @@
   <!-- Header -->
   <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:2rem;gap:1rem;flex-wrap:wrap">
     <div>
-      <p style="font-size:.72rem;font-weight:600;color:var(--p);letter-spacing:.08em;text-transform:uppercase;margin:0 0 .35rem">Atacado</p>
+      <p style="font-size:.72rem;font-weight:600;color:var(--p);letter-spacing:.08em;text-transform:uppercase;margin:0 0 .35rem">Engenharia</p>
       <h1 class="v-title">Área de trabalho</h1>
     </div>
     <div style="display:flex;gap:.5rem;flex-wrap:wrap">
-      <a href="{{ url_for('atacado.form_list') }}" class="btn-o">Meus formulários</a>
-      <a href="{{ url_for('atacado.form_new') }}"  class="btn-p"><i class="bi bi-plus"></i> Novo PTI</a>
+      <a href="{{ url_for('engenharia.form_list') }}?show_files=1" class="btn-o"><i class="bi bi-folder2-open"></i> Exports</a>
+      <a href="{{ url_for('engenharia.form_list') }}"              class="btn-p"><i class="bi bi-clipboard-check"></i> Validar</a>
     </div>
   </div>
 
   <!-- Filtros rápidos -->
   <div class="chips" style="margin-bottom:2rem">
-    <a class="chip" href="{{ url_for('atacado.form_list') }}">Todos</a>
-    <a class="chip" href="{{ url_for('atacado.form_list') }}?status=rascunho">Rascunhos</a>
-    <a class="chip" href="{{ url_for('atacado.form_list') }}?status=enviado">Enviados</a>
-    <a class="chip" href="{{ url_for('atacado.form_list') }}?status=em%20revis%C3%A3o">Em revisão</a>
-    <a class="chip" href="{{ url_for('atacado.form_list') }}?status=aprovado">Aprovados</a>
+    <a class="chip" href="{{ url_for('engenharia.form_list') }}">Todos</a>
+    <a class="chip" href="{{ url_for('engenharia.form_list') }}?status=enviado">Enviados</a>
+    <a class="chip" href="{{ url_for('engenharia.form_list') }}?status=em%20revis%C3%A3o">Em revisão</a>
+    <a class="chip" href="{{ url_for('engenharia.form_list') }}?status=aprovado">Aprovados</a>
+    <a class="chip" href="{{ url_for('engenharia.form_list') }}?status=rascunho">Rascunhos</a>
   </div>
 
   <!-- Ações -->
   <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:1rem">
 
-    <a class="action-card" href="{{ url_for('atacado.form_new') }}">
-      <div class="action-card-icon"><i class="bi bi-file-earmark-plus"></i></div>
-      <h3>Novo Pré-PTI</h3>
-      <p>Criar formulário de interligação</p>
+    <a class="action-card" href="{{ url_for('engenharia.form_list') }}">
+      <div class="action-card-icon"><i class="bi bi-clipboard-check"></i></div>
+      <h3>Validar Pré-PTIs</h3>
+      <p>Revisar e preencher Seção 9</p>
     </a>
 
-    <a class="action-card" href="{{ url_for('atacado.form_list') }}">
-      <div class="action-card-icon"><i class="bi bi-list-task"></i></div>
-      <h3>Formulários</h3>
-      <p>Consultar, editar e acompanhar</p>
+    <a class="action-card" href="{{ url_for('engenharia.form_list') }}?show_files=1">
+      <div class="action-card-icon"><i class="bi bi-file-earmark-spreadsheet"></i></div>
+      <h3>Exports Excel</h3>
+      <p>Baixar e gerenciar PTIs gerados</p>
     </a>
 
-    <a class="action-card" href="{{ url_for('atacado.form_list') }}?status=aprovado">
-      <div class="action-card-icon"><i class="bi bi-check2-circle"></i></div>
-      <h3>Aprovados</h3>
-      <p>PTIs validados pela Engenharia</p>
+    <a class="action-card" href="{{ url_for('engenharia.form_list') }}?status=enviado">
+      <div class="action-card-icon"><i class="bi bi-send"></i></div>
+      <h3>Aguardando revisão</h3>
+      <p>PTIs enviados pelo Atacado</p>
     </a>
 
   </div>
@@ -68,9 +68,9 @@
   <!-- Atalhos -->
   <div style="margin-top:2rem;padding:1rem 1.25rem;background:var(--p-lt);border-radius:var(--r);display:flex;gap:1.5rem;flex-wrap:wrap;align-items:center">
     <span style="font-size:.78rem;color:var(--sub);font-weight:500">Atalhos:</span>
-    <span style="font-size:.78rem;color:var(--sub)"><kbd class="kbd">N</kbd> Novo PTI</span>
-    <span style="font-size:.78rem;color:var(--sub)"><kbd class="kbd">/</kbd> Buscar</span>
-    <span style="font-size:.78rem;color:var(--sub)"><kbd class="kbd">Ctrl S</kbd> Salvar formulário</span>
+    <span style="font-size:.78rem;color:var(--sub)"><kbd class="kbd">L</kbd> Lista</span>
+    <span style="font-size:.78rem;color:var(--sub)"><kbd class="kbd">F</kbd> Exports</span>
+    <span style="font-size:.78rem;color:var(--sub)"><kbd class="kbd">Ctrl S</kbd> Salvar validação</span>
   </div>
 
 </div>
@@ -79,8 +79,8 @@
 <script>
 document.addEventListener('keydown',e=>{
   if(['INPUT','TEXTAREA','SELECT'].includes(e.target?.tagName)) return;
-  if(e.key==='n'||e.key==='N'){ e.preventDefault(); location.href="{{ url_for('atacado.form_new') }}"; }
-  if(e.key==='/'){ e.preventDefault(); location.href="{{ url_for('atacado.form_list') }}?q="; }
+  if(e.key==='l'||e.key==='L'){ e.preventDefault(); location.href="{{ url_for('engenharia.form_list') }}"; }
+  if(e.key==='f'||e.key==='F'){ e.preventDefault(); location.href="{{ url_for('engenharia.form_list') }}?show_files=1"; }
 });
 </script>
 {% endblock %}
