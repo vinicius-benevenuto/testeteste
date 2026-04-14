@@ -1,122 +1,92 @@
-"""routes/api.py — API REST: SBC, CNs e SIP Router SP."""
+"""routes/auth.py — Rotas de autenticação e registro de usuários."""
+import sqlite3
 import logging
-from dataclasses import asdict
 
-from flask import Blueprint, current_app, jsonify, request
+from flask import (
+    Blueprint, flash, redirect, render_template,
+    request, session, url_for,
+)
+from werkzeug.security import check_password_hash, generate_password_hash
 
-from auth import login_required, role_required
+from auth import admin_required
 from db import get_db
-from sbc.analyzer import SBCAnalyzer
 
 logger = logging.getLogger(__name__)
-bp = Blueprint("api", __name__, url_prefix="/api")
+bp = Blueprint("auth", __name__)
 
 
-# ---------------------------------------------------------------------------
-# SBC
-# ---------------------------------------------------------------------------
-@bp.get("/sbc/suggest")
-@login_required
-@role_required("engenharia")
-def sbc_suggest():
-    cn  = request.args.get("cn", "").strip()
-    uf  = request.args.get("uf", "").strip().upper()
-    analyzer: SBCAnalyzer = current_app.config["SBC_ANALYZER"]
-
-    if cn:
-        result = analyzer.suggest_for_cn(cn)
-    elif uf:
-        result = analyzer.suggest_for_uf(uf)
-    else:
-        return jsonify({"error": "Parâmetro 'cn' ou 'uf' é obrigatório."}), 400
-
-    return jsonify(asdict(result))
+@bp.get("/login")
+def login():
+    return render_template("login.html")
 
 
-@bp.get("/sbc/overview")
-@login_required
-@role_required("engenharia")
-def sbc_overview():
-    analyzer: SBCAnalyzer = current_app.config["SBC_ANALYZER"]
-    return jsonify(analyzer.get_overview())
+@bp.post("/login")
+def login_post():
+    email    = (request.form.get("email") or "").strip().lower()
+    password = request.form.get("password", "")
+    db       = get_db()
+    user     = db.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
+
+    if not user or not check_password_hash(user["password_hash"], password):
+        flash("Credenciais inválidas.", "danger")
+        return redirect(url_for("auth.login"))
+
+    session.clear()
+    session["user_id"] = user["id"]
+    session["email"]   = user["email"]
+    session["role"]    = user["role"]
+    return redirect(url_for(f"central.central_{user['role']}"))
 
 
-@bp.get("/sbc/health")
-@login_required
-@role_required("engenharia")
-def sbc_health():
-    analyzer: SBCAnalyzer = current_app.config["SBC_ANALYZER"]
-    return jsonify(analyzer.health_check())
+@bp.get("/logout")
+def logout():
+    session.clear()
+    flash("Sessão encerrada.", "info")
+    return redirect(url_for("auth.login"))
 
 
-@bp.get("/sbc/reload")
-@login_required
-@role_required("engenharia")
-def sbc_reload():
-    analyzer: SBCAnalyzer = current_app.config["SBC_ANALYZER"]
-    measurements, aggregated = analyzer.processor.get_data(force_reload=True)
-    return jsonify({
-        "status":          "reloaded",
-        "measurements":    len(measurements),
-        "aggregated_rows": len(aggregated),
-        "file_info":       analyzer.processor.get_file_info(),
-    })
+@bp.get("/admin_login")
+def admin_login():
+    return render_template("admin_login.html")
 
 
-# ---------------------------------------------------------------------------
-# CNs
-# ---------------------------------------------------------------------------
-@bp.get("/cns")
-@login_required
-def api_cns():
-    db   = get_db()
-    rows = db.execute(
-        "SELECT codigo, COALESCE(nome,'') AS nome, COALESCE(uf,'') AS uf "
-        "FROM cns WHERE ativo=1 ORDER BY codigo ASC"
-    ).fetchall()
-    return jsonify([
-        {"codigo": r["codigo"], "nome": r["nome"], "uf": r["uf"]}
-        for r in rows
-    ])
+@bp.post("/admin_login")
+def admin_login_post():
+    from flask import current_app
+    if request.form.get("code", "") == current_app.config["ADMIN_CODE"]:
+        session["is_admin"] = True
+        flash("Login de administrador efetuado.", "success")
+        return redirect(url_for("auth.register"))
+    flash("Código de administrador inválido.", "danger")
+    return redirect(url_for("auth.admin_login"))
 
 
-# ---------------------------------------------------------------------------
-# SIPROUTER SP
-# ---------------------------------------------------------------------------
-@bp.get("/siprouter/query")
-@login_required
-def siprouter_query():
-    """
-    Consulta a tabela siprouter_sp.
+@bp.get("/register")
+@admin_required
+def register():
+    return render_template("register.html")
 
-    Parâmetros obrigatórios:
-        cn  — Código Nacional (inteiro, ex.: 11)
-        rn1 — RN1 da operadora (ex.: 55131)
 
-    Parâmetros opcionais:
-        scm — 1 para filtrar por SCM, 0 (padrão) para ignorar
-        av  — 1 para filtrar por AV,  0 (padrão) para ignorar
+@bp.post("/register")
+@admin_required
+def register_post():
+    email    = (request.form.get("email") or "").strip().lower()
+    password = request.form.get("password", "")
+    role     = (request.form.get("role") or "").strip().lower()
 
-    Retorno JSON:
-        { found, cn, rn1_consultado, resultados, dados_vivo, mensagem }
-    """
-    from siprouter_sp import query_siprouter_sp
+    if not email or not password or role not in ("engenharia", "atacado"):
+        flash("Preencha todos os campos corretamente.", "danger")
+        return redirect(url_for("auth.register"))
 
-    cn_raw  = request.args.get("cn",  "").strip()
-    rn1     = request.args.get("rn1", "").strip()
-    scm     = request.args.get("scm", "0").strip() == "1"
-    av      = request.args.get("av",  "0").strip() == "1"
-
-    if not cn_raw or not rn1:
-        return jsonify({
-            "error": "Parâmetros 'cn' e 'rn1' são obrigatórios."
-        }), 400
-
+    db = get_db()
     try:
-        cn = int(cn_raw)
-    except ValueError:
-        return jsonify({"error": f"'cn' deve ser um número inteiro. Recebido: {cn_raw!r}"}), 400
+        db.execute(
+            "INSERT INTO users (email, password_hash, role) VALUES (?, ?, ?)",
+            (email, generate_password_hash(password), role),
+        )
+        db.commit()
+        flash("Usuário criado com sucesso.", "success")
+    except sqlite3.IntegrityError:
+        flash("Este e-mail já está cadastrado.", "warning")
 
-    db     = get_db()
-    result = query_siprouter_sp(db, cn=cn, rn1=rn1, scm=scm, av=av)
-    return jsonify(result)
+    return redirect(url_for("auth.register"))
