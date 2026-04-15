@@ -1,174 +1,153 @@
-"""
-config.py — Todas as constantes e configurações da aplicação VIVOHUB.
-Nenhuma importação de Flask aqui; este módulo é importado por todos os outros.
-"""
-import os
-from typing import Final
+"""db.py — Conexão, schema e seeds do banco SQLite."""
+import sqlite3
+import logging
+from flask import Flask, g
+
+from config import _CN_SEED_RAW, CN_METADATA
+
+logger = logging.getLogger(__name__)
+
 
 # =============================================================================
-# APLICAÇÃO
+# CONEXÃO
 # =============================================================================
-MAX_TABLE_ROWS: Final[int] = 10
-DEFAULT_ADMIN_CODE: Final[str] = "v28B112004"
-DEFAULT_DIAGRAM_IMAGE: Final[str] = (
-    r"C:\Users\40418843\Desktop\VIVOHUB\templates\20251007_140942_0000.png"
-)
-DEFAULT_SBC_DATA_DIR: Final[str] = r"C:/Users/40418843/Desktop/dados-sbcs"
+def get_db() -> sqlite3.Connection:
+    if "db" not in g:
+        from flask import current_app
+        g.db = sqlite3.connect(current_app.config["DATABASE"])
+        g.db.row_factory = sqlite3.Row
+        g.db.execute("PRAGMA foreign_keys = ON;")
+    return g.db
 
-# =============================================================================
-# CAMPOS DO FORMULÁRIO
-# =============================================================================
-BOOLEAN_FIELDS: Final[tuple] = (
-    "csp", "servicos_especiais", "cng",
-    "scm", "av",
-    "sbc_ativo", "ip_reservado", "vivo_reserva",
-    "operadora_ciente", "lcr_nacional", "white_list",
-    "prefixos_liberados_abr", "premissas_ok",
-)
 
-TEXT_FIELDS: Final[tuple] = (
-    "nome_operadora", "rn1", "atendimento", "redes", "qual", "tmr",
-    "responsavel_operadora", "responsavel_vivo", "asn",
-    "responsavel_infra", "aprovado_por",
-    "status", "escopo_text",
-    "responsavel_atacado", "responsavel_engenharia",
-)
+def _register_db_hooks(app: Flask) -> None:
+    @app.teardown_appcontext
+    def close_db(exception=None):
+        db = g.pop("db", None)
+        if db is not None:
+            db.close()
 
-JSON_FIELDS: Final[tuple] = (
-    "escopo_flags_json", "dados_vivo_json",
-    "dados_operadora_json", "engenharia_params_json",
-)
+    @app.before_request
+    def ensure_schema():
+        _init_db()
 
-ALLOWED_SCOPE_FLAGS: Final[frozenset] = frozenset({
-    "LC", "LD15 + CNG", "LDS/CSP + CNG", "Transporte", "VC1", "Concentração"
-})
 
 # =============================================================================
-# SBC
+# SCHEMA E MIGRAÇÕES
 # =============================================================================
-SBC_CACHE_TTL_SECONDS: Final[int] = 300
+def _init_db() -> None:
+    db = get_db()
+    db.executescript("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            role TEXT NOT NULL CHECK (role IN ('engenharia', 'atacado')),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS atacado_forms (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            owner_id INTEGER NOT NULL,
+            status TEXT DEFAULT 'rascunho',
+            nome_operadora TEXT, rn1 TEXT,
+            csp INTEGER DEFAULT 0, servicos_especiais INTEGER DEFAULT 0,
+            cng INTEGER DEFAULT 0, scm INTEGER DEFAULT 0, av INTEGER DEFAULT 0,
+            atendimento TEXT, redes TEXT,
+            qual TEXT, tmr TEXT,
+            responsavel_operadora TEXT, responsavel_vivo TEXT,
+            sbc_ativo INTEGER DEFAULT 0, ip_reservado INTEGER DEFAULT 0,
+            vivo_reserva INTEGER DEFAULT 0, asn TEXT,
+            escopo_text TEXT, escopo_flags_json TEXT, dados_vivo_json TEXT,
+            dados_operadora_json TEXT,
+            operadora_ciente INTEGER DEFAULT 0, responsavel_infra TEXT,
+            lcr_nacional INTEGER DEFAULT 0, white_list INTEGER DEFAULT 0,
+            prefixos_liberados_abr INTEGER DEFAULT 0,
+            premissas_ok INTEGER DEFAULT 0, aprovado_por TEXT,
+            engenharia_params_json TEXT,
+            responsavel_atacado TEXT, responsavel_engenharia TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(owner_id) REFERENCES users(id)
+        );
+        CREATE TABLE IF NOT EXISTS exports (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            form_id INTEGER NOT NULL,
+            filename TEXT NOT NULL, filepath TEXT NOT NULL,
+            size_bytes INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(form_id) REFERENCES atacado_forms(id)
+        );
+    """)
+    for table, col, coldef in [
+        ("atacado_forms", "owner_id",               "INTEGER NOT NULL DEFAULT 0"),
+        ("atacado_forms", "engenharia_params_json",  "TEXT"),
+        ("atacado_forms", "dados_vivo_json",         "TEXT"),
+        ("atacado_forms", "dados_operadora_json",    "TEXT"),
+        ("atacado_forms", "escopo_text",             "TEXT"),
+        ("atacado_forms", "escopo_flags_json",       "TEXT"),
+        ("atacado_forms", "responsavel_atacado",     "TEXT"),
+        ("atacado_forms", "responsavel_engenharia",  "TEXT"),
+        ("atacado_forms", "scm",                     "INTEGER DEFAULT 0"),
+        ("atacado_forms", "av",                      "INTEGER DEFAULT 0"),
+    ]:
+        _ensure_column(db, table, col, coldef)
+    db.commit()
+    _seed_cns(db)
+    _apply_cn_metadata(db)
+    from siprouter_sp import init_siprouter_sp
+    init_siprouter_sp(db)
 
-SBC_STATUS_TO_HEALTH: Final[dict[str, str]] = {
-    "normal":   "disponivel",
-    "atenção":  "moderado",
-    "atencao":  "moderado",
-    "crítico":  "critico",
-    "critico":  "critico",
-}
 
-SBC_STATUS_BASE_SCORE: Final[dict[str, int]] = {
-    "disponivel": 70,
-    "moderado":   45,
-    "critico":    15,
-}
+def _ensure_column(
+    db: sqlite3.Connection, table: str, column: str, coldef: str
+) -> None:
+    existing = {
+        r["name"]
+        for r in db.execute(f"PRAGMA table_info({table});").fetchall()
+    }
+    if column not in existing:
+        db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {coldef};")
 
-# =============================================================================
-# IPAM
-# =============================================================================
-IPAM_BASE_URL: str = os.getenv("IPAM_BASE_URL", "http://10.113.144.242")
-IPAM_USER:     str = os.getenv("IPAM_USER", "40418843")
-IPAM_PASS:     str = os.getenv("IPAM_PASS", "230581Bs.@@")   # produção: só env var
-IPAM_SECTION_ID: Final[int] = 186
-
-IPAM_MASK_POOL_MAP: Final[dict[str, str]] = {
-    "24": "POOL 1",
-    "28": "POOL 3",
-    "29": "POOL 4",
-}
-IPAM_DEFAULT_POOL: Final[str] = "POOL 5"
-
-# =============================================================================
-# CNs — SEED E METADATA
-# =============================================================================
-_CN_SEED_RAW: Final[str] = """
-68 82 97 92 96 77 75 74 73 71 88 85 61 27 28 64 62 61 98 99
-34 37 31 35 32 38 33 67 66 65 91 94 93 83 81 87 86 89
-43 44 45 46 41 24 22 21 84 69 95 51 53 54 55 47 48 49 79
-18 14 15 16 13 19 17 11 12 63
-"""
-
-CN_METADATA: Final[dict[str, tuple[str, str]]] = {
-    "11": ("São Paulo", "SP"),          "12": ("São José dos Campos", "SP"),
-    "13": ("Santos", "SP"),             "14": ("Bauru", "SP"),
-    "15": ("Sorocaba", "SP"),           "16": ("Ribeirão Preto", "SP"),
-    "17": ("São José do Rio Preto", "SP"), "18": ("Presidente Prudente", "SP"),
-    "19": ("Campinas", "SP"),
-    "21": ("Rio de Janeiro", "RJ"),     "22": ("Campos dos Goytacazes", "RJ"),
-    "24": ("Volta Redonda", "RJ"),      "27": ("Vitória", "ES"),
-    "28": ("Cachoeiro de Itapemirim", "ES"),
-    "31": ("Belo Horizonte", "MG"),     "32": ("Juiz de Fora", "MG"),
-    "33": ("Governador Valadares", "MG"), "34": ("Uberlândia", "MG"),
-    "35": ("Poços de Caldas", "MG"),    "37": ("Divinópolis", "MG"),
-    "38": ("Montes Claros", "MG"),
-    "41": ("Curitiba", "PR"),           "42": ("Ponta Grossa", "PR"),
-    "43": ("Londrina", "PR"),           "44": ("Maringá", "PR"),
-    "45": ("Foz do Iguaçu", "PR"),      "46": ("Francisco Beltrão", "PR"),
-    "47": ("Joinville", "SC"),          "48": ("Florianópolis", "SC"),
-    "49": ("Chapecó", "SC"),
-    "51": ("Porto Alegre", "RS"),       "53": ("Pelotas", "RS"),
-    "54": ("Caxias do Sul", "RS"),      "55": ("Santa Maria", "RS"),
-    "61": ("Brasília", "DF"),           "62": ("Goiânia", "GO"),
-    "63": ("Palmas", "TO"),             "64": ("Rio Verde", "GO"),
-    "65": ("Cuiabá", "MT"),             "66": ("Rondonópolis", "MT"),
-    "67": ("Campo Grande", "MS"),
-    "71": ("Salvador", "BA"),           "73": ("Ilhéus", "BA"),
-    "74": ("Juazeiro", "BA"),           "75": ("Feira de Santana", "BA"),
-    "77": ("Vitória da Conquista", "BA"),
-    "79": ("Aracaju", "SE"),            "81": ("Recife", "PE"),
-    "82": ("Maceió", "AL"),             "83": ("João Pessoa", "PB"),
-    "84": ("Natal", "RN"),              "85": ("Fortaleza", "CE"),
-    "86": ("Teresina", "PI"),           "87": ("Petrolina", "PE"),
-    "88": ("Juazeiro do Norte", "CE"),  "89": ("Picos", "PI"),
-    "91": ("Belém", "PA"),              "92": ("Manaus", "AM"),
-    "93": ("Santarém", "PA"),           "94": ("Marabá", "PA"),
-    "95": ("Boa Vista", "RR"),          "96": ("Macapá", "AP"),
-    "97": ("Coari", "AM"),
-    "98": ("São Luís", "MA"),           "99": ("Imperatriz", "MA"),
-    "68": ("Rio Branco", "AC"),         "69": ("Porto Velho", "RO"),
-}
 
 # =============================================================================
-# UF → REGIONAL E VIZINHOS
+# SEEDS
 # =============================================================================
-UF_TO_REGIONAL: Final[dict[str, str]] = {
-    "AC": "NORTE",  "AM": "NORTE",  "AP": "NORTE",  "PA": "NORTE",
-    "RO": "NORTE",  "RR": "NORTE",  "TO": "NORTE",
-    "AL": "NORDESTE", "BA": "NORDESTE", "CE": "NORDESTE",
-    "MA": "NORDESTE", "PB": "NORDESTE", "PE": "NORDESTE",
-    "PI": "NORDESTE", "RN": "NORDESTE", "SE": "NORDESTE",
-    "DF": "CENTRO-OESTE", "GO": "CENTRO-OESTE",
-    "MS": "CENTRO-OESTE", "MT": "CENTRO-OESTE",
-    "ES": "SUDESTE", "MG": "SUDESTE", "RJ": "SUDESTE", "SP": "SUDESTE",
-    "PR": "SUL",    "RS": "SUL",    "SC": "SUL",
-}
+def _parse_cn_seed(raw: str) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for tok in raw.split():
+        code = tok.strip().zfill(2)
+        if code.isdigit() and code not in seen:
+            seen.add(code)
+            result.append(code)
+    return result
 
-UF_NEIGHBORS: Final[dict[str, list[str]]] = {
-    "AC": ["RO", "AM"],
-    "AL": ["PE", "SE", "BA"],
-    "AM": ["PA", "RR", "AC", "RO", "MT"],
-    "AP": ["PA"],
-    "BA": ["SE", "AL", "PE", "PI", "MG", "GO", "TO", "MA"],
-    "CE": ["RN", "PB", "PE", "PI"],
-    "DF": ["GO", "MG"],
-    "ES": ["MG", "RJ", "BA"],
-    "GO": ["DF", "MG", "MS", "MT", "TO", "BA"],
-    "MA": ["PI", "TO", "PA"],
-    "MG": ["SP", "RJ", "ES", "BA", "GO", "DF", "MS"],
-    "MS": ["PR", "SP", "MG", "GO", "MT"],
-    "MT": ["MS", "GO", "TO", "PA", "AM", "RO"],
-    "PA": ["MA", "TO", "MT", "AM", "AP", "RR"],
-    "PB": ["PE", "RN", "CE"],
-    "PE": ["PB", "AL", "BA", "CE", "PI"],
-    "PI": ["MA", "CE", "PE", "BA", "TO"],
-    "PR": ["SP", "SC", "MS"],
-    "RJ": ["SP", "MG", "ES"],
-    "RN": ["PB", "CE"],
-    "RO": ["MT", "AM", "AC"],
-    "RR": ["AM", "PA"],
-    "RS": ["SC"],
-    "SC": ["PR", "RS"],
-    "SE": ["AL", "BA"],
-    "SP": ["RJ", "MG", "PR", "MS"],
-    "TO": ["MA", "PI", "BA", "GO", "MT", "PA"],
-}
 
+def _seed_cns(db: sqlite3.Connection) -> None:
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS cns (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            codigo TEXT UNIQUE NOT NULL, nome TEXT, uf TEXT,
+            ativo INTEGER NOT NULL DEFAULT 1
+        )
+    """)
+    if db.execute("SELECT COUNT(*) AS c FROM cns").fetchone()["c"] == 0:
+        codes = _parse_cn_seed(_CN_SEED_RAW)
+        db.executemany(
+            "INSERT OR IGNORE INTO cns (codigo, ativo) VALUES (?, 1)",
+            [(c,) for c in codes],
+        )
+        db.commit()
+
+
+def _apply_cn_metadata(db: sqlite3.Connection) -> None:
+    for code, (nome, uf) in CN_METADATA.items():
+        db.execute(
+            """
+            INSERT INTO cns (codigo, nome, uf, ativo) VALUES (?, ?, ?, 1)
+            ON CONFLICT(codigo) DO UPDATE
+                SET nome=excluded.nome, uf=excluded.uf, ativo=1
+            """,
+            (code, nome, uf),
+        )
+    db.commit()
