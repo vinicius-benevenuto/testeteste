@@ -737,7 +737,7 @@ class PTIWorkbookBuilder:
             # Direita  (Rede Reservada IPAM): rede reservada + 2 por tráfego
             #   Base: self.ipam_reservas[cn_val] se disponível, senão faixa_ip_op
             ipam_rede   = self.ipam_reservas.get(cn_val, "") if cn_val else ""
-            ip_op_base  = ipam_rede or faixa_ip_op or endereco_op
+            ip_op_base  = ipam_rede or faixa_ip_op   # nunca usar endereco_link como IP
             _, mask_ipam = self._parse_cidr(ip_op_base)
             netmask_op  = self._cidr_to_netmask(mask_ipam) if mask_ipam else "255.255.255.240"
 
@@ -979,7 +979,7 @@ class PTIWorkbookBuilder:
             mask_vivo      = vivo_row.get("mask", "")         or ""
             faixa_ip_op    = op_row.get("faixa_ip", "")       or ""
             endereco_op    = op_row.get("endereco_link", "")   or ""
-            ip_op_base     = faixa_ip_op or endereco_op
+            ip_op_base     = faixa_ip_op   # nunca usar endereco_link como IP
             ip_op          = self._ip_only(self._add_last_octet(ip_op_base, 2)) if ip_op_base else ""
             _, mask_cidr   = self._parse_cidr(ip_op_base)
             mask_op        = self._cidr_to_netmask(mask_cidr) if mask_cidr else mask_vivo
