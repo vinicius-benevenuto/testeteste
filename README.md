@@ -1,32 +1,64 @@
-Aplique rigorosamente as alterações descritas abaixo, sem adicionar novas funcionalidades, textos explicativos ou informações extras.
+{% extends "base.html" %}
+{% block title %}Central Engenharia — VIVOHUB{% endblock %}
+{% block extra_head %}
+<style>
+  .action-card {
+    display:block; text-decoration:none; color:inherit;
+    padding:1.5rem; border-radius:var(--r); border:1px solid var(--bdr);
+    background:var(--surf); transition:box-shadow .2s, transform .15s;
+  }
+  .action-card:hover { box-shadow:var(--sh-lg); transform:translateY(-2px); text-decoration:none; color:inherit; }
+  .action-card-icon {
+    width:40px; height:40px; border-radius:10px;
+    background:var(--p-lt); color:var(--p);
+    display:flex; align-items:center; justify-content:center;
+    font-size:1.1rem; margin-bottom:1rem;
+  }
+  .action-card h3 { font-size:.95rem; font-weight:700; margin:0 0 .35rem; }
+  .action-card p  { font-size:.8rem; color:var(--sub); margin:0; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="page">
 
-### Central Engenharia
-1. Remova completamente todas as informações relacionadas a atalhos.
-2. Renomeie o item atualmente chamado **"Exports Excel"** para **"Pré-PTIs Validados"**.
-3. Remova qualquer status, aba ou seção chamada **"Aguardando revisão"**, pois ela é redundante e não deve mais existir.
+  <!-- Header -->
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:2rem;gap:1rem;flex-wrap:wrap">
+    <div>
+      <p style="font-size:.72rem;font-weight:600;color:var(--p);letter-spacing:.08em;text-transform:uppercase;margin:0 0 .35rem">Engenharia</p>
+      <h1 class="v-title">Área de trabalho</h1>
+    </div>
+    <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+      <a href="{{ url_for('engenharia.form_list') }}?show_files=1" class="btn-o"><i class="bi bi-folder2-open"></i> Exports</a>
+      <a href="{{ url_for('engenharia.form_list') }}"              class="btn-p"><i class="bi bi-clipboard-check"></i> Validar</a>
+    </div>
+  </div>
 
-### Central Atacado
-1. Renomeie o item **"Novo Pré-Pts"** para **"Criar Pré-PTI"**.
-2. Mantenha a seção **"Formulários"** exatamente como está hoje, incluindo os formulários já preenchidos, sem qualquer alteração visual ou funcional.
-3. Mantenha a seção **"Aprovados"** como está atualmente, sem alterações.
-4. Remova totalmente todas as informações relacionadas a atalhos, assim como feito na Central Engenharia.
+  <!-- Filtros rápidos -->
+  <div class="chips" style="margin-bottom:2rem">
+    <a class="chip" href="{{ url_for('engenharia.form_list') }}">Todos</a>
+    <a class="chip" href="{{ url_for('engenharia.form_list') }}?status=enviado">Enviados</a>
+    <a class="chip" href="{{ url_for('engenharia.form_list') }}?status=em%20revis%C3%A3o">Em revisão</a>
+    <a class="chip" href="{{ url_for('engenharia.form_list') }}?status=aprovado">Aprovados</a>
+    <a class="chip" href="{{ url_for('engenharia.form_list') }}?status=rascunho">Rascunhos</a>
+  </div>
 
-### Excel – Diagrama de Interligação
-1. No arquivo Excel, na aba **"Diagrama de Interligação"**, localize a tabela da direita que contém as colunas:
-   - Tráfego
-   - Endereço IP
-   - NET MASK
-2. Considere que o **Endereço IP** dessa tabela representa a **reserva do IPAN**.
-3. Esse valor, que estamos chamando de "Rede Reservada" deve seguir a mesma lógica já utilizada anteriormente:
-   - O endereço IP deve ser calculado com base no IP utilizado anteriormente, somando **+1** ao último endereço válido.
+  <!-- Ações -->
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:1rem">
 
-### Front-End – Dados Vivo
-1. Remova completamente a faixa visual azul ou roxa exibida nos dados Vivo.
-2. Essa faixa contém um ícone de roteador e o texto no formato:
-   - **CDSIP_SPO_PL/...**
-3. Após a alteração, essa faixa não deve existir mais em nenhuma visualização do front-end.
+    <a class="action-card" href="{{ url_for('engenharia.form_list') }}">
+      <div class="action-card-icon"><i class="bi bi-clipboard-check"></i></div>
+      <h3>Validar Pré-PTIs</h3>
+      <p>Revisar e preencher Seção 9</p>
+    </a>
 
-### Regras Gerais
-- Não inclua informações sobre atalhos em nenhuma parte do sistema.
-- Não reestruture telas, fluxos ou dados além do que foi explicitamente solicitado.
-- Execute apenas as alterações descritas acima, mantendo todo o restante do sistema inalterado.
+    <a class="action-card" href="{{ url_for('engenharia.form_list') }}?status=aprovado">
+      <div class="action-card-icon"><i class="bi bi-file-earmark-spreadsheet"></i></div>
+      <h3>Pré-PTIs Validados</h3>
+      <p>Baixar e gerenciar PTIs gerados</p>
+    </a>
+
+  </div>
+
+</div>
+{% endblock %}
+{% block extra_scripts %}{% endblock %}
