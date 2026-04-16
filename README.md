@@ -16,15 +16,15 @@ if os.path.exists(cfg["img"]):
                     {"text": n,      "xy_pct": (0.87, 0.15), "font_size_pct": 0.035, "stroke_width_pct": 0.008},
                 ]
                 if pl_block:
-                    row_labels.append({"text": pl_block, "xy_pct": (0.14, 0.45), "font_size_pct": 0.018, "stroke_width_pct": 0.004})
+                    row_labels.append({"text": pl_block, "xy_pct": (0.14, 0.45), "font_size_pct": 0.020, "stroke_width_pct": 0.004})
                 if jg_block:
-                    row_labels.append({"text": jg_block, "xy_pct": (0.14, 0.62), "font_size_pct": 0.018, "stroke_width_pct": 0.004})
+                    row_labels.append({"text": jg_block, "xy_pct": (0.14, 0.62), "font_size_pct": 0.020, "stroke_width_pct": 0.004})
                 # IP da rede reservada IPAM
                 if ip_op_base:
-                    row_labels.append({"text": ip_op_base, "xy_pct": (0.83, 0.72), "font_size_pct": 0.020, "stroke_width_pct": 0.005})
+                    row_labels.append({"text": ip_op_base, "xy_pct": (0.87, 0.45), "font_size_pct": 0.020, "stroke_width_pct": 0.005})
                 # SBC da operadora (preenchido no formulário Atacado → Dados Operadora)
                 if sbc_op_img:
-                    row_labels.append({"text": sbc_op_img, "xy_pct": (0.83, 0.58), "font_size_pct": 0.022, "stroke_width_pct": 0.006})
+                    row_labels.append({"text": sbc_op_img, "xy_pct": (0.87, 0.41), "font_size_pct": 0.022, "stroke_width_pct": 0.006})
                 if cn_val:
                     cn_img_text = f"CN {cn_val}" + (f" — {cn_cidade}/{cn_uf}" if cn_cidade else "")
                     row_labels.append({"text": cn_img_text, "xy_pct": (0.50, 0.08), "font_size_pct": 0.028, "stroke_width_pct": 0.007})
