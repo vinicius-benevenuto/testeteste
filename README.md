@@ -79,6 +79,7 @@ class PTIWorkbookBuilder:
 
         self.vivo_rows = self._extract_vivo_rows()
         self.op_rows   = self._extract_op_rows()
+        self.ipam_reservas: dict[str, str] = {}   # cn → rede reservada (ex: "10.1.1.0/28")
         self.reserva_redes_ipam(self.vivo_rows)
 
         cns_vivo = self._unique_field(self.vivo_rows, "cn")
@@ -126,7 +127,16 @@ class PTIWorkbookBuilder:
                 id_pool = cliente.buscar_id_pool(id_cn, nome_pool)
                 cliente.buscar_rede_pai(id_cn, id_pool, mask_alvo)
                 nova_rede = cliente.reservar_rede(id_pool, mask_alvo, descricao)
-                logger.info("Reserva concluída: %s", nova_rede)
+                # nova_rede é um dict ou string retornado pela API; extrair o CIDR
+                if isinstance(nova_rede, dict):
+                    subnet  = nova_rede.get("subnet", "") or nova_rede.get("network", "") or ""
+                    mask_nr = nova_rede.get("mask", "") or nova_rede.get("prefix", "") or mask_alvo
+                    cidr    = f"{subnet}/{mask_nr}" if subnet else ""
+                else:
+                    cidr = str(nova_rede).strip() if nova_rede else ""
+                if cidr and cn_usuario not in self.ipam_reservas:
+                    self.ipam_reservas[cn_usuario] = cidr
+                logger.info("Reserva concluída: %s → CIDR armazenado: %s", nova_rede, cidr)
             except (ValueError, RuntimeError) as exc:
                 logger.error("Falha IPAM CN '%s': %s", cn_usuario, exc)
 
@@ -723,9 +733,11 @@ class PTIWorkbookBuilder:
             cursor += 1
 
             # ── Calcular IPs ───────────────────────────────────────────────
-            # Esquerda (SipRouter): bloco + 4 no último octeto, depois +1/tráfego
-            # Direita  (Rede Reservada IPAM): ip_op_base + 1 por tráfego (incremental)
-            ip_op_base  = faixa_ip_op or endereco_op
+            # Esquerda (SipRouter PL): bloco + 4 base, depois +1 por tráfego
+            # Direita  (Rede Reservada IPAM): rede reservada + 2 por tráfego
+            #   Base: self.ipam_reservas[cn_val] se disponível, senão faixa_ip_op
+            ipam_rede   = self.ipam_reservas.get(cn_val, "") if cn_val else ""
+            ip_op_base  = ipam_rede or faixa_ip_op or endereco_op
             _, mask_ipam = self._parse_cidr(ip_op_base)
             netmask_op  = self._cidr_to_netmask(mask_ipam) if mask_ipam else "255.255.255.240"
 
@@ -761,8 +773,9 @@ class PTIWorkbookBuilder:
                 mk_c.font = s.font_small; mk_c.fill = f_fill
                 mk_c.alignment = s.align_center; mk_c.border = s.box_border
 
-                # Lado direito — Rede Reservada IPAM: +1 incremental por tráfego
-                op_ip_val = (self._ip_only(self._add_last_octet(ip_op_base, 1 + j))
+                # Lado direito — Rede Reservada IPAM: +2 incremental por tráfego
+                # j=0 → base+2, j=1 → base+4, j=2 → base+6 ...
+                op_ip_val = (self._ip_only(self._add_last_octet(ip_op_base, (j + 1) * 2))
                              if ip_op_base else "")
                 ws.cell(row=r, column=MID, value=traf_val).font = s.font_small
                 ws.cell(row=r, column=MID).fill = f_fill
@@ -791,9 +804,9 @@ class PTIWorkbookBuilder:
                         ws.cell(row=r_row, column=col, value=val).font = s.font_small
                         ws.cell(row=r_row, column=col).alignment = s.align_center
                         ws.cell(row=r_row, column=col).border = s.box_border
-                # Rede Reservada IPAM: cada tráfego recebe +1 incremental
+                # Rede Reservada IPAM: +2 por tráfego (j=0→+2, j=1→+4, ...)
                 for j in range(num_visible):
-                    op_ip_val = (self._ip_only(self._add_last_octet(ip_op_base, 1 + j))
+                    op_ip_val = (self._ip_only(self._add_last_octet(ip_op_base, (j + 1) * 2))
                                  if ip_op_base else "")
                     r_row = data_start_row + j
                     for col, val in [(MID+1, op_ip_val), (MID+2, netmask_op)]:
@@ -848,10 +861,10 @@ class PTIWorkbookBuilder:
             ws.cell(row=r, column=LC,
                     value=f"PL: {pl_block or '___'}  |  JG: {jg_block or '___'}").font = s.font_small
             ws.cell(row=r, column=LC).alignment = s.align_left
-            ipam_base_ip = self._ip_only(self._add_last_octet(ip_op_base, 1)) if ip_op_base else "___"
+            ipam_base_ip = self._ip_only(self._add_last_octet(ip_op_base, 2)) if ip_op_base else "___"
             ws.merge_cells(start_row=r, start_column=MID, end_row=r, end_column=RC)
             ws.cell(row=r, column=MID,
-                    value=f"Rede Reservada ({n}): {ip_op_base or '___'}  →  base+1: {ipam_base_ip}").font = s.font_small
+                    value=f"Rede Reservada ({n}): {ip_op_base or '___'}  →  LC: {ipam_base_ip}").font = s.font_small
             ws.cell(row=r, column=MID).alignment = s.align_left
             _gap(r, LC+5, MID)
             cursor = r + 2
