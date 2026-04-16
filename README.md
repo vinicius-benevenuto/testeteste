@@ -339,101 +339,6 @@ class PTIWorkbookBuilder:
             pl = jg = bloco_ip.strip()
         return pl, jg
 
-    def _apply_outer_border(self, ws, r1: int, c1: int, r2: int, c2: int) -> None:
-        """Aplica borda externa média/preta em volta de um range de células."""
-        from openpyxl.styles import Border
-        med = self.s.outer_border.left
-        for r in range(r1, r2 + 1):
-            for c in range(c1, c2 + 1):
-                cell = ws.cell(row=r, column=c)
-                left   = med if c == c1 else cell.border.left
-                right  = med if c == c2 else cell.border.right
-                top    = med if r == r1 else cell.border.top
-                bottom = med if r == r2 else cell.border.bottom
-                cell.border = Border(left=left, right=right, top=top, bottom=bottom)
-
-    def _border_all_tables(self, ws) -> None:
-        """
-        Aplica outer_border em volta de cada bloco de células com conteúdo.
-        Usa bounding box conservador: expande o bloco enquanto houver ao menos
-        uma célula com conteúdo na linha, sem dividir por linhas internas vazias.
-        """
-        from openpyxl.styles import Border
-        med = self.s.outer_border.left
-        max_row = ws.max_row or 1
-        max_col = ws.max_column or 1
-
-        def row_has_content(r):
-            for c in range(1, max_col + 1):
-                cell = ws.cell(row=r, column=c)
-                if cell.value is not None and str(cell.value).strip():
-                    return True
-                b = cell.border
-                if b and (
-                    (b.left   and b.left.style)   or (b.right  and b.right.style) or
-                    (b.top    and b.top.style)     or (b.bottom and b.bottom.style)
-                ):
-                    return True
-            return False
-
-        # Encontrar primeiro e último bloco contíguo de conteúdo,
-        # tolerando até 2 linhas vazias internas antes de fechar o bloco
-        blocks = []
-        block_start = None
-        empty_streak = 0
-        TOLERANCE = 2  # linhas vazias consecutivas permitidas dentro de um bloco
-
-        for r in range(1, max_row + 1):
-            if row_has_content(r):
-                if block_start is None:
-                    block_start = r
-                empty_streak = 0
-            else:
-                if block_start is not None:
-                    empty_streak += 1
-                    if empty_streak > TOLERANCE:
-                        blocks.append((block_start, r - empty_streak))
-                        block_start = None
-                        empty_streak = 0
-
-        if block_start is not None:
-            last = max_row
-            while last > block_start and not row_has_content(last):
-                last -= 1
-            blocks.append((block_start, last))
-
-        if not blocks:
-            return
-
-        # Determinar colunas ativas para cada bloco
-        for br1, br2 in blocks:
-            min_c, max_c = max_col, 1
-            for r in range(br1, br2 + 1):
-                for c in range(1, max_col + 1):
-                    cell = ws.cell(row=r, column=c)
-                    has_val = cell.value is not None and str(cell.value).strip()
-                    b = cell.border
-                    has_bdr = b and (
-                        (b.left and b.left.style) or (b.right and b.right.style) or
-                        (b.top  and b.top.style)  or (b.bottom and b.bottom.style)
-                    )
-                    if has_val or has_bdr:
-                        min_c = min(min_c, c)
-                        max_c = max(max_c, c)
-
-            if min_c > max_c:
-                continue
-
-            # Aplicar outer_border
-            for r in range(br1, br2 + 1):
-                for c in range(min_c, max_c + 1):
-                    cell = ws.cell(row=r, column=c)
-                    left   = med if c == min_c else cell.border.left
-                    right  = med if c == max_c else cell.border.right
-                    top    = med if r == br1   else cell.border.top
-                    bottom = med if r == br2   else cell.border.bottom
-                    cell.border = Border(left=left, right=right, top=top, bottom=bottom)
-
     # =========================================================================
     # MATCHING DE LINHAS
     # =========================================================================
@@ -654,7 +559,6 @@ class PTIWorkbookBuilder:
             ws.row_dimensions[r].height = 22.0
 
         ws.freeze_panes = "C7"
-        self._border_all_tables(ws)
         self._ps(ws)
 
     # =========================================================================
@@ -694,7 +598,6 @@ class PTIWorkbookBuilder:
                 if col in (7, 9) else s.align_center
             )
         ws.freeze_panes = "C7"
-        self._border_all_tables(ws)
         self._ps(ws, ls=True)
 
     # =========================================================================
@@ -913,11 +816,6 @@ class PTIWorkbookBuilder:
 
             cursor += num_traffic
 
-            # Borda externa — tabela PL (esquerda + direita)
-            if num_visible:
-                self._apply_outer_border(ws, data_start_row - 1, LC, data_start_row + num_visible - 1, LC + 2)
-                self._apply_outer_border(ws, data_start_row - 1, MID, data_start_row + num_visible - 1, MID + 2)
-
             # ── Segunda tabela: CDSIP_SPO_JG ──────────────────────────────
             if jg_block:
                 r = cursor + 1
@@ -956,10 +854,6 @@ class PTIWorkbookBuilder:
                     _gap(r, LC+3, MID)
 
                 cursor += max(num_visible, 1)
-
-                # Borda externa — tabela JG
-                jg_rows = max(num_visible, 1)
-                self._apply_outer_border(ws, cursor - jg_rows - 1, LC, cursor - 1, LC + 2)
 
             # Resumo
             r = cursor + 1
@@ -1032,8 +926,6 @@ class PTIWorkbookBuilder:
                 if b_idx == 0:
                     logger.warning("Imagem base não encontrada: %s", cfg["img"])
                 cursor += 3
-
-        self._border_all_tables(ws)
         self._ps(ws, ls=True)
 
     # =========================================================================
@@ -1238,9 +1130,6 @@ class PTIWorkbookBuilder:
             if not ip_op_base:    missing.append("IP DO IPAM")
             if not uf_val:        missing.append("UF")
 
-            # Borda externa em volta do bloco completo (cabeçalhos + dados)
-            self._apply_outer_border(ws, h1, 2, ds + DATA_ROWS - 1, 24)
-
             if missing:
                 note_row = ds + DATA_ROWS
                 ws.merge_cells(start_row=note_row, start_column=2, end_row=note_row, end_column=24)
@@ -1261,7 +1150,6 @@ class PTIWorkbookBuilder:
                 ws.cell(row=r, column=col).fill   = s.fill_white
                 ws.cell(row=r, column=col).border = s.no_border
         ws.freeze_panes = "C6"
-        self._border_all_tables(ws)
         self._ps(ws, ls=True)
 
     # =========================================================================
@@ -1380,7 +1268,6 @@ class PTIWorkbookBuilder:
         ws.cell(row=sm+1, column=2,
                 value="Os prefixos da VIVO SMP, poderão ser obtidos acessando o site www.telefonica.net.br/sp/transfer/").font = s.font_small
         ws.freeze_panes = f"B{h1}"
-        self._border_all_tables(ws)
         self._ps(ws, ls=True)
 
     # =========================================================================
@@ -1447,7 +1334,6 @@ class PTIWorkbookBuilder:
             c.font = s.font_small; c.alignment = ac; c.border = s.box_border; c.fill = s.alt_fill(row_idx - 2)
 
         ws.freeze_panes = f"B{ds}"
-        self._border_all_tables(ws)
         self._ps(ws, ls=True)
 
     # =========================================================================
@@ -1566,7 +1452,6 @@ class PTIWorkbookBuilder:
             ("O ptime no SDP answer deve ser múltiplo inteiro de 20 para codecs móveis; 3GPP 26.114","","Mandatório","✔",""),
             ("Pacotes suportados às marcações USR, DSCP 46 ou EF para pacotes RTP","","Mandatório","✔",""),
         ])
-        self._border_all_tables(ws)
         self._ps(ws, ls=True)
 
     # =========================================================================
