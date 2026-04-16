@@ -874,30 +874,31 @@ class PTIWorkbookBuilder:
                 cursor += 4
                 img_anchor_row = cursor
                 row_labels = [
-                    {"text": "Roteador OP", "xy_pct": (0.65, 0.36), "font_size_pct": cfg["rfp"], "stroke_width_pct": cfg["rsp"]},
-                    {"text": "Roteador OP", "xy_pct": (0.65, 0.55), "font_size_pct": cfg["rfp"], "stroke_width_pct": cfg["rsp"]},
-                    {"text": "Link resp Vivo", "xy_pct": (0.49, 0.58), "font_size_pct": cfg["lfsz"], "stroke_width_pct": 0.006},
-                    {"text": f"Link resp {n}", "xy_pct": (0.50, 0.28), "font_size_pct": cfg["lfsz"], "stroke_width_pct": 0.006},
-                    {"text": "RAC/RAV/HL4", "xy_pct": (0.34, 0.36), "font_size_pct": 0.010, "stroke_width_pct": 0.006},
-                    {"text": "RAC/RAV/HL4", "xy_pct": (0.34, 0.55), "font_size_pct": 0.010, "stroke_width_pct": 0.006},
-                    {"text": "CDSIP_SPO_PL", "xy_pct": (0.14, 0.41), "font_size_pct": 0.022, "stroke_width_pct": 0.006},
-                    {"text": "CDSIP_SPO_JG", "xy_pct": (0.14, 0.58), "font_size_pct": 0.022, "stroke_width_pct": 0.006},
+                    {"text": "Roteador OP", "xy_pct": cfg["r1"], "font_size_pct": cfg["rfp"], "stroke_width_pct": cfg["rsp"]},
+                    {"text": "Roteador OP", "xy_pct": cfg["r2"], "font_size_pct": cfg["rfp"], "stroke_width_pct": cfg["rsp"]},
+                    {"text": "Link resp Vivo", "xy_pct": cfg["lvxy"], "font_size_pct": cfg["lfsz"], "stroke_width_pct": 0.006},
+                    {"text": f"Link resp {n}", "xy_pct": cfg["loxy"], "font_size_pct": cfg["lfsz"], "stroke_width_pct": 0.006},
+                    {"text": "RAC/RAV/HL4", "xy_pct": (0.34, 0.39), "font_size_pct": 0.010, "stroke_width_pct": 0.006},
+                    {"text": "RAC/RAV/HL4", "xy_pct": (0.34, 0.58), "font_size_pct": 0.010, "stroke_width_pct": 0.006},
+                    {"text": "CDSIP_SPO_PL", "xy_pct": (0.16, 0.60), "font_size_pct": 0.022, "stroke_width_pct": 0.006},
+                    {"text": "CDSIP_SPO_JG", "xy_pct": (0.16, 0.72), "font_size_pct": 0.022, "stroke_width_pct": 0.006},
+                    # Títulos acima das nuvens (não mais dentro delas)
+                    {"text": "VIVO", "xy_pct": (0.16, 0.30), "font_size_pct": 0.035, "stroke_width_pct": 0.008},
+                    {"text": n,      "xy_pct": (0.83, 0.30), "font_size_pct": 0.035, "stroke_width_pct": 0.008},
                 ]
                 if pl_block:
-                    row_labels.append({"text": pl_block, "xy_pct": (0.14, 0.45), "font_size_pct": 0.018, "stroke_width_pct": 0.004})
+                    row_labels.append({"text": pl_block, "xy_pct": (0.16, 0.66), "font_size_pct": 0.018, "stroke_width_pct": 0.004})
                 if jg_block:
-                    row_labels.append({"text": jg_block, "xy_pct": (0.14, 0.62), "font_size_pct": 0.018, "stroke_width_pct": 0.004})
-                if endereco_vivo:
-                    row_labels.append({"text": endereco_vivo, "xy_pct": (0.14, 0.72), "font_size_pct": 0.020, "stroke_width_pct": 0.005})
-                ip_text = faixa_ip_op or endereco_op
-                if ip_text:
-                    row_labels.append({"text": ip_text, "xy_pct": (0.83, 0.72), "font_size_pct": 0.020, "stroke_width_pct": 0.005})
+                    row_labels.append({"text": jg_block, "xy_pct": (0.16, 0.78), "font_size_pct": 0.018, "stroke_width_pct": 0.004})
+                # IP da rede reservada IPAM (sem endereco_vivo, sem faixa_ip_op ou endereco_op)
+                if ip_op_base:
+                    row_labels.append({"text": ip_op_base, "xy_pct": (0.83, 0.66), "font_size_pct": 0.020, "stroke_width_pct": 0.005})
                 if cn_val:
                     cn_img_text = f"CN {cn_val}" + (f" — {cn_cidade}/{cn_uf}" if cn_cidade else "")
                     row_labels.append({"text": cn_img_text, "xy_pct": (0.50, 0.08), "font_size_pct": 0.028, "stroke_width_pct": 0.007})
                 try:
                     ann = render_labels_on_image(
-                        image_path=cfg["img"], vivo_text="VIVO", operator_text=n,
+                        image_path=cfg["img"], vivo_text="", operator_text="",
                         vivo_xy_pct=cfg["vxy"], operator_xy_pct=cfg["oxy"],
                         font_path=cfg["fp"], font_size_pct=cfg["fsz"],
                         stroke_width_pct=0.009, extra_labels=row_labels,
