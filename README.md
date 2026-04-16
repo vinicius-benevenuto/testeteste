@@ -341,9 +341,8 @@ class PTIWorkbookBuilder:
 
     def _apply_outer_border(self, ws, r1: int, c1: int, r2: int, c2: int) -> None:
         """Aplica borda externa média/preta em volta de um range de células."""
-        s = self.s
-        med = s.outer_border.left  # Side medium black
         from openpyxl.styles import Border
+        med = self.s.outer_border.left
         for r in range(r1, r2 + 1):
             for c in range(c1, c2 + 1):
                 cell = ws.cell(row=r, column=c)
@@ -355,66 +354,84 @@ class PTIWorkbookBuilder:
 
     def _border_all_tables(self, ws) -> None:
         """
-        Varre a planilha inteira e aplica outer_border em cada bloco contíguo
-        de células com conteúdo ou borda interna já definida.
-        Agrupa células adjacentes na mesma faixa de colunas em um único bloco.
+        Aplica outer_border em volta de cada bloco de células com conteúdo.
+        Usa bounding box conservador: expande o bloco enquanto houver ao menos
+        uma célula com conteúdo na linha, sem dividir por linhas internas vazias.
         """
         from openpyxl.styles import Border
         med = self.s.outer_border.left
-
-        # Coletar todas as linhas que têm ao menos uma célula com conteúdo/borda
         max_row = ws.max_row or 1
         max_col = ws.max_column or 1
 
-        # Detectar faixas de linhas contíguas com conteúdo por faixa de colunas
-        # Estratégia simples: para cada linha, se tiver células com fill não-branco
-        # ou com conteúdo, marcar como "ativa"
-        active = set()
-        for r in range(1, max_row + 1):
+        def row_has_content(r):
             for c in range(1, max_col + 1):
                 cell = ws.cell(row=r, column=c)
-                has_content = cell.value is not None and str(cell.value).strip() != ""
-                has_border  = cell.border and (
-                    (cell.border.left  and cell.border.left.style)  or
-                    (cell.border.right and cell.border.right.style) or
-                    (cell.border.top   and cell.border.top.style)   or
-                    (cell.border.bottom and cell.border.bottom.style)
-                )
-                if has_content or has_border:
-                    active.add((r, c))
+                if cell.value is not None and str(cell.value).strip():
+                    return True
+                b = cell.border
+                if b and (
+                    (b.left   and b.left.style)   or (b.right  and b.right.style) or
+                    (b.top    and b.top.style)     or (b.bottom and b.bottom.style)
+                ):
+                    return True
+            return False
 
-        if not active:
-            return
-
-        # Encontrar bounding box de todas as células ativas
-        rows = [r for r, c in active]
-        cols = [c for r, c in active]
-        r_min, r_max = min(rows), max(rows)
-        c_min, c_max = min(cols), max(cols)
-
-        # Detectar blocos separados por linhas em branco
-        # Um bloco termina quando uma linha inteira [c_min..c_max] não tem células ativas
+        # Encontrar primeiro e último bloco contíguo de conteúdo,
+        # tolerando até 2 linhas vazias internas antes de fechar o bloco
         blocks = []
         block_start = None
-        for r in range(r_min, r_max + 1):
-            row_active = any((r, c) in active for c in range(c_min, c_max + 1))
-            if row_active and block_start is None:
-                block_start = r
-            elif not row_active and block_start is not None:
-                blocks.append((block_start, r - 1, c_min, c_max))
-                block_start = None
-        if block_start is not None:
-            blocks.append((block_start, r_max, c_min, c_max))
+        empty_streak = 0
+        TOLERANCE = 2  # linhas vazias consecutivas permitidas dentro de um bloco
 
-        # Aplicar outer_border em cada bloco
-        for br1, br2, bc1, bc2 in blocks:
+        for r in range(1, max_row + 1):
+            if row_has_content(r):
+                if block_start is None:
+                    block_start = r
+                empty_streak = 0
+            else:
+                if block_start is not None:
+                    empty_streak += 1
+                    if empty_streak > TOLERANCE:
+                        blocks.append((block_start, r - empty_streak))
+                        block_start = None
+                        empty_streak = 0
+
+        if block_start is not None:
+            last = max_row
+            while last > block_start and not row_has_content(last):
+                last -= 1
+            blocks.append((block_start, last))
+
+        if not blocks:
+            return
+
+        # Determinar colunas ativas para cada bloco
+        for br1, br2 in blocks:
+            min_c, max_c = max_col, 1
             for r in range(br1, br2 + 1):
-                for c in range(bc1, bc2 + 1):
+                for c in range(1, max_col + 1):
                     cell = ws.cell(row=r, column=c)
-                    left   = med if c == bc1 else cell.border.left
-                    right  = med if c == bc2 else cell.border.right
-                    top    = med if r == br1 else cell.border.top
-                    bottom = med if r == br2 else cell.border.bottom
+                    has_val = cell.value is not None and str(cell.value).strip()
+                    b = cell.border
+                    has_bdr = b and (
+                        (b.left and b.left.style) or (b.right and b.right.style) or
+                        (b.top  and b.top.style)  or (b.bottom and b.bottom.style)
+                    )
+                    if has_val or has_bdr:
+                        min_c = min(min_c, c)
+                        max_c = max(max_c, c)
+
+            if min_c > max_c:
+                continue
+
+            # Aplicar outer_border
+            for r in range(br1, br2 + 1):
+                for c in range(min_c, max_c + 1):
+                    cell = ws.cell(row=r, column=c)
+                    left   = med if c == min_c else cell.border.left
+                    right  = med if c == max_c else cell.border.right
+                    top    = med if r == br1   else cell.border.top
+                    bottom = med if r == br2   else cell.border.bottom
                     cell.border = Border(left=left, right=right, top=top, bottom=bottom)
 
     # =========================================================================
