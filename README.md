@@ -1,1474 +1,973 @@
-"""excel/builder.py — Builder do Workbook Excel do PTI."""
-import json
-import logging
-import os
-import re
-from collections import defaultdict
-from datetime import datetime
-from typing import Optional
-
-from openpyxl import Workbook
-from openpyxl.drawing.image import Image as XLImage
-from openpyxl.styles import Alignment, Font
-from openpyxl.utils import get_column_letter
-
-try:
-    from PIL import Image as PILImage
-    PIL_AVAILABLE = True
-except ImportError:
-    PIL_AVAILABLE = False
-
-from config import (
-    CN_METADATA,
-    DEFAULT_DIAGRAM_IMAGE,
-    IPAM_DEFAULT_POOL,
-    IPAM_MASK_POOL_MAP,
-    IPAM_PASS,
-    IPAM_USER,
-    MAX_TABLE_ROWS,
-    UF_NEIGHBORS,
-    UF_TO_REGIONAL,
-)
-from excel.image_utils import (
-    fit_size_keep_aspect,
-    parse_xy_percent,
-    render_labels_on_image,
-)
-from excel.styles import ExcelStylePalette
-from helpers import parse_db_datetime, row_get
-from ipam import IPAMClient
-
-logger = logging.getLogger(__name__)
-
-
-class PTIWorkbookBuilder:
-    """Builder para Workbook Excel do PTI."""
-
-    def __init__(self, form_row, sbc_analyzer=None) -> None:
-        from openpyxl import Workbook as _WB  # noqa – garante que openpyxl está disponível
-        if not PIL_AVAILABLE:
-            raise RuntimeError("Pillow não instalado.")
-
-        self.form = form_row
-        self.sbc_analyzer = sbc_analyzer
-        self.s = ExcelStylePalette()
-        self.wb = Workbook()
-        self.nome = (row_get(form_row, "nome_operadora") or "Operadora").strip()
-        self.resp_atk = (
-            row_get(form_row, "responsavel_atacado")
-            or row_get(form_row, "responsavel_vivo")
-            or ""
-        ).strip()
-        self.resp_eng = (row_get(form_row, "responsavel_engenharia", "") or "").strip()
-        self.asn_op   = (row_get(form_row, "asn", "") or "").strip()
-
-        cdt = parse_db_datetime(row_get(form_row, "created_at", ""))
-        self.created_str = cdt.strftime("%d/%m/%Y") if cdt else ""
-
-        self.traffic      = self._extract_traffic()
-        self.escopo_text  = (row_get(form_row, "escopo_text", "") or "").strip()
-
-        if self.traffic:
-            flags_str = " | ".join(self.traffic)
-            self.escopo_completo = (
-                f"{self.escopo_text} [{flags_str}]" if self.escopo_text else flags_str
-            )
-        else:
-            self.escopo_completo = self.escopo_text
-
-        self.vivo_rows = self._extract_vivo_rows()
-        self.op_rows   = self._extract_op_rows()
-        self.ipam_reservas: dict[str, str] = {}   # cn → rede reservada (ex: "10.1.1.0/28")
-        self.reserva_redes_ipam(self.vivo_rows)
-
-        cns_vivo = self._unique_field(self.vivo_rows, "cn")
-        cns_op   = self._unique_field(self.op_rows,   "cn")
-        self.cns_unicos = list(dict.fromkeys(cns_vivo + cns_op))
-
-        areas_vivo = self._unique_field(self.vivo_rows, "cidade")
-        areas_op   = self._unique_field(self.op_rows,   "cidade")
-        self.areas_locais = list(dict.fromkeys(areas_vivo + areas_op))
-
-        self.rn1              = (row_get(form_row, "rn1", "") or "").strip()
-        self.csp              = bool(int(row_get(form_row, "csp", 0) or 0))
-        self.cng              = bool(int(row_get(form_row, "cng", 0) or 0))
-        self.servicos_especiais = bool(int(row_get(form_row, "servicos_especiais", 0) or 0))
-
-        all_rows = self.vivo_rows + self.op_rows
-        eot_lc = [r.get("eto_lc", "") for r in all_rows if r.get("eto_lc", "").strip()]
-        eot_ld = [r.get("eot_ld", "") for r in all_rows if r.get("eot_ld", "").strip()]
-        self.eot_local = ", ".join(eot_lc) if eot_lc else ""
-        self.eot_ld    = ", ".join(eot_ld) if eot_ld else ""
-
-    # =========================================================================
-    # RESERVA IPAM
-    # =========================================================================
-    def reserva_redes_ipam(self, vivo_rows: list[dict]) -> None:
-        if not IPAM_USER or not IPAM_PASS:
-            logger.warning("Credenciais IPAM não configuradas. Reserva ignorada.")
-            return
-        rn1_val   = (row_get(self.form, "rn1", "") or "").strip()
-        nome_op   = (row_get(self.form, "nome_operadora", "") or "Operadora").strip()
-        num = max(len(vivo_rows), len(self.op_rows))
-        for i in range(num):
-            vr        = vivo_rows[i]    if i < len(vivo_rows)    else {}
-            opr       = self.op_rows[i] if i < len(self.op_rows) else {}
-            cn_usuario = vr.get("cn", "") or opr.get("cn", "")
-            mask_alvo  = opr.get("mask", "") or vr.get("mask", "")
-            if not cn_usuario or not mask_alvo:
-                continue
-            # Descrição: RN1-XXXX - Nome da Operadora
-            descricao = f"{rn1_val} - {nome_op}" if rn1_val else nome_op
-            nome_pool = IPAM_MASK_POOL_MAP.get(mask_alvo, IPAM_DEFAULT_POOL)
-            logger.info("Reserva IPAM | CN: %s | /%s | Pool: %s | Desc: %s",
-                        cn_usuario, mask_alvo, nome_pool, descricao)
-            cliente = IPAMClient(IPAM_USER, IPAM_PASS)
-            try:
-                cliente.autenticar()
-                id_cn   = cliente.buscar_id_cn(cn_usuario)
-                id_pool = cliente.buscar_id_pool(id_cn, nome_pool)
-                cliente.buscar_rede_pai(id_cn, id_pool, mask_alvo)
-                nova_rede = cliente.reservar_rede(id_pool, mask_alvo, descricao)
-                # nova_rede é um dict ou string retornado pela API; extrair o CIDR
-                if isinstance(nova_rede, dict):
-                    subnet  = nova_rede.get("subnet", "") or nova_rede.get("network", "") or ""
-                    mask_nr = nova_rede.get("mask", "") or nova_rede.get("prefix", "") or mask_alvo
-                    cidr    = f"{subnet}/{mask_nr}" if subnet else ""
-                else:
-                    cidr = str(nova_rede).strip() if nova_rede else ""
-                if cidr and cn_usuario not in self.ipam_reservas:
-                    self.ipam_reservas[cn_usuario] = cidr
-                logger.info("Reserva concluída: %s → CIDR armazenado: %s", nova_rede, cidr)
-            except (ValueError, RuntimeError) as exc:
-                logger.error("Falha IPAM CN '%s': %s", cn_usuario, exc)
-
-    # =========================================================================
-    # EXTRAÇÃO DE DADOS
-    # =========================================================================
-    def _extract_vivo_rows(self) -> list[dict]:
-        # 'mask' mantido como campo legado para compatibilidade com dados antigos
-        # (o campo foi movido para Dados Operadora, mas registros antigos ainda têm mask aqui)
-        keys = ("ref", "data", "escopo", "localidade", "cn", "bloco_ip", "id_vivo",
-                "mask", "endereco_link", "cidade", "uf", "lat", "long")
-        return self._extract_rows("dados_vivo_json", keys)
-
-    def _extract_op_rows(self) -> list[dict]:
-        keys = ("ref", "localidade", "eto_lc", "eot_ld", "cn", "sbc", "faixa_ip",
-                "mask", "id_op", "endereco_link", "cidade", "uf", "lat", "long")
-        return self._extract_rows("dados_operadora_json", keys)
-
-    def _extract_rows(self, field: str, keys: tuple) -> list[dict]:
-        raw = row_get(self.form, field, "[]")
-        try:
-            d = json.loads(raw) if isinstance(raw, str) else raw
-            if not isinstance(d, list):
-                return []
-            rows = []
-            for item in d:
-                if not isinstance(item, dict):
-                    continue
-                row = {k: str(item.get(k, "")).strip() for k in keys}
-                if any(row.values()):
-                    rows.append(row)
-            return rows[:MAX_TABLE_ROWS]
-        except Exception:
-            return []
-
-    def _extract_traffic(self) -> list[str]:
-        raw = row_get(self.form, "escopo_flags_json", "[]")
-        try:
-            p = json.loads(raw) if isinstance(raw, str) else raw
-            return [str(x).strip() for x in (p if isinstance(p, list) else []) if str(x).strip()]
-        except Exception:
-            return []
-
-    def _unique_field(self, rows: list[dict], field: str) -> list[str]:
-        seen: list[str] = []
-        for r in rows:
-            v = r.get(field, "").strip()
-            if v and v not in seen:
-                seen.append(v)
-        return seen
-
-    # =========================================================================
-    # HELPERS DE PLANILHA
-    # =========================================================================
-    def _cw(self, ws, widths: dict) -> None:
-        for c, v in widths.items():
-            ws.column_dimensions[get_column_letter(c)].width = v
-
-    def _bh(self, ws, row: int, sc: int, ec: int) -> None:
-        ws.merge_cells(start_row=row, start_column=sc, end_row=row, end_column=ec)
-        c = ws.cell(row=row, column=sc, value=f"VIVO — {self.nome}")
-        c.font = self.s.font_title
-        c.alignment = self.s.align_center
-        c.fill = self.s.fill_primary
-        ws.row_dimensions[row].height = 24.0
-
-    def _st(self, ws, row: int, sc: int, ec: int, title: str) -> None:
-        ws.merge_cells(start_row=row, start_column=sc, end_row=row, end_column=ec)
-        c = ws.cell(row=row, column=sc, value=title)
-        c.font = self.s.font_subtitle
-        c.alignment = self.s.align_center
-        c.fill = self.s.fill_secondary
-        ws.row_dimensions[row].height = 25.0
-
-    def _ps(self, ws, *, ls: bool = False) -> None:
-        ws.sheet_view.showGridLines = False
-        ws.page_setup.paperSize = ws.PAPERSIZE_A4
-        ws.page_setup.orientation = (
-            ws.ORIENTATION_LANDSCAPE if ls else ws.ORIENTATION_PORTRAIT
-        )
-        ws.print_options.horizontalCentered = True
-        ws.page_margins.left = ws.page_margins.right = 0.4
-        ws.page_margins.top  = ws.page_margins.bottom = 0.5
-
-    def _ca(self, ws, r1: int, r2: int, c1: int, c2: int) -> None:
-        s = self.s
-        for r in range(r1, r2 + 1):
-            for c in range(c1, c2 + 1):
-                ws.cell(row=r, column=c).fill   = s.fill_white
-                ws.cell(row=r, column=c).border = s.no_border
-
-    def _diagram_cfg(self) -> dict:
-        f = self.form
-
-        def _fl(k, d):
-            try:
-                return float(row_get(f, k, d))
-            except (ValueError, TypeError):
-                return d
-
-        def _it(k, d):
-            try:
-                return int(float(row_get(f, k, d)))
-            except (ValueError, TypeError):
-                return d
-
-        ns = str(row_get(f, "roteador_op_no_stroke", "")).lower() in ("1", "true", "yes", "sim")
-        rs = 0.0 if ns else 0.009
-        ov = row_get(f, "roteador_op_stroke_width_pct", None)
-        if ov not in (None, ""):
-            try:
-                rs = float(ov)
-            except (ValueError, TypeError):
-                pass
-
-        return {
-            "img":  row_get(f, "diagram_image_path") or DEFAULT_DIAGRAM_IMAGE,
-            "vxy":  parse_xy_percent(row_get(f, "vivo_label_xy_pct", ""),      (0.16, 0.48)),
-            "oxy":  parse_xy_percent(row_get(f, "operadora_label_xy_pct", ""), (0.83, 0.44)),
-            "lvxy": parse_xy_percent(row_get(f, "link_vivo_label_xy_pct", ""), (0.49, 0.53)),
-            "loxy": parse_xy_percent(row_get(f, "link_op_label_xy_pct", ""),   (0.49, 0.35)),
-            "fsz":  _fl("diagram_font_size_pct",       0.040),
-            "lfsz": _fl("link_labels_font_size_pct",   0.030),
-            "fp":   row_get(f, "diagram_font_path", None),
-            "r1":   parse_xy_percent(row_get(f, "roteador_op1_label_xy_pct", ""), (0.64, 0.58)),
-            "r2":   parse_xy_percent(row_get(f, "roteador_op2_label_xy_pct", ""), (0.64, 0.39)),
-            "rfp":  _fl("roteador_op_font_size_pct", 0.010),
-            "rsp":  rs,
-            "bw":   _it("diagram_max_w",            1900),
-            "bh":   _it("diagram_max_h",            650),
-            "aro":  _it("diagram_anchor_row_offset", -3),
-            "aco":  _it("diagram_anchor_col_offset",  1),
-        }
-
-    # =========================================================================
-    # HELPERS DE CÁLCULO DE IP (SipRouter)
-    # =========================================================================
-    @staticmethod
-    def _parse_cidr(block: str) -> tuple[list[str], str] | tuple[None, None]:
-        """'10.11.130.16/28' → (['10','11','130','16'], '28')"""
-        block = (block or "").strip()
-        if "/" not in block:
-            return None, None
-        ip, mask = block.split("/", 1)
-        parts = ip.strip().split(".")
-        if len(parts) != 4:
-            return None, None
-        return parts, mask.strip()
-
-    @staticmethod
-    def _add_last_octet(block: str, offset: int) -> str:
-        """'10.11.130.16/28' + 4 → '10.11.130.20/28'"""
-        parts, mask = PTIWorkbookBuilder._parse_cidr(block)
-        if parts is None:
-            return block
-        try:
-            new_last = int(parts[3]) + offset
-        except ValueError:
-            return block
-        return f"{'.'.join(parts[:3])}.{new_last}/{mask}"
-
-    @staticmethod
-    def _cidr_to_netmask(mask_str: str) -> str:
-        """'28' → '255.255.255.240'"""
-        try:
-            bits = int(mask_str)
-            val  = (0xFFFFFFFF >> (32 - bits)) << (32 - bits)
-            return ".".join(str((val >> (8 * i)) & 0xFF) for i in range(3, -1, -1))
-        except (ValueError, TypeError):
-            return "255.255.255.240"
-
-    @staticmethod
-    def _ip_only(block: str) -> str:
-        """'10.11.130.20/28' → '10.11.130.20'"""
-        return block.split("/")[0].strip() if block and "/" in block else block
-
-    @staticmethod
-    def _extract_pl_jg(bloco_ip: str) -> tuple[str, str]:
-        """
-        'PL:10.11.130.16/28 / JG:10.11.131.16/28' → ('10.11.130.16/28', '10.11.131.16/28')
-        Aceita também formato sem prefixo (retorna mesmo valor para ambos).
-        """
-        pl = jg = ""
-        if not bloco_ip:
-            return pl, jg
-        for part in bloco_ip.split(" / "):
-            part = part.strip()
-            if part.upper().startswith("PL:"):
-                pl = part[3:].strip()
-            elif part.upper().startswith("JG:"):
-                jg = part[3:].strip()
-        # Fallback: sem prefixo PL/JG → usar o mesmo bloco para ambos
-        if not pl and not jg and bloco_ip.strip():
-            pl = jg = bloco_ip.strip()
-        return pl, jg
-
-    # =========================================================================
-    # MATCHING DE LINHAS
-    # =========================================================================
-    def _find_matching_op_row(self, cn: str, index: int) -> Optional[dict]:
-        if cn:
-            for op in self.op_rows:
-                if op.get("cn", "") == cn:
-                    return op
-        return self.op_rows[index] if index < len(self.op_rows) else None
-
-    def _find_matching_vivo_row(self, cn: str, index: int) -> dict:
-        if cn:
-            for vr in self.vivo_rows:
-                if vr.get("cn", "") == cn:
-                    return vr
-        return self.vivo_rows[index] if index < len(self.vivo_rows) else {}
-
-    # =========================================================================
-    # MAPEAMENTO DE TRÁFEGO
-    # =========================================================================
-    def _resolve_traffic_mapping(
-        self, traf_type: str, operadora: str, cn_vivo: str, cn_op: str
-    ) -> dict:
-        t       = traf_type.strip()
-        t_upper = t.upper()
-        op = operadora or "Operadora"
-        cv = cn_vivo or "CN"
-        co = cn_op   or "CN"
-
-        csp_match  = re.search(r'CSP\s*(\d{2})',    t, re.IGNORECASE)
-        rota_match = re.search(r'Rota\s+LD\s*(\d{2})', t, re.IGNORECASE)
-        xy = (
-            csp_match.group(1) if csp_match
-            else (rota_match.group(1) if rota_match else "XY")
-        )
-        sem_csp = bool(re.search(r's/\s*CSP', t, re.IGNORECASE))
-
-        # LC+TR / LC com AL
-        if "LC+TR" in t_upper or ("LC" in t_upper and "TR" in t_upper and "AL" in t_upper):
-            return {"enc_ab": f"LC: (9090) PREF-MCDU {op} do CN {cv}",
-                    "enc_ba": f"LC: (9090) PREF-MCDU VIVO do CN {cv}", "codec": "G711 / G729"}
-
-        # LC simples
-        if t_upper.strip() in ("LC",) or (
-            "LC" in t_upper and "LD" not in t_upper and "TR" not in t_upper
-            and "CSP" not in t_upper and "CNG" not in t_upper
-        ):
-            return {"enc_ab": f"LC: (9090) PREF-MCDU {op} do CN {cv}",
-                    "enc_ba": f"LC: (9090) PREF-MCDU VIVO do CN {cv}", "codec": "G711 / G729"}
-
-        # LD15 + CNG (VIVO)
-        if "CSP" in t_upper and xy == "15" and "CNG" in t_upper and "VIVO" in t_upper:
-            return {"enc_ab": f"LD: (9)01511 PREF-MCDU - NUM B do CN {cv}",
-                    "enc_ba": (f"LD: (9) 015 {co} PREF-MCDU / LDI: 0015 (***)\n"
-                               f"CNG VIVO: 08XX 03XX 05XX 09XX (10-11 dig) (***)\n"
-                               f"SE: 10315/10615"), "codec": "G711 / G729"}
-
-        # LD15 + CNG genérico
-        if ("LD15" in t_upper or ("LD" in t_upper and "15" in t_upper)) and "CNG" in t_upper:
-            return {"enc_ab": f"LD: (9)01511 PREF-MCDU - NUM B do CN {cv}",
-                    "enc_ba": (f"LD: (9) 015 {co} PREF-MCDU / LDI: 0015 (***)\n"
-                               f"CNG VIVO: 08XX 03XX 05XX 09XX (10-11 dig)"),
-                    "codec": "G711 / G729"}
-
-        # LDS/CSP + CNG
-        if "CSP" in t_upper and "CNG" in t_upper and "TRANSP" not in t_upper and not sem_csp:
-            return {"enc_ab": (f"LD: (9)0 {xy} {co} PREF-MCDU / LDI: 00 {xy} (***)\n"
-                               f"CNG VIVO: 08XX 03XX 05XX 09XX (10-11 dig) (***)\n"
-                               f"SE: 103{xy} / 106{xy}"),
-                    "enc_ba": f"LD: (9)0+{xy}+{co} PREF-MCDU - NUM B do CN {cv}",
-                    "codec": "G711 / G729"}
-
-        # LD s/ CSP
-        if "LD" in t_upper and "S/" in t_upper and "CSP" in t_upper and "TRANSP" not in t_upper:
-            return {"enc_ab": "CNG: 08XX 03XX 05XX 09XX (10-11 dig)",
-                    "enc_ba": f"LD: (9)0+{co} PREF-MCDU - NUM B do CN {cv}", "codec": "G711 / G729"}
-
-        # Transporte + CSP + CNG
-        if "TRANSP" in t_upper and "CSP" in t_upper and "CNG" in t_upper:
-            return {"enc_ab": "CNG: 08XX 03XX 05XX 09XX (10-11 dig) (**)",
-                    "enc_ba": f"LD: (9)0+{xy}+{co} PREF-MCDU - No. B diferente do CN {cv}",
-                    "codec": "G711 / G729"}
-
-        if "TRANSP" in t_upper and "LD" in t_upper and "S/" in t_upper:
-            return {"enc_ab": "CNG: 08XX 03XX 05XX 09XX (10-11 dig) (**)",
-                    "enc_ba": f"LD: (9)0+{co} PREF-MCDU No. B diferente do CN {cv}",
-                    "codec": "G711 / G729"}
-
-        # Transporte simples
-        if "TRANSP" in t_upper:
-            return {"enc_ab": f"Transporte de {op} — qualquer CN de origem",
-                    "enc_ba": f"Transporte VIVO — qualquer CN de destino",
-                    "codec": "G711 / G729"}
-
-        # Concentração
-        if "CONCENTR" in t_upper:
-            return {"enc_ab": f"CONC: {cv} — encaminhamento concentrado para CN {cv}",
-                    "enc_ba": f"CONC: {co} — encaminhamento concentrado para CN {co}",
-                    "codec": "G711 / G729"}
-
-        # VC1 com Rota LD
-        if "VC1" in t_upper and "ROTA" in t_upper and "LD" in t_upper:
-            return {"enc_ab": f"LD: (9) 0 {xy} {cv} PREF-MCDU do CN {cv} No de B VIVO",
-                    "enc_ba": f"LD: (9) 0 {xy} {co} PREF-MCDU - CN{cv}  No de B VIVO",
-                    "codec": "G-711 / AMR"}
-
-        # VC1 simples
-        if "VC1" in t_upper:
-            return {"enc_ab": f"LC: (9) 0{cv} PREF-MCDU - CN {cv}",
-                    "enc_ba": f"LC: (9) 0{co} PREF-MCDU - CN{cv} - SE: 1058",
-                    "codec": "G-711 / AMR"}
-
-        return {"enc_ab": "", "enc_ba": "", "codec": ""}
-
-    # =========================================================================
-    # SBC RESOLVER (via dados XLSX)
-    # =========================================================================
-    def _resolve_sbc_for_uf(self, uf: str, cidade: str = "") -> Optional[dict]:
-        if not self.sbc_analyzer or not uf:
-            return None
-        uf = uf.strip().upper()
-        try:
-            measurements, _ = self.sbc_analyzer.processor.get_data()
-        except Exception:
-            return None
-        if not measurements:
-            return None
-
-        uf_m = [m for m in measurements if m.uf == uf]
-        fallback_label = ""
-
-        if not uf_m:
-            for n_uf in UF_NEIGHBORS.get(uf, []):
-                uf_m = [m for m in measurements if m.uf == n_uf]
-                if uf_m:
-                    fallback_label = f"(vizinho: {n_uf})"
-                    break
-
-        if not uf_m:
-            regional = UF_TO_REGIONAL.get(uf, "")
-            if regional:
-                regional_ufs = [u for u, r in UF_TO_REGIONAL.items() if r == regional]
-                uf_m = [m for m in measurements if m.uf in regional_ufs]
-                if uf_m:
-                    fallback_label = f"(regional: {regional})"
-
-        if not uf_m:
-            return None
-
-        groups: dict[str, list] = defaultdict(list)
-        for m in uf_m:
-            groups[m.sbc].append(m)
-
-        cidade_norm = cidade.strip().upper() if cidade else ""
-        if cidade_norm:
-            for sbc_name, ms in groups.items():
-                for m in ms:
-                    if m.cidade.strip().upper() == cidade_norm:
-                        caps = [x.caps for x in ms]
-                        return {
-                            "nome": sbc_name, "cidade": ms[0].cidade, "uf": ms[0].uf,
-                            "caps_avg": round(sum(caps) / len(caps), 1),
-                            "status": ms[0].status, "modelo": ms[0].modelo,
-                            "total_medicoes": len(ms), "fallback": fallback_label,
-                        }
-
-        best = max(groups, key=lambda k: len(groups[k]))
-        ms = groups[best]
-        caps = [x.caps for x in ms]
-        return {
-            "nome": best, "cidade": ms[0].cidade, "uf": ms[0].uf,
-            "caps_avg": round(sum(caps) / len(caps), 1),
-            "status": ms[0].status, "modelo": ms[0].modelo,
-            "total_medicoes": len(ms), "fallback": fallback_label,
-        }
-
-    # =========================================================================
-    # ABA: ÍNDICE
-    # =========================================================================
-    def _b_index(self) -> None:
-        s  = self.s
-        ws = self.wb.active
-        ws.title = "Índice"
-
-        for c in range(1, 10):
-            ws.column_dimensions[get_column_letter(c)].width = 12.0
-        ws.column_dimensions["C"].width = 8.0
-        ws.column_dimensions["D"].width = 45.0
-
-        self._bh(ws, 2, 3, 8)
-        ws.row_dimensions[2].height = 28.0
-
-        ws.merge_cells(start_row=4, start_column=3, end_row=4, end_column=8)
-        c = ws.cell(row=4, column=3, value="ANEXO 3: PROJETO TÉCNICO")
-        c.font = s.font_subtitle; c.alignment = s.align_center; c.fill = s.fill_secondary
-
-        ws.merge_cells(start_row=5, start_column=3, end_row=5, end_column=8)
-        c = ws.cell(row=5, column=3,
-                    value="PROJETO DE INTERLIGAÇÃO PARA ENCAMINHAMENTO DA TERMINAÇÃO DE CHAMADAS DE VOZ")
-        c.font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
-        c.alignment = s.align_center; c.fill = s.fill_secondary
-        ws.row_dimensions[5].height = 30.0
-
-        items = [
-            "1. Versões", "2. Projeto de Interligação",
-            "2.2. Diagrama de Interligação",
-            "2.3. Características do Projeto de Interligação e do Plano de Encaminhamento",
-            "2.4. Plano de Contingência", "2.5. Concentração",
-            "2.6. Plan NUM_Operadora", "2.7. Dados de MTL",
-            "2.8. SE REG III (Vivo STFC Concessionária)", "2.9. Parâmetros de Programação",
-        ]
-        for i, t in enumerate(items):
-            r = 7 + i
-            ws.merge_cells(start_row=r, start_column=3, end_row=r, end_column=8)
-            c = ws.cell(row=r, column=3, value=t)
-            c.font = Font(name="Calibri", size=11)
-            c.alignment = s.align_left; c.fill = s.alt_fill(i)
-            ws.row_dimensions[r].height = 22.0
-
-        ws.freeze_panes = "C7"
-        self._ps(ws)
-
-    # =========================================================================
-    # ABA: VERSÕES
-    # =========================================================================
-    def _b_versions(self) -> None:
-        s  = self.s
-        ws = self.wb.create_sheet(title="Versões")
-        self._cw(ws, {1:2,2:2,3:8,4:12,5:28,6:28,7:28,8:10,9:18,10:10,11:2})
-        self._bh(ws, 2, 3, 10)
-        self._st(ws, 4, 3, 10, "CONTROLE DE VERSÕES DO PTI")
-
-        for i, t in enumerate([
-            "Versão", "Data", "Responsável Eng de ITX",
-            "Responsável Gestão de ITX", "Escopo", "CN", "ÁREAS LOCAIS", "ATA",
-        ]):
-            c = ws.cell(row=6, column=3 + i, value=t)
-            c.font = Font(name="Calibri", size=9, bold=True, color="FFFFFF")
-            c.alignment = s.align_center; c.fill = s.fill_light
-        ws.row_dimensions[6].height = 25.0
-
-        fd = {
-            4: self.created_str, 5: self.resp_eng, 6: self.resp_atk,
-            7: self.escopo_completo,
-            8: ", ".join(self.cns_unicos)   if self.cns_unicos   else "",
-            9: ", ".join(self.areas_locais) if self.areas_locais else "",
-        }
-        r = 7; ws.row_dimensions[r].height = 22.0; f = s.alt_fill(0)
-        c = ws.cell(row=r, column=3, value=1)
-        c.fill = f; c.font = s.font_body; c.alignment = s.align_center
-
-        for col in range(4, 11):
-            cell = ws.cell(row=r, column=col, value=fd.get(col, ""))
-            cell.font = s.font_body; cell.fill = f
-            cell.alignment = (
-                Alignment(horizontal="center", vertical="center", wrap_text=True)
-                if col in (7, 9) else s.align_center
-            )
-        ws.freeze_panes = "C7"
-        self._ps(ws, ls=True)
-
-    # =========================================================================
-    # ABA: DIAGRAMA
-    # =========================================================================
-    def _b_diagram(self) -> None:
-        s   = self.s
-        ws  = self.wb.create_sheet(title="Diagrama de Interligação")
-        cfg = self._diagram_cfg()
-        n   = self.nome
-
-        source_rows    = self.vivo_rows if self.vivo_rows else self.op_rows
-        num_blocks     = max(1, len(source_rows))
-        is_vivo_source = bool(self.vivo_rows)
-        LC, RC, MID    = 3, 14, 9
-
-        col_widths = {1: 2.0, 2: 2.0, 15: 2.0}
-        for c in range(LC, RC + 1):
-            col_widths[c] = 12.0
-        self._cw(ws, col_widths)
-
-        # Cabeçalho global
-        self._bh(ws, 2, LC, RC)
-        for r_row, t, bold in [
-            (4,  f"Diagrama de Interligação entre a VIVO e a {n}", True),
-            (6,  "2.2.1 DIAGRAMAÇÃO DO PROJETO SIP", True),
-            (7,  "2.2.1.1 Anúncio de Redes pelos 2 Links SPC", True),
-            (8,  f"A {n} abordará os endereços da VIVO conforme abaixo.", False),
-            (9,  f"A VIVO abordará os endereços da {n} conforme abaixo.", False),
-            (11, "2.2.1.2 Parâmetros de Configuração do Link", True),
-        ]:
-            ws.merge_cells(start_row=r_row, start_column=LC, end_row=r_row, end_column=RC)
-            c = ws.cell(row=r_row, column=LC, value=t)
-            c.font = Font(name="Calibri", size=11 if bold else 10, bold=bold)
-            c.alignment = s.align_left if bold else s.align_wrap
-            ws.row_dimensions[r_row].height = 22.0 if bold else 25.0
-
-        for o, label, val in [(0, "ASN VIVO", "10429 (Público)"), (1, f"ASN {n}", self.asn_op)]:
-            rr = 12 + o
-            ws.merge_cells(start_row=rr, start_column=LC, end_row=rr, end_column=LC+2)
-            ws.cell(row=rr, column=LC, value=label).font = Font(name="Calibri", size=10, bold=True)
-            ws.cell(row=rr, column=LC).alignment = s.align_center
-            ws.merge_cells(start_row=rr, start_column=LC+3, end_row=rr, end_column=LC+5)
-            ws.cell(row=rr, column=LC+3, value=val).font = s.font_body
-            ws.cell(row=rr, column=LC+3).alignment = s.align_center
-
-        traffic_items = [t for t in self.traffic if t]
-        num_traffic   = max(len(traffic_items), 3)
-        cursor        = 15
-
-        for b_idx in range(num_blocks):
-            src_row = source_rows[b_idx] if b_idx < len(source_rows) else {}
-
-            if is_vivo_source:
-                vivo_row = src_row
-                op_row   = self._find_matching_op_row(src_row.get("cn", ""), b_idx)
-            else:
-                op_row   = src_row
-                vivo_row = self._find_matching_vivo_row(src_row.get("cn", ""), b_idx)
-
-            cn_val        = vivo_row.get("cn", "") or (op_row.get("cn", "") if op_row else "")
-            mask_val      = (op_row.get("mask", "") if op_row else "") or vivo_row.get("mask", "") or ""
-            endereco_vivo = vivo_row.get("endereco_link", "") or ""
-            bloco_ip_vivo = vivo_row.get("bloco_ip", "") or ""
-            pl_block, jg_block = self._extract_pl_jg(bloco_ip_vivo)
-            endereco_op   = (op_row.get("endereco_link", "") if op_row else "") or ""
-            faixa_ip_op   = (op_row.get("faixa_ip", "")      if op_row else "") or ""
-
-            cn_meta  = CN_METADATA.get(cn_val.zfill(2), ("", "")) if cn_val else ("", "")
-            cn_cidade, cn_uf = cn_meta
-
-            def _gap(row, start, end):
-                for gc in range(start, end):
-                    ws.cell(row=row, column=gc).fill   = s.fill_white
-                    ws.cell(row=row, column=gc).border = s.no_border
-
-            # Linha CN + VRF
-            r = cursor
-            cn_label = f"CN {cn_val}" + (f" — {cn_cidade}/{cn_uf}" if cn_cidade else "")
-            ws.merge_cells(start_row=r, start_column=LC, end_row=r, end_column=LC+4)
-            c = ws.cell(row=r, column=LC, value=cn_label if cn_val else "CN ___")
-            c.font = Font(name="Calibri", size=10, bold=True, color="FFFFFF")
-            c.alignment = s.align_center; c.fill = s.fill_light
-            ws.merge_cells(start_row=r, start_column=MID, end_row=r, end_column=RC)
-            c2 = ws.cell(row=r, column=MID, value="VRF: __________________________")
-            c2.font = Font(name="Calibri", size=10, bold=True, color="FFFFFF")
-            c2.alignment = s.align_center; c2.fill = s.fill_light
-            ws.row_dimensions[r].height = 25.0
-            _gap(r, LC+5, MID)
-            cursor += 2
-
-            # Ponta A / B
-            r = cursor
-            for sc, ec, label, valor in [
-                (LC, LC+4, "Ponta A", "VIVO"), (MID, RC, "Ponta B", n)
-            ]:
-                ws.merge_cells(start_row=r, start_column=sc, end_row=r, end_column=ec)
-                ws.cell(row=r, column=sc, value=label).font = Font(name="Calibri", size=10, bold=True)
-                ws.cell(row=r, column=sc).alignment = s.align_center
-                ws.cell(row=r, column=sc).fill = s.fill_neutral
-                ws.merge_cells(start_row=r+1, start_column=sc, end_row=r+1, end_column=ec)
-                ws.cell(row=r+1, column=sc, value=valor).font = Font(name="Calibri", size=10, bold=True)
-                ws.cell(row=r+1, column=sc).alignment = s.align_center
-            ws.row_dimensions[r].height = ws.row_dimensions[r+1].height = 22.0
-            for rr in (r, r+1):
-                _gap(rr, LC+5, MID)
-            cursor += 3
-
-            # ── CDSIP_SPO_PL / CDSIP_SPO_JG ──────────────────────────────
-            r = cursor
-            for lc, label, bloco in [
-                (LC,  "CDSIP_SPO_PL", pl_block),
-                (MID, "CDSIP_SPO_JG", jg_block),
-            ]:
-                ws.merge_cells(start_row=r, start_column=lc, end_row=r, end_column=lc+4)
-                val = f"{label}: {bloco}" if bloco else f"{label}: ___"
-                ws.cell(row=r, column=lc, value=val).font = Font(
-                    name="Calibri", size=9, bold=True)
-                ws.cell(row=r, column=lc).alignment = s.align_center
-            ws.row_dimensions[r].height = 20.0
-            _gap(r, LC+5, MID)
-            cursor += 1
-
-            # ── Cabeçalhos de tráfego ──────────────────────────────────────
-            r = cursor
-            for lc_start in (LC, MID):
-                for i, h in enumerate(["Tráfego", "Endereço IP", "NET MASK"]):
-                    c = ws.cell(row=r, column=lc_start+i, value=h)
-                    c.font = s.font_subheader; c.alignment = s.align_center
-                    c.fill = s.fill_light; c.border = s.box_border
-            ws.row_dimensions[r].height = 25.0
-            _gap(r, LC+3, MID)
-            cursor += 1
-
-            # ── Calcular IPs ───────────────────────────────────────────────
-            # Esquerda (SipRouter PL): bloco + 4 base, depois +1 por tráfego
-            # Direita  (Rede Reservada IPAM): rede reservada + 2 por tráfego
-            #   Base: self.ipam_reservas[cn_val] se disponível, senão faixa_ip_op
-            ipam_rede   = self.ipam_reservas.get(cn_val, "") if cn_val else ""
-            ip_op_base  = ipam_rede or faixa_ip_op   # nunca usar endereco_link como IP
-            _, mask_ipam = self._parse_cidr(ip_op_base)
-            netmask_op  = self._cidr_to_netmask(mask_ipam) if mask_ipam else "255.255.255.240"
-
-            _, pl_mask  = self._parse_cidr(pl_block)
-            _, jg_mask  = self._parse_cidr(jg_block)
-            netmask_pl  = self._cidr_to_netmask(pl_mask) if pl_mask else "255.255.255.240"
-            netmask_jg  = self._cidr_to_netmask(jg_mask) if jg_mask else "255.255.255.240"
-
-            num_visible    = len(traffic_items)
-            data_start_row = cursor
-
-            for j in range(num_traffic):
-                r = cursor + j
-                ws.row_dimensions[r].height = 22.0
-                f_fill = s.alt_fill(j)
-                traf_val = traffic_items[j] if j < num_visible else ""
-                if j >= num_visible:
-                    ws.row_dimensions[r].hidden = True
-
-                # Lado esquerdo — PL
-                pl_ip = (self._ip_only(self._add_last_octet(pl_block, 4 + j))
-                         if pl_block else "")
-                ws.cell(row=r, column=LC, value=traf_val).font = s.font_small
-                ws.cell(row=r, column=LC).fill = f_fill
-                ws.cell(row=r, column=LC).alignment = s.align_center
-                ws.cell(row=r, column=LC).border = s.box_border
-
-                ip_c = ws.cell(row=r, column=LC+1, value="" if num_visible > 1 else pl_ip)
-                ip_c.font = s.font_small; ip_c.fill = f_fill
-                ip_c.alignment = s.align_center; ip_c.border = s.box_border
-
-                mk_c = ws.cell(row=r, column=LC+2, value="" if num_visible > 1 else netmask_pl)
-                mk_c.font = s.font_small; mk_c.fill = f_fill
-                mk_c.alignment = s.align_center; mk_c.border = s.box_border
-
-                # Lado direito — Rede Reservada IPAM: +2 no primeiro, depois +1 por tráfego
-                # j=0 → base+2, j=1 → base+3, j=2 → base+4 ...
-                op_ip_val = (self._ip_only(self._add_last_octet(ip_op_base, 2 + j))
-                             if ip_op_base else "")
-                ws.cell(row=r, column=MID, value=traf_val).font = s.font_small
-                ws.cell(row=r, column=MID).fill = f_fill
-                ws.cell(row=r, column=MID).alignment = s.align_center
-                ws.cell(row=r, column=MID).border = s.box_border
-
-                op_ip_c = ws.cell(row=r, column=MID+1,
-                                  value="" if num_visible > 1 else op_ip_val)
-                op_ip_c.font = s.font_small; op_ip_c.fill = f_fill
-                op_ip_c.alignment = s.align_center; op_ip_c.border = s.box_border
-
-                op_mk_c = ws.cell(row=r, column=MID+2,
-                                  value="" if num_visible > 1 else netmask_op)
-                op_mk_c.font = s.font_small; op_mk_c.fill = f_fill
-                op_mk_c.alignment = s.align_center; op_mk_c.border = s.box_border
-
-                _gap(r, LC+3, MID)
-
-            # Mesclar IP/Mask quando há múltiplos tráfegos
-            if num_visible > 1:
-                last_vis = data_start_row + num_visible - 1
-                for j in range(num_visible):
-                    pl_ip = self._ip_only(self._add_last_octet(pl_block, 4 + j)) if pl_block else ""
-                    r_row = data_start_row + j
-                    for col, val in [(LC+1, pl_ip), (LC+2, netmask_pl)]:
-                        ws.cell(row=r_row, column=col, value=val).font = s.font_small
-                        ws.cell(row=r_row, column=col).alignment = s.align_center
-                        ws.cell(row=r_row, column=col).border = s.box_border
-                # Rede Reservada IPAM: +2 no primeiro, +1 nos seguintes (2+j)
-                for j in range(num_visible):
-                    op_ip_val = (self._ip_only(self._add_last_octet(ip_op_base, 2 + j))
-                                 if ip_op_base else "")
-                    r_row = data_start_row + j
-                    for col, val in [(MID+1, op_ip_val), (MID+2, netmask_op)]:
-                        ws.cell(row=r_row, column=col, value=val).font = s.font_small
-                        ws.cell(row=r_row, column=col).alignment = s.align_center
-                        ws.cell(row=r_row, column=col).border = s.box_border
-
-            cursor += num_traffic
-
-            # ── Segunda tabela: CDSIP_SPO_JG ──────────────────────────────
-            if jg_block:
-                r = cursor + 1
-                ws.merge_cells(start_row=r, start_column=LC, end_row=r, end_column=LC+4)
-                ws.cell(row=r, column=LC,
-                        value="CDSIP_SPO_JG — IPs calculados").font = Font(
-                    name="Calibri", size=8, bold=True, italic=True, color="444444")
-                ws.cell(row=r, column=LC).alignment = s.align_center
-                ws.row_dimensions[r].height = 16.0
-                _gap(r, LC+5, MID)
-                cursor = r + 1
-
-                # Cabeçalho JG
-                r = cursor
-                for i, h in enumerate(["Tráfego", "Endereço IP (JG)", "NET MASK"]):
-                    c = ws.cell(row=r, column=LC+i, value=h)
-                    c.font = s.font_subheader; c.alignment = s.align_center
-                    c.fill = s.fill_light; c.border = s.box_border
-                ws.row_dimensions[r].height = 22.0
-                _gap(r, LC+3, MID)
-                cursor += 1
-
-                for j in range(num_visible if num_visible else 1):
-                    r = cursor + j
-                    ws.row_dimensions[r].height = 20.0
-                    f_fill = s.alt_fill(j)
-                    traf_val = traffic_items[j] if j < num_visible else ""
-                    jg_ip = (self._ip_only(self._add_last_octet(jg_block, 4 + j))
-                             if jg_block else "")
-                    for col, val in [
-                        (LC,   traf_val), (LC+1, jg_ip), (LC+2, netmask_jg)
-                    ]:
-                        c = ws.cell(row=r, column=col, value=val)
-                        c.font = s.font_small; c.fill = f_fill
-                        c.alignment = s.align_center; c.border = s.box_border
-                    _gap(r, LC+3, MID)
-
-                cursor += max(num_visible, 1)
-
-            # Resumo
-            r = cursor + 1
-            ws.merge_cells(start_row=r, start_column=LC, end_row=r, end_column=LC+4)
-            ws.cell(row=r, column=LC,
-                    value=f"PL: {pl_block or '___'}  |  JG: {jg_block or '___'}").font = s.font_small
-            ws.cell(row=r, column=LC).alignment = s.align_left
-            ipam_base_ip = self._ip_only(self._add_last_octet(ip_op_base, 2)) if ip_op_base else "___"
-            ws.merge_cells(start_row=r, start_column=MID, end_row=r, end_column=RC)
-            ws.cell(row=r, column=MID,
-                    value=f"Rede Reservada ({n}): {ip_op_base or '___'}  →  LC: {ipam_base_ip}").font = s.font_small
-            ws.cell(row=r, column=MID).alignment = s.align_left
-            _gap(r, LC+5, MID)
-            cursor = r + 2
-
-            # Imagem
-            if os.path.exists(cfg["img"]):
-                cursor += 4
-                img_anchor_row = cursor
-                sbc_op_img = (op_row.get("sbc", "") if op_row else "") or ""
-                row_labels = [
-                    {"text": "Roteador OP", "xy_pct": (0.65, 0.36), "font_size_pct": cfg["rfp"], "stroke_width_pct": cfg["rsp"]},
-                    {"text": "Roteador OP", "xy_pct": (0.65, 0.55), "font_size_pct": cfg["rfp"], "stroke_width_pct": cfg["rsp"]},
-                    {"text": "Link resp Vivo", "xy_pct": (0.48, 0.58), "font_size_pct": cfg["lfsz"], "stroke_width_pct": 0.006},
-                    {"text": f"Link resp {n}", "xy_pct": (0.50, 0.28), "font_size_pct": cfg["lfsz"], "stroke_width_pct": 0.006},
-                    {"text": "RAC/RAV/HL4", "xy_pct": (0.34, 0.36), "font_size_pct": 0.010, "stroke_width_pct": 0.006},
-                    {"text": "RAC/RAV/HL4", "xy_pct": (0.34, 0.55), "font_size_pct": 0.010, "stroke_width_pct": 0.006},
-                    {"text": "CDSIP_SPO_PL", "xy_pct": (0.14, 0.41), "font_size_pct": 0.022, "stroke_width_pct": 0.006},
-                    {"text": "CDSIP_SPO_JG", "xy_pct": (0.14, 0.58), "font_size_pct": 0.022, "stroke_width_pct": 0.006},
-                    # Títulos acima das nuvens (não mais dentro delas)
-                    {"text": "VIVO", "xy_pct": (0.14, 0.15), "font_size_pct": 0.035, "stroke_width_pct": 0.008},
-                    {"text": n,      "xy_pct": (0.87, 0.15), "font_size_pct": 0.035, "stroke_width_pct": 0.008},
-                ]
-                if pl_block:
-                    row_labels.append({"text": pl_block, "xy_pct": (0.14, 0.45), "font_size_pct": 0.020, "stroke_width_pct": 0.004})
-                if jg_block:
-                    row_labels.append({"text": jg_block, "xy_pct": (0.14, 0.62), "font_size_pct": 0.020, "stroke_width_pct": 0.004})
-                # IP da rede reservada IPAM
-                if ip_op_base:
-                    row_labels.append({"text": ip_op_base, "xy_pct": (0.87, 0.45), "font_size_pct": 0.020, "stroke_width_pct": 0.005})
-                # SBC da operadora (preenchido no formulário Atacado → Dados Operadora)
-                if sbc_op_img:
-                    row_labels.append({"text": sbc_op_img, "xy_pct": (0.87, 0.41), "font_size_pct": 0.022, "stroke_width_pct": 0.006})
-                if cn_val:
-                    cn_img_text = f"CN {cn_val}" + (f" — {cn_cidade}/{cn_uf}" if cn_cidade else "")
-                    row_labels.append({"text": cn_img_text, "xy_pct": (0.50, 0.08), "font_size_pct": 0.028, "stroke_width_pct": 0.007})
-                try:
-                    ann = render_labels_on_image(
-                        image_path=cfg["img"], vivo_text="", operator_text="",
-                        vivo_xy_pct=cfg["vxy"], operator_xy_pct=cfg["oxy"],
-                        font_path=cfg["fp"], font_size_pct=cfg["fsz"],
-                        stroke_width_pct=0.009, extra_labels=row_labels,
-                    )
-                    xi = XLImage(ann)
-                    try:
-                        with PILImage.open(ann) as src:
-                            ow, oh = src.size
-                    except Exception:
-                        ow, oh = 800, 300
-                    fw, fh = fit_size_keep_aspect(ow, oh, cfg["bw"], cfg["bh"])
-                    xi.width, xi.height = fw, fh
-                    anchor_col = get_column_letter(LC + cfg["aco"])
-                    anchor_row = max(1, img_anchor_row + cfg["aro"])
-                    ws.add_image(xi, f"{anchor_col}{anchor_row}")
-                    cursor = img_anchor_row + max(22, int(fh / 15) + 2) + 2
-                except Exception as exc:
-                    logger.warning("Erro ao gerar imagem (bloco %d): %s", b_idx + 1, exc)
-                    cursor += 3
-            else:
-                if b_idx == 0:
-                    logger.warning("Imagem base não encontrada: %s", cfg["img"])
-                cursor += 3
-        self._ps(ws, ls=True)
-
-    # =========================================================================
-    # ABA: ENCAMINHAMENTO
-    # =========================================================================
-    def _b_routing(self) -> None:
-        s  = self.s
-        ws = self.wb.create_sheet(title="Encaminhamento")
-        n  = self.nome
-
-        col_widths = {
-            1:2,2:16,3:10,4:16,5:10,6:18,7:16,8:18,9:14,
-            10:8,11:8,12:8,13:8,14:8,15:8,16:12,17:18,18:12,
-            19:12,20:16,21:14,22:12,23:14,24:12,25:2,
-        }
-        max_widths = dict(col_widths)
-
-        def _tw(col, value):
-            if value:
-                cw = len(str(value)) * 1.15 + 2
-                if cw > max_widths.get(col, 0):
-                    max_widths[col] = min(cw, 45)
-
-        self._bh(ws, 2, 2, 24)
-        self._st(ws, 4, 2, 24,
-                 "2.3. CARACTERÍSTICAS DO PROJETO DE INTERLIGAÇÃO E DO PLANO DE ENCAMINHAMENTO")
-
-        source_rows    = self.vivo_rows if self.vivo_rows else self.op_rows
-        num_blocks     = max(1, len(source_rows))
-        is_vivo_source = bool(self.vivo_rows)
-        traffic_items  = [t for t in self.traffic if t]
-        cursor         = 6
-        align_merged   = Alignment(horizontal="center", vertical="center", wrap_text=True)
-        align_dw       = Alignment(horizontal="center", vertical="center", wrap_text=True)
-
-        for b_idx in range(num_blocks):
-            src_row = source_rows[b_idx] if b_idx < len(source_rows) else {}
-
-            if is_vivo_source:
-                vivo_row = src_row
-                op_row   = self._find_matching_op_row(src_row.get("cn", ""), b_idx) or {}
-            else:
-                op_row   = src_row
-                vivo_row = self._find_matching_vivo_row(src_row.get("cn", ""), b_idx)
-
-            cn_vivo        = vivo_row.get("cn", "") or ""
-            cn_op          = op_row.get("cn", "")   or cn_vivo
-            localidade_vivo = vivo_row.get("localidade", "") or ""
-            localidade_op  = op_row.get("localidade", "")   or ""
-            bloco_ip_vivo  = vivo_row.get("bloco_ip", "") or ""
-            pl_blk, jg_blk = self._extract_pl_jg(bloco_ip_vivo)
-            ponta_a_vivo   = "CDSIP_SPO_PL/CDSIP_SPO_JG"
-            ponta_b_op     = op_row.get("sbc", "") or op_row.get("faixa_ip", "") or ""
-            endereco_vivo  = vivo_row.get("endereco_link", "") or ""
-            mask_vivo      = vivo_row.get("mask", "")         or ""
-            faixa_ip_op    = op_row.get("faixa_ip", "")       or ""
-            endereco_op    = op_row.get("endereco_link", "")   or ""
-            ip_op_base     = faixa_ip_op   # nunca usar endereco_link como IP
-            _, mask_cidr_enc = self._parse_cidr(ip_op_base)
-            mask_vivo      = vivo_row.get("mask", "") or ""
-            cidade_vivo    = vivo_row.get("cidade", "") or ""
-            cidade_op      = op_row.get("cidade", "")  or ""
-            area_local     = cidade_vivo or cidade_op
-            uf_val         = vivo_row.get("uf", "") or op_row.get("uf", "")
-
-            if not area_local and cn_vivo:
-                meta = CN_METADATA.get(cn_vivo.zfill(2))
-                if meta:
-                    area_local = meta[0]
-                    if not uf_val:
-                        uf_val = meta[1]
-
-            # Separador bloco
-            r = cursor
-            block_title = f"CN {cn_vivo}" if cn_vivo else f"Bloco {b_idx + 1}"
-            if area_local:
-                block_title += f" — {area_local}"
-            if uf_val:
-                block_title += f" ({uf_val})"
-            ws.merge_cells(start_row=r, start_column=2, end_row=r, end_column=24)
-            c = ws.cell(row=r, column=2, value=block_title)
-            c.font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
-            c.alignment = s.align_center; c.fill = s.fill_primary; c.border = s.box_border
-            ws.row_dimensions[r].height = 26.0
-            cursor = r + 1
-
-            # Headers h1
-            h1 = cursor; ws.row_dimensions[h1].height = 30.0
-            for sc, ec, t, vert in [
-                (2,2,"ÁREA LOCAL",True),(3,6,"LOCALIZAÇÃO",False),(7,9,"DADOS DA ROTA",False),
-                (10,11,"BANDA",False),(12,13,"CANAIS",False),(14,15,"CAPS",False),
-                (16,16,"ATIVAÇÃO",True),(17,18,"ENCAMINHAMENTO",False),
-                (19,20,"SINALIZAÇÃO",False),(21,24,"ENDEREÇO IP",False),
-            ]:
-                if vert:
-                    ws.merge_cells(start_row=h1, start_column=sc, end_row=h1+2, end_column=ec)
-                else:
-                    ws.merge_cells(start_row=h1, start_column=sc, end_row=h1, end_column=ec)
-                c = ws.cell(row=h1, column=sc, value=t)
-                c.font = s.font_subheader; c.alignment = s.align_center_wrap
-                c.fill = s.fill_secondary if vert else s.fill_light; c.border = s.box_border
-
-            h2 = h1 + 1; ws.row_dimensions[h2].height = 25.0
-            for col, t in [
-                (3,"CN"),(4,"POI/PPI VIVO"),(5,"CN"),(6,f"POI/PPI {n.upper()}"),
-                (7,"PONTA A VIVO"),(8,f"PONTA B {n.upper()}"),(9,"TIPO DE TRÁFEGO"),
-                (10,"EXIST."),(11,"PLAN."),(12,"EXIST."),(13,"PLAN."),(14,"EXIST."),(15,"PLAN."),
-                (17,"DE A > B\n(FORMATO DE ENTREGA)"),(18,"DE B > A"),(19,"CODEC"),(20,"OBSERVAÇÃO"),
-            ]:
-                ws.merge_cells(start_row=h2, start_column=col, end_row=h2+1, end_column=col)
-                c = ws.cell(row=h2, column=col, value=t)
-                c.font = Font(name="Calibri", size=7 if col==17 else 8, bold=True, color="FFFFFF")
-                c.alignment = s.align_center_wrap; c.fill = s.fill_accent; c.border = s.box_border
-            for sc, ec, t in [(21,22,"VIVO"),(23,24,n.upper())]:
-                ws.merge_cells(start_row=h2, start_column=sc, end_row=h2, end_column=ec)
-                c = ws.cell(row=h2, column=sc, value=t)
-                c.font = s.font_micro; c.alignment = s.align_center; c.fill = s.fill_accent; c.border = s.box_border
-
-            h3 = h2 + 1; ws.row_dimensions[h3].height = 25.0
-            for col, t in [(21,"IP ADDRESS"),(22,"NETMASK"),(23,"IP ADDRESS"),(24,"NETMASK")]:
-                c = ws.cell(row=h3, column=col, value=t)
-                c.font = Font(name="Calibri", size=7, bold=True, color="FFFFFF")
-                c.alignment = s.align_center; c.fill = s.fill_light; c.border = s.box_border
-
-            ipam_rede_enc = self.ipam_reservas.get(cn_vivo, "") if cn_vivo else ""
-            ip_op_base    = ipam_rede_enc or faixa_ip_op   # nunca usar endereco_link
-            _, mask_cidr  = self._parse_cidr(ip_op_base)
-            mask_op       = self._cidr_to_netmask(mask_cidr) if mask_cidr else mask_vivo
-            _, pl_mask    = self._parse_cidr(pl_blk)
-            _, jg_mask    = self._parse_cidr(jg_blk)
-            netmask_vivo  = self._cidr_to_netmask(pl_mask) if pl_mask else mask_vivo
-
-            ds              = h3 + 1
-            ativacao_str    = datetime.now().strftime("%d/%m/%Y") + " + 90 dias"
-            num_traffic     = len(traffic_items) if traffic_items else 1
-            DATA_ROWS       = max(num_traffic, 1)
-            row_height      = max(18.0, round(110.0 / DATA_ROWS, 1))
-            traffic_mappings = [
-                self._resolve_traffic_mapping(ti, n, cn_vivo, cn_op)
-                for ti in (traffic_items if traffic_items else [""])
-            ]
-            # Colunas 21-24 preenchidas por linha (não mescladas)
-            merged_cols = {
-                2:(area_local,       Font(name="Calibri", size=10, bold=True)),
-                3:(cn_vivo,          Font(name="Calibri", size=10, bold=True)),
-                4:(localidade_vivo,  s.font_small),
-                5:(cn_op,            Font(name="Calibri", size=10, bold=True)),
-                6:(localidade_op,    s.font_small),
-                7:(ponta_a_vivo,     s.font_small),
-                8:(ponta_b_op,       s.font_small),
-                16:(ativacao_str,    s.font_small),
-            }
-            for col_num, (val, fnt) in merged_cols.items():
-                ws.merge_cells(start_row=ds, start_column=col_num,
-                               end_row=ds+DATA_ROWS-1, end_column=col_num)
-                c = ws.cell(row=ds, column=col_num, value=val)
-                c.font = fnt; c.alignment = align_merged
-                c.fill = s.alt_fill(0); c.border = s.box_border
-                _tw(col_num, val)
-
-            merged_set = set(merged_cols.keys())
-            for i in range(DATA_ROWS):
-                r = ds + i; ws.row_dimensions[r].height = row_height
-                f = s.alt_fill(i)
-                traf_val = traffic_items[i] if i < len(traffic_items) else ""
-                traf_map = traffic_mappings[i] if i < len(traffic_mappings) else {}
-
-                # IPs VIVO: PL_ip / JG_ip por tráfego (mesmo offset +4+i do diagrama)
-                pl_ip_enc = self._ip_only(self._add_last_octet(pl_blk, 4 + i)) if pl_blk else ""
-                jg_ip_enc = self._ip_only(self._add_last_octet(jg_blk, 4 + i)) if jg_blk else ""
-                vivo_ip_str = f"{pl_ip_enc} / {jg_ip_enc}" if pl_ip_enc and jg_ip_enc else (pl_ip_enc or jg_ip_enc)
-
-                # IP Operadora: IPAM base + 2+i (mesmo offset do diagrama)
-                op_ip_enc = self._ip_only(self._add_last_octet(ip_op_base, 2 + i)) if ip_op_base else ""
-
-                for col in range(2, 25):
-                    if col in merged_set:
-                        ws.cell(row=r, column=col).border = s.box_border
-                        ws.cell(row=r, column=col).fill   = f
-                        continue
-                    if col == 21:
-                        val = vivo_ip_str
-                    elif col == 22:
-                        val = netmask_vivo
-                    elif col == 23:
-                        val = op_ip_enc
-                    elif col == 24:
-                        val = mask_op
-                    else:
-                        val = (traf_val if col==9 else traf_map.get("enc_ab","") if col==17
-                               else traf_map.get("enc_ba","") if col==18
-                               else traf_map.get("codec","")  if col==19
-                               else "SIP-I" if col==20 else "")
-                    c = ws.cell(row=r, column=col, value=val)
-                    c.font = s.font_small; c.alignment = align_dw
-                    c.border = s.box_border; c.fill = f
-                    if i == 0: _tw(col, val)
-
-            missing = []
-            if not cn_vivo:       missing.append("CN VIVO")
-            if not area_local:    missing.append("ÁREA LOCAL")
-            if not ip_op_base:    missing.append("IP DO IPAM")
-            if not uf_val:        missing.append("UF")
-
-            if missing:
-                note_row = ds + DATA_ROWS
-                ws.merge_cells(start_row=note_row, start_column=2, end_row=note_row, end_column=24)
-                c = ws.cell(row=note_row, column=2,
-                            value=f"⚠ Campos não preenchidos: {', '.join(missing)}")
-                c.font = Font(name="Calibri", size=8, italic=True, color="FF6600")
-                c.alignment = s.align_left; ws.row_dimensions[note_row].height = 18.0
-                cursor = note_row + 2
-            else:
-                cursor = ds + DATA_ROWS + 1
-
-        for col_num, width in max_widths.items():
-            ws.column_dimensions[get_column_letter(col_num)].width = max(
-                col_widths.get(col_num, 8), width
-            )
-        for col in (1, 25):
-            for r in range(1, cursor + 5):
-                ws.cell(row=r, column=col).fill   = s.fill_white
-                ws.cell(row=r, column=col).border = s.no_border
-        ws.freeze_panes = "C6"
-        self._ps(ws, ls=True)
-
-    # =========================================================================
-    # ABA: CONCENTRAÇÃO
-    # =========================================================================
-    # =========================================================================
-    # ABA: PLAN NUM_OPER
-    # =========================================================================
-    def _b_prefixes(self) -> None:
-        s  = self.s
-        ws = self.wb.create_sheet(title="Plan Num_Oper")
-        self._cw(ws, {1:2,2:4,3:12,4:12,5:12,6:6,7:10,8:10,9:8,10:15})
-        self._bh(ws, 2, 2, 10)
-        self._st(ws, 4, 2, 10, f"2.6. Tabela de Prefixos da {self.nome.upper()}")
-        ws.merge_cells(start_row=5, start_column=2, end_row=5, end_column=10)
-        c = ws.cell(row=5, column=2,
-                    value='OBS: Caso necessite incluir mais faixas, inserir linhas adicionais (coluna B - "Ref").')
-        c.font = Font(name="Calibri", size=9, italic=True)
-        c.alignment = s.align_wrap; c.fill = s.fill_background
-
-        h1 = 7; ws.row_dimensions[h1].height = 25.0
-        for sc, ec, t, vert in [
-            (2,2,"Ref",True),(3,3,"Município",True),(4,4,"ÁREA LOCAL",True),
-            (5,5,"CÓDIGO CNL",True),(6,6,"CN",True),(7,8,"SERIE AUTORIZADA",False),
-            (9,9,"EOT LOCAL",True),(10,10,"SNOA STFC / SMP",True),
-        ]:
-            if vert:
-                ws.merge_cells(start_row=h1, start_column=sc, end_row=h1+1, end_column=ec)
-            else:
-                ws.merge_cells(start_row=h1, start_column=sc, end_row=h1, end_column=ec)
-            c = ws.cell(row=h1, column=sc, value=t)
-            c.font = s.font_subheader; c.alignment = s.align_center
-            c.fill = s.fill_secondary; c.border = s.box_border
-
-        h2 = h1 + 1; ws.row_dimensions[h2].height = 30.0
-        for col, t in [(7,"INCLUÍNOS\nN8 N7 N6 N5"),(8,"FINAL\nN4 N3 N2 N1")]:
-            c = ws.cell(row=h2, column=col, value=t)
-            c.font = s.font_micro; c.alignment = s.align_center_wrap
-            c.fill = s.fill_accent; c.border = s.box_border
-
-        ds = h2 + 1
-        for i in range(5):
-            r = ds + i; ws.row_dimensions[r].height = 20.0; f = s.alt_fill(i)
-            for col in range(2, 11):
-                c = ws.cell(row=r, column=col, value="")
-                c.font = s.font_small; c.alignment = s.align_center; c.border = s.box_border; c.fill = f
-            if i > 0:
-                ws.row_dimensions[r].hidden = True
-
-        ps = ds + 6
-        title_font  = Font(name="Calibri", size=9, bold=True)
-        title_align = Alignment(horizontal="left", vertical="center")
-        resp_align  = Alignment(horizontal="center", vertical="center", wrap_text=True)
-        font_ok  = Font(name="Calibri", size=14, bold=True, color="008000")
-        font_nok = Font(name="Calibri", size=14, bold=True, color="FF0000")
-        font_tv  = Font(name="Calibri", size=10, bold=True)
-        TITLE_H  = 22.0
-
-        indicators = [
-            ("RN1",             "text",   self.rn1),
-            ("EOT Local",       "text",   self.eot_local),
-            ("EOT LDN/LDI",    "text",   self.eot_ld),
-            ("CSP",             "binary", self.csp),
-            ("Código Especial:", "binary", self.servicos_especiais),
-            ("CNG:",            "binary", self.cng),
-            ("RN2",             "binary", False),
-        ]
-        for i, (label, tipo, valor) in enumerate(indicators):
-            r = ps + i; ws.row_dimensions[r].height = TITLE_H; f = s.alt_fill(i)
-            ct = ws.cell(row=r, column=2, value=label)
-            ct.font = title_font; ct.alignment = title_align; ct.border = s.box_border; ct.fill = f
-            ws.merge_cells(start_row=r, start_column=3, end_row=r, end_column=10)
-            cr = ws.cell(row=r, column=3)
-            cr.alignment = resp_align; cr.border = s.box_border; cr.fill = f
-            if tipo == "binary":
-                cr.value = "✔" if valor else "✘"
-                cr.font  = font_ok if valor else font_nok
-            else:
-                if valor and str(valor).strip():
-                    cr.value = str(valor).strip(); cr.font = font_tv
-                else:
-                    cr.value = "✘"; cr.font = font_nok
-
-        desc_start = ps + len(indicators)
-        for o, t in [
-            (0, "Operadora de transporte nas localidades onde não existir rota direta"),
-            (1, "Transbordo nas localidades onde existe rota direta:"),
-        ]:
-            ws.merge_cells(start_row=desc_start+o, start_column=2, end_row=desc_start+o, end_column=10)
-            ws.cell(row=desc_start+o, column=2, value=t).font = Font(name="Calibri", size=9, bold=True)
-            ws.cell(row=desc_start+o, column=2).alignment = s.align_wrap
-            ws.cell(row=desc_start+o, column=2).fill = s.fill_background
-
-        tr = desc_start + 2
-        for sc, ec, t in [(2,3,"UF"),(4,7,"SERIE AUTORIZADA")]:
-            ws.merge_cells(start_row=tr, start_column=sc, end_row=tr, end_column=ec)
-            c = ws.cell(row=tr, column=sc, value=t)
-            c.font = s.font_subheader; c.alignment = s.align_center
-            c.fill = s.fill_secondary; c.border = s.box_border
-        sr = tr + 1
-        for sc, ec in [(2,3),(4,5),(6,7)]:
-            ws.merge_cells(start_row=sr, start_column=sc, end_row=sr, end_column=ec)
-            ws.cell(row=sr, column=sc, value="").border = s.box_border
-            ws.cell(row=sr, column=sc).fill = s.fill_background
-        cr = sr + 2
-        for o, t in [
-            (0,"A programação de CNG ocorre pelo processo de portabilidade intrínseca - via ABR"),
-            (1,"O encaminhamento do CNG será programado nas localidades onde o ponto de entrega for informado"),
-        ]:
-            ws.merge_cells(start_row=cr+o, start_column=2, end_row=cr+o, end_column=10)
-            ws.cell(row=cr+o, column=2, value=t).font = s.font_small
-        sm = cr + 3
-        ws.merge_cells(start_row=sm, start_column=2, end_row=sm, end_column=10)
-        ws.cell(row=sm, column=2, value="2.12 Tabela de Prefixos Vivo SMP").font = Font(name="Calibri", size=10, bold=True)
-        ws.merge_cells(start_row=sm+1, start_column=2, end_row=sm+1, end_column=10)
-        ws.cell(row=sm+1, column=2,
-                value="Os prefixos da VIVO SMP, poderão ser obtidos acessando o site www.telefonica.net.br/sp/transfer/").font = s.font_small
-        ws.freeze_panes = f"B{h1}"
-        self._ps(ws, ls=True)
-
-    # =========================================================================
-    # ABA: DADOS MTL
-    # =========================================================================
-    def _b_mtl(self) -> None:
-        s  = self.s
-        ws = self.wb.create_sheet(title="Dados MTL")
-        n  = self.nome
-        col_w = {1:2,2:6,3:8,4:10,5:12,6:18,7:18,8:20,9:15,10:18,11:18,12:20}
-        self._cw(ws, col_w)
-        self._bh(ws, 2, 2, 12)
-        self._st(ws, 4, 2, 12, "2.7. Dados de MTL")
-
-        for row, text, italic in [
-            (5,"Tabela de dados MTL para interligação entre VIVO e operadora.", False),
-            (6,"Preencher com os dados técnicos dos circuitos de interligação.", True),
-        ]:
-            ws.merge_cells(start_row=row, start_column=2, end_row=row, end_column=12)
-            c = ws.cell(row=row, column=2, value=text)
-            c.font = Font(name="Calibri", size=9 if italic else 10, italic=italic)
-            c.fill = s.fill_background
-            c.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
-
-        hr = 8; ws.row_dimensions[hr].height = 25.0
-        for col, txt in [
-            (2,"Ref"),(3,"Cn"),(4,"ID"),(5,"MTL"),(6,"PONTA VIVO"),
-            (7,f"PONTA {n.upper()}"),(8,"DESIGNADOR DO CIRCUITO"),(9,"PROVEDOR"),
-            (10,"BGP VIVO"),(11,f"BGP {n.upper()}"),(12,"OBSERVAÇÕES"),
-        ]:
-            c = ws.cell(row=hr, column=col, value=txt)
-            c.font = s.font_subheader
-            c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-            c.fill = s.fill_secondary; c.border = s.box_border
-
-        ac = Alignment(horizontal="center", vertical="center", wrap_text=True)
-        al = Alignment(horizontal="left",   vertical="center", wrap_text=True)
-        num_refs = max(len(self.vivo_rows), len(self.op_rows), 1)
-        ds = hr + 1; row_idx = 0
-
-        for ref_i in range(num_refs):
-            vr  = self.vivo_rows[ref_i] if ref_i < len(self.vivo_rows) else {}
-            opr = self.op_rows[ref_i]   if ref_i < len(self.op_rows)   else {}
-            cv      = vr.get("cn", "").strip()
-            co      = opr.get("cn", "").strip()
-            ev      = vr.get("endereco_link", "").strip()
-            eo      = opr.get("endereco_link", "").strip()
-            id_vivo = vr.get("id_vivo", "").strip()
-            id_op   = opr.get("id_op", "").strip()
-
-            for row_data, id_val in [
-                ({3:cv, 4:id_vivo, 5:n.upper(), 6:ev, 7:eo, 8:"", 9:"", 10:"", 11:"", 12:""}, id_vivo),
-                ({3:co or cv, 4:id_op,   5:"VIVO",    6:ev, 7:eo, 8:"", 9:"", 10:"", 11:"", 12:""}, id_op),
-            ]:
-                r = ds + row_idx; ws.row_dimensions[r].height = 22.0; f = s.alt_fill(row_idx)
-                for col_num, val in row_data.items():
-                    c = ws.cell(row=r, column=col_num, value=val)
-                    c.font = s.font_small
-                    c.alignment = al if col_num in (6,7,12) else ac
-                    c.border = s.box_border; c.fill = f
-                row_idx += 1
-
-            r1 = ds + row_idx - 2; r2 = ds + row_idx - 1
-            ws.merge_cells(start_row=r1, start_column=2, end_row=r2, end_column=2)
-            c = ws.cell(row=r1, column=2, value=ref_i+1)
-            c.font = s.font_small; c.alignment = ac; c.border = s.box_border; c.fill = s.alt_fill(row_idx - 2)
-
-        ws.freeze_panes = f"B{ds}"
-        self._ps(ws, ls=True)
-
-    # =========================================================================
-    # ABA: PARÂMETROS DE PROGRAMAÇÃO
-    # =========================================================================
-    def _b_params(self) -> None:
-        s  = self.s
-        ws = self.wb.create_sheet(title="Parâmetros de Programação")
-        n  = self.nome
-        self._cw(ws, {1:2,2:50,3:35,4:15,5:12,6:35})
-        self._bh(ws, 2, 2, 6)
-        self._st(ws, 4, 2, 6, "2.9 - Parâmetros de Programação")
-        ws.merge_cells(start_row=5, start_column=2, end_row=5, end_column=6)
-        ws.cell(row=5, column=2,
-                value=f"Relação dos parâmetros de configuração de rotas SIP entre a TELEFÔNICA-VIVO e a Operadora {n.upper()}.").font = s.font_body
-        ws.cell(row=5, column=2).fill = s.fill_background
-
-        cur = [7]
-
-        def _h(t):
-            r = cur[0]
-            ws.merge_cells(start_row=r, start_column=2, end_row=r, end_column=6)
-            c = ws.cell(row=r, column=2, value=t)
-            c.font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
-            c.alignment = s.align_center; c.fill = s.fill_light; c.border = s.box_border
-            ws.row_dimensions[r].height = 20.0; cur[0] += 1
-
-        def _ch():
-            r = cur[0]
-            for ci, t in enumerate(["Parâmetro",f"TELEFÔNICA VIVO <> {n.upper()}","Categoria","Cumpre?","Observação"], 2):
-                c = ws.cell(row=r, column=ci, value=t)
-                c.font = s.font_subheader; c.alignment = s.align_center
-                c.fill = s.fill_secondary; c.border = s.box_border
-            ws.row_dimensions[r].height = 25.0; cur[0] += 1
-
-        def _r(data):
-            for i, rd in enumerate(data):
-                r = cur[0]; f = s.alt_fill(i)
-                for ci, v in enumerate(rd, 2):
-                    c = ws.cell(row=r, column=ci, value=v)
-                    c.font = s.font_check if ci==5 and v=="✔" else s.font_small
-                    c.alignment = s.align_left if ci==2 else s.align_center
-                    c.fill = f; c.border = s.box_border
-                cur[0] += 1
-
-        def _sec(title, data, ch=False):
-            _h(title)
-            if ch: _ch()
-            _r(data); cur[0] += 1
-
-        ws.merge_cells(start_row=cur[0], start_column=2, end_row=cur[0], end_column=6)
-        c = ws.cell(row=cur[0], column=2, value="Interconexão Nacional")
-        c.font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
-        c.alignment = s.align_center; c.fill = s.fill_primary; c.border = s.box_border; cur[0] += 1
-
-        _sec("Informação do Gateway",[
-            ("Fabricante / Fornecedor","sipwise","Mandatório","✔",""),
-            ("Modelo - Versão","Elementos Rede Fixa, Fixa I e Móvel","Mandatório","✔",""),
-        ], ch=True)
-        _sec("Tipo de Serviço",[("Voz","SIM","Mandatório","✔",""),("Fax","SIM","Mandatório","✔",""),("DTMF","SIM","Mandatório","✔","")])
-        _sec("Protocolo",[("Tipo de Protocolo","SIP-I (Q.1912.5)","Mandatório","✔","")])
-        _sec("Atributos SIP",[
-            ("SIP Version","SIP v2.1","Mandatório","✔",""),
-            ("Protocolo de Transporte","UDP","Mandatório","✔",""),
-            ("Endereço IP Gateway SIP","Gateway de Gateway - NNI","Mandatório","✔",""),
-            ("IP ADDR do RTP","IP ADDR do RTP","Mandatório","✔",""),
-            ("FW ou SBC antes do Gateway","Mandatório","Mandatório","✔",""),
-            ("Envia DOMAIN na URI","P-Asserted-Identity e Diversion","Mandatório","✔",""),
-            ("Envia DOMAIN IP","Mandatório","Mandatório","✔",""),
-            ("Envia DOMAIN IP no SDP","Mandatório","Mandatório","✔",""),
-            ("Envia DOMAIN IP no SDP para Controle","Mandatório","Mandatório","✔",""),
-            ("Envia DOMAIN IP no SDP para Controle de QoS","Mandatório","Mandatório","✔",""),
-            ("Envia DOMAIN IP no SDP para Controle de QoS e Segurança","Mandatório","Mandatório","✔",""),
-            ("Envia DOMAIN IP no SDP para Controle de QoS e Segurança e Controle de Chamada","Mandatório","Mandatório","✔",""),
-            ("Envia DOMAIN IP no SDP para Controle de QoS e Segurança e Controle de Sessão","Mandatório","Mandatório","✔",""),
-            ("Envia DOMAIN IP no SDP para Controle de QoS e Segurança e Controle de Recursos","Mandatório","Mandatório","✔",""),
-            ("Envia DOMAIN IP no SDP para Controle de QoS e Segurança e Controle de Política","Mandatório","Mandatório","✔",""),
-        ])
-        _sec("Codec Rede Móvel",[("AMR encaminhamento","","Mandatório","✔",""),("2ª opção G.711a 20ms","","Mandatório","✔","Não aceita codec g.711u")])
-        _sec("Codec Rede Fixa",[("G.711a 20ms","","Mandatório","✔",""),("2ª opção G.729a 20ms","","Mandatório","✔","Não aceita codec g.711u")])
-        _sec("DTMF",[
-            ("1ª Opção: RFC 2833 (Outband) com valor payload = 100","","Mandatório","✔",""),
-            ("Todos os payloads de DTMF definidos no padrão (96-125) podem ser usados","","Mandatório","✔",""),
-        ])
-        _sec("FAX",[("Protocolo T.38 suportado","","Mandatório","✔","")])
-        _sec("POS",[
-            ("Detecção do UPSEEED","Utilização do g711a em re-INVITE","Mandatório","✔","Dados necessários no SDP"),
-            ("Detecção do UPSEEED","Utilização do g711u em re-INVITE","Mandatório","✔","Dados necessários no SDP"),
-        ])
-        _sec("Encaminhamento Enfrante",[
-            ("P-ASSERTED Identity (RFC 3325)","SIM - Fomento E.164","Mandatório","✔",""),
-            ("Nature of address of Calling","SUB, NAT, UNKW","Mandatório","✔",""),
-            ("B-NUMBER (Called Number)","E.164 - Padrão Roteamento","Mandatório","✔",""),
-            ("Nature of address","SUB, NAT, UNKW","Mandatório","✔",""),
-        ])
-        _sec("Encaminhamento Sainte",[
-            ("A-NUMBER (Calling Number)","E.164 - Nacional","Mandatório","✔",""),
-            ("P-Asserted Identity (RFC 3325)","SIM - Formato E.164","Mandatório","✔",""),
-            ("Nature of address of Calling","SUB, NAT, UNKW","Mandatório","✔",""),
-            ("B-NUMBER (Called Number)","E.164 - Padrão Roteamento","Mandatório","✔",""),
-            ("Nature of address","SUB, NAT, UNKW","Mandatório","✔",""),
-        ])
-        _sec("Principais RFC's que devem estar habilitadas e/ou suportadas",[
-            ("3261 - SIP Base","","","",""),("3311 - UPDATE (PRACK)","","","",""),
-            ("3264/4028 - Offer/Answer - SDP","","","",""),("2833 - DTMF - RTP","","","",""),
-            ("RFC 3398 - SIP-I interworking","","","",""),("RFC 4033/4035 - DNSSEC","","","",""),
-            ("RFC 4566 - SDP","","","",""),
-            ("RFC 3606 - Early Media & Tone Generation","","","","SIP 180Ring (puro), o Proxy deverá gerar o RBT localmente"),
-        ])
-        _sec("Método para alteração dos dados do SDP",[
-            ("Método Update","","Mandatório","","Antes do Atendimento"),
-            ("Método Update","","Mandatório","","Após atendimento"),
-        ])
-        _sec("Negociação de Codec",[
-            ("É mandatório a utilização de re-invites pelo Origem para definição de codecs.","","Mandatório","✔",""),
-            ("O ptime no SDP answer deve ser múltiplo inteiro de 20 para codecs móveis; 3GPP 26.114","","Mandatório","✔",""),
-            ("Pacotes suportados às marcações USR, DSCP 46 ou EF para pacotes RTP","","Mandatório","✔",""),
-        ])
-        self._ps(ws, ls=True)
-
-    # =========================================================================
-    # BUILD
-    # =========================================================================
-    def build(self) -> Workbook:
-        logger.info("Gerando PTI Excel para '%s'...", self.nome)
-        self._b_index()
-        self._b_versions()
-        self._b_diagram()
-        self._b_routing()
-        self._b_prefixes()
-        self._b_mtl()
-        self._b_params()
-
-        self.wb.properties.title   = f"PTI — Completo — {self.nome}"
-        self.wb.properties.subject = "Projeto Técnico de Interligação"
-        self.wb.properties.creator = "VIVOHUB"
-        self.wb.active = 0
-
-        logger.info("PTI Excel gerado com sucesso.")
-        return self.wb
+{% extends "base.html" %}
+{% set engineer_mode = (session.get('role') == 'engenharia') %}
+{% set is_edit = form is not none %}
+{% set st = ((form.status if form else 'rascunho') or 'rascunho')|lower %}
+{% block title %}{{ 'Validar PTI' if engineer_mode else 'Pré-PTI' }} — VIVOHUB{% endblock %}
+
+{% block extra_head %}
+<style>
+  /* ── Layout ── */
+  body.plain { background:#fff; }
+  .form-nav {
+    position:sticky; top:52px; z-index:90;
+    background:#fff; border-bottom:1px solid var(--bdr);
+    display:flex; align-items:center; justify-content:space-between;
+    padding:0 1.5rem; height:48px; gap:1rem;
+  }
+  .form-main { max-width:960px; margin:0 auto; padding:1.5rem 1.5rem 6rem; }
+
+  /* ── Seções ── */
+  .sec {
+    background:var(--surf); border:1px solid var(--bdr);
+    border-radius:var(--r); margin-bottom:1rem; overflow:hidden;
+  }
+  .sec-header {
+    display:flex; align-items:center; justify-content:space-between;
+    padding:.75rem 1.25rem; border-bottom:1px solid var(--bdr);
+    background:#fafafa;
+  }
+  .sec-title { font-size:.82rem; font-weight:700; letter-spacing:-.1px; margin:0; }
+  .sec-body  { padding:1.25rem; }
+
+  /* ── Campos ── */
+  .field-grid { display:grid; gap:1rem; }
+  .col2 { grid-template-columns:1fr 1fr; }
+  .col3 { grid-template-columns:1fr 1fr 1fr; }
+  @media(max-width:640px){ .col2,.col3 { grid-template-columns:1fr; } }
+  .v-label { font-size:.78rem; font-weight:600; display:block; margin-bottom:.3rem; color:var(--ink); }
+  .req::after { content:" *"; color:var(--err); }
+  .hint { font-size:.72rem; color:var(--sub); margin-top:.25rem; }
+
+  /* Overrides bootstrap form */
+  .form-check-input:checked { background-color:var(--p); border-color:var(--p); }
+  .form-check-label { font-size:.8rem; }
+
+  /* ── Tabelas de dados ── */
+  .data-sec { overflow-x:auto; }
+  .data-sec table { width:100%; border-collapse:collapse; font-size:.78rem; }
+  .data-sec thead th {
+    padding:.45rem .5rem; background:#f9fafb;
+    border-bottom:1px solid var(--bdr); font-weight:600;
+    font-size:.7rem; color:var(--sub); white-space:nowrap; text-align:left;
+  }
+  .data-sec tbody td { padding:.35rem .4rem; border-bottom:1px solid var(--bdr); }
+  .data-sec tbody tr:last-child td { border-bottom:none; }
+  .data-sec input { width:100%; padding:.3rem .45rem; border:1px solid var(--bdr); border-radius:6px; font-size:.75rem; outline:none; }
+  .data-sec input:focus { border-color:var(--p); box-shadow:0 0 0 2px rgba(107,9,166,.08); }
+  .cap-badge { font-size:.72rem; color:var(--sub); }
+  .del-btn {
+    background:none; border:1px solid var(--bdr); border-radius:6px;
+    padding:.25rem .45rem; cursor:pointer; color:var(--sub); font-size:.7rem;
+  }
+  .del-btn:hover { border-color:#fecaca; color:#dc2626; background:#fef2f2; }
+
+  /* ── Action bar ── */
+  .action-bar {
+    position:fixed; bottom:0; left:0; right:0; z-index:90;
+    background:#fff; border-top:1px solid var(--bdr);
+    display:flex; align-items:center; justify-content:flex-end;
+    gap:.5rem; padding:.75rem 1.5rem;
+    box-shadow:0 -4px 20px rgba(0,0,0,.06);
+  }
+
+  /* ── Painel Siprouter ── */
+  #sipPanel table td, #sipPanel table th { white-space:nowrap; }
+
+  /* ── Eng grid ── */
+  .eng-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:.75rem; }
+  @media(max-width:900px){ .eng-grid { grid-template-columns:1fr 1fr; } }
+  @media(max-width:560px){ .eng-grid { grid-template-columns:1fr; } }
+  .eng-card { border:1px solid var(--bdr); border-radius:8px; overflow:hidden; }
+  .eng-card-title {
+    font-size:.75rem; font-weight:700; padding:.45rem .65rem;
+    background:var(--p); color:#fff; display:flex; align-items:center; min-height:38px;
+  }
+  .eng-card-body { padding:.5rem .6rem; }
+  .eng-row { display:grid; grid-template-columns:24px 1fr; gap:.2rem .5rem; margin-bottom:.3rem; align-items:start; }
+  .eng-row input[type="checkbox"] { margin-top:.25rem; width:13px; height:13px; accent-color:var(--p); }
+  .eng-row p { margin:0; font-size:.72rem; line-height:1.35; }
+  .eng-card.invalid { border-color:#dc2626; }
+  .eng-card.invalid .eng-card-title { background:#dc2626; }
+
+  /* ── Readonly overlay (seções 1–8 bloqueadas para Engenharia) ── */
+  .ro input:not([type="hidden"]):not([type="checkbox"]),
+  .ro select, .ro textarea { background:#f9fafb !important; pointer-events:none; }
+
+  /* Exceções: áreas editáveis pelo Engenheiro */
+  #tableVivo input,
+  #tableVivo select,
+  #tableVivo textarea,
+  .eng-mask,
+  #eng-section input[type="checkbox"],
+  #eng_notes {
+    background: var(--surf) !important;
+    pointer-events: auto !important;
+    cursor: text;
+  }
+  #eng-section input[type="checkbox"] { cursor: pointer; }
+
+  @media (prefers-reduced-motion:reduce){ * { transition:none !important; } }
+</style>
+{% endblock %}
+
+{% block content %}
+{% set plain_bg = true %}
+
+<datalist id="cnList">
+  {% for cn in CN_FULL %}
+    <option value="{{ cn.codigo }}">{{ cn.codigo }} — {{ cn.nome }}{% if cn.uf %}/{{ cn.uf }}{% endif %}</option>
+  {% endfor %}
+</datalist>
+
+<!-- Nav do formulário -->
+<div class="form-nav">
+  <div style="display:flex;align-items:center;gap:.75rem">
+    {% if engineer_mode %}
+      <a href="{{ url_for('engenharia.form_list') }}" class="btn-g btn-sm">← Voltar</a>
+      <span style="font-size:.82rem;font-weight:600">Pré-PTI</span>
+      <span style="font-size:.72rem;padding:.15rem .45rem;border-radius:5px;background:var(--p);color:#fff;font-weight:700">Engenharia</span>
+    {% else %}
+      <a href="{{ url_for('atacado.form_list') }}" class="btn-g btn-sm">← Voltar</a>
+      <span style="font-size:.82rem;font-weight:600">Pré-PTI</span>
+    {% endif %}
+    {% if is_edit %}
+      <span class="badge-s {% if st=='aprovado' %}done{% elif st=='em revisão' %}review{% elif st=='enviado' %}sent{% else %}draft{% endif %}">{{ st|capitalize }}</span>
+      <span style="font-size:.72rem;color:var(--sub)">#{{ form.id }}</span>
+    {% endif %}
+  </div>
+  <div style="display:flex;gap:.4rem">
+    {% if is_edit %}
+      <a href="{{ url_for('engenharia.exportar_excel', form_id=form.id) }}" class="btn-o btn-sm">
+        <i class="bi bi-file-earmark-spreadsheet"></i> Excel
+      </a>
+    {% endif %}
+    <a href="{{ url_for('auth.logout') }}" class="btn-g btn-sm">Sair</a>
+  </div>
+</div>
+
+<div class="form-main">
+  <form
+    id="formTecnico" method="post"
+    action="{% if form and not engineer_mode %}{{ url_for('atacado.form_update', form_id=form.id) }}{% elif form and engineer_mode %}{{ url_for('engenharia.form_view', form_id=form.id) }}{% else %}{{ url_for('atacado.form_create') }}{% endif %}"
+    novalidate
+    data-form-id="{{ form.id if form else 'new' }}"
+    data-vivo-json="{{ form.dados_vivo_json if form else '[]' }}"
+    data-operadora-json="{{ form.dados_operadora_json if form else '[]' }}"
+    data-engenharia-json="{{ form.engenharia_params_json if form else '{}' }}"
+    class="{{ 'ro' if engineer_mode else '' }}"
+  >
+    <input type="hidden" id="dados_vivo_json"       name="dados_vivo_json"       value="{{ form.dados_vivo_json if form and form.dados_vivo_json else '[]' }}">
+    <input type="hidden" id="dados_operadora_json"  name="dados_operadora_json"  value="{{ form.dados_operadora_json if form and form.dados_operadora_json else '[]' }}">
+    <input type="hidden" id="engenharia_params_json" name="engenharia_params_json" value="{{ form.engenharia_params_json if form and form.engenharia_params_json else '{}' }}">
+    {% if not engineer_mode %}
+      <input type="hidden" id="status"            name="status"            value="{{ (form.status if form else '') or 'rascunho' }}">
+      <input type="hidden" id="escopo_flags_json" name="escopo_flags_json" value="{{ form.escopo_flags_json if form and form.escopo_flags_json else '[]' }}">
+    {% endif %}
+
+    {% if is_edit %}
+    <p style="font-size:.72rem;color:var(--sub);margin:0 0 1rem;text-align:right">
+      Atualizado: {{ (form.updated_at or form.created_at or '')|date_br }}
+    </p>
+    {% endif %}
+
+    <!-- 1 | Identificação -->
+    <div class="sec">
+      <div class="sec-header"><h2 class="sec-title">1 · Identificação da Operadora</h2></div>
+      <div class="sec-body">
+        <div class="field-grid col2">
+          <div>
+            <label class="v-label req" for="nome_operadora">Nome da Operadora</label>
+            <input class="v-input" type="text" id="nome_operadora" name="nome_operadora"
+                   value="{{ form.nome_operadora if form else '' }}" required placeholder="Nome completo">
+          </div>
+          <div>
+            <label class="v-label" for="rn1">RN1</label>
+            <input class="v-input" type="text" id="rn1" name="rn1"
+                   value="{{ form.rn1 if form else '' }}" placeholder="Ex.: RN1-123">
+          </div>
+          <div>
+            <label class="v-label" for="atendimento">Atendimento</label>
+            {% set atend = (form.atendimento if form else '') %}
+            <select id="atendimento" name="atendimento" class="v-input">
+              <option value="" {{ 'selected' if not atend }}>—</option>
+              <option value="UF"      {{ 'selected' if atend=='UF' }}>UF</option>
+              <option value="CN"      {{ 'selected' if atend=='CN' }}>CN</option>
+              <option value="REG I"   {{ 'selected' if atend=='REG I' }}>REG I</option>
+              <option value="REG II"  {{ 'selected' if atend=='REG II' }}>REG II</option>
+              <option value="REG III" {{ 'selected' if atend=='REG III' }}>REG III</option>
+            </select>
+          </div>
+          <div id="qualGroup" class="{{ '' if atend and atend.startswith('REG') else 'd-none' }}">
+            <label class="v-label" for="qual">Qual?</label>
+            <input class="v-input" type="text" id="qual" name="qual"
+                   value="{{ form.qual if form else '' }}" placeholder="Ex.: Região II — Sul">
+          </div>
+          <div>
+            <label class="v-label" for="redes">Redes</label>
+            {% set redesv = (form.redes if form else '') %}
+            <select id="redes" name="redes" class="v-input">
+              <option value=""     {{ 'selected' if not redesv }}>—</option>
+              <option value="STFC" {{ 'selected' if redesv=='STFC' }}>STFC</option>
+              <option value="SMP"  {{ 'selected' if redesv=='SMP' }}>SMP</option>
+            </select>
+          </div>
+          <div>
+            <label class="v-label" for="tmr">TMR</label>
+            <input class="v-input" type="text" id="tmr" name="tmr"
+                   value="{{ form.tmr if form else '' }}" placeholder="Ex.: 15s">
+          </div>
+        </div>
+        <div style="margin-top:1rem;display:flex;flex-wrap:wrap;gap:.75rem">
+          <label style="display:flex;align-items:center;gap:.4rem;font-size:.8rem;cursor:pointer">
+            <input type="checkbox" id="csp" name="csp" class="form-check-input" {% if form and form.csp %}checked{% endif %}> CSP
+          </label>
+          <label style="display:flex;align-items:center;gap:.4rem;font-size:.8rem;cursor:pointer">
+            <input type="checkbox" id="servicos_especiais" name="servicos_especiais" class="form-check-input" {% if form and form.servicos_especiais %}checked{% endif %}> Serviços Especiais
+          </label>
+          <label style="display:flex;align-items:center;gap:.4rem;font-size:.8rem;cursor:pointer">
+            <input type="checkbox" id="cng" name="cng" class="form-check-input" {% if form and form.cng %}checked{% endif %}> CNG
+          </label>
+          <label style="display:flex;align-items:center;gap:.4rem;font-size:.8rem;cursor:pointer;padding:.25rem .6rem;border:1px solid var(--bdr);border-radius:999px;transition:all .15s" id="lbl_scm">
+            <input type="checkbox" id="scm" name="scm" class="form-check-input sip-flag" {% if form and form.scm %}checked{% endif %}> SCM
+          </label>
+          <label style="display:flex;align-items:center;gap:.4rem;font-size:.8rem;cursor:pointer;padding:.25rem .6rem;border:1px solid var(--bdr);border-radius:999px;transition:all .15s" id="lbl_av">
+            <input type="checkbox" id="av" name="av" class="form-check-input sip-flag" {% if form and form.av %}checked{% endif %}> AV
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2 | Contatos -->
+    <div class="sec">
+      <div class="sec-header"><h2 class="sec-title">2 · Contatos e Responsáveis</h2></div>
+      <div class="sec-body">
+        <div class="field-grid col2">
+          <div>
+            <label class="v-label req" for="responsavel_operadora">Responsável Operadora</label>
+            <input class="v-input" type="text" id="responsavel_operadora" name="responsavel_operadora"
+                   value="{{ form.responsavel_operadora if form else '' }}" required>
+          </div>
+          <div>
+            <label class="v-label req" for="responsavel_vivo">Responsável Vivo (Atacado)</label>
+            <input class="v-input" type="text" id="responsavel_vivo" name="responsavel_vivo"
+                   value="{{ form.responsavel_vivo if form else '' }}" required>
+          </div>
+          <div>
+            <label class="v-label" for="asn">ASN</label>
+            <input class="v-input" type="text" id="asn" name="asn"
+                   value="{{ form.asn if form else '' }}" placeholder="Ex.: ASXXXXX">
+          </div>
+          <div>
+            <label class="v-label req" for="responsavel_itx_gestao">Gestão ITX (Atacado)</label>
+            <input class="v-input" type="text" id="responsavel_itx_gestao" name="responsavel_atacado"
+                   value="{{ form.responsavel_atacado if form else preset_responsavel_atacado or '' }}" required>
+          </div>
+          <div>
+            <label class="v-label" for="responsavel_itx_eng">Eng. de ITX (Engenharia)</label>
+            <input class="v-input" type="text" id="responsavel_itx_eng" name="responsavel_engenharia"
+                   value="{{ form.responsavel_engenharia if form else '' }}"
+                   placeholder="Preenchido pela Engenharia">
+          </div>
+        </div>
+        <div style="margin-top:1rem;display:flex;flex-wrap:wrap;gap:.75rem">
+          <label style="display:flex;align-items:center;gap:.4rem;font-size:.8rem;cursor:pointer">
+            <input type="checkbox" id="sbc_ativo"    name="sbc_ativo"    class="form-check-input" {% if form and form.sbc_ativo %}checked{% endif %}> SBC ativo
+          </label>
+          <label style="display:flex;align-items:center;gap:.4rem;font-size:.8rem;cursor:pointer">
+            <input type="checkbox" id="ip_reservado" name="ip_reservado" class="form-check-input" {% if form and form.ip_reservado %}checked{% endif %}> IP reservado
+          </label>
+          <label style="display:flex;align-items:center;gap:.4rem;font-size:.8rem;cursor:pointer">
+            <input type="checkbox" id="vivo_reserva" name="vivo_reserva" class="form-check-input" {% if form and form.vivo_reserva %}checked{% endif %}> Vivo reserva IP
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3 | Escopo (Atacado) ou Dados VIVO (Engenharia) -->
+    {% if not engineer_mode %}
+    <div class="sec">
+      <div class="sec-header"><h2 class="sec-title">3 · Escopo</h2></div>
+      <div class="sec-body">
+        <label class="v-label req" for="escopo_texto">Descrição do tráfego</label>
+        <textarea class="v-input" id="escopo_texto" name="escopo_text" rows="3" required
+                  placeholder="Ex.: LC nos CNs 31/11; LD15 + CNG nacional…">{{ form.escopo_text if form else '' }}</textarea>
+        <div style="margin-top:.9rem">
+          <p style="font-size:.75rem;font-weight:600;margin:0 0 .5rem">Tipos de tráfego</p>
+          <div style="display:flex;flex-wrap:wrap;gap:.6rem">
+            {% for val, lbl in [('LC','LC'),('LD15 + CNG','LD15 + CNG'),('LDS/CSP + CNG','LDS/CSP + CNG'),('Transporte','Transporte'),('VC1','VC1'),('Concentração','Concentração')] %}
+            <label style="display:flex;align-items:center;gap:.35rem;font-size:.8rem;cursor:pointer;padding:.3rem .6rem;border:1px solid var(--bdr);border-radius:999px;transition:all .15s"
+                   class="esc-chip-label">
+              <input type="checkbox" class="form-check-input esc-flag" value="{{ val }}" data-flag="{{ val }}" style="margin:0"> {{ lbl }}
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+    </div>
+    {% else %}
+    <!-- Dados VIVO (somente Engenharia) -->
+    <div class="sec">
+      <div class="sec-header">
+        <h2 class="sec-title">3 · Dados VIVO</h2>
+        <div style="display:flex;align-items:center;gap:.5rem">
+          <span class="cap-badge"><span id="vivoCount">0</span>/10</span>
+          <button type="button" class="btn-g btn-sm" id="addRowVivo"><i class="bi bi-plus"></i></button>
+          <button type="button" class="btn-g btn-sm" id="clearRowsVivo" style="font-size:.7rem">Limpar</button>
+        </div>
+      </div>
+      <div class="sec-body" style="padding:.75rem">
+        <div class="data-sec">
+          <table id="tableVivo">
+            <thead><tr>
+              <th>Ref</th><th>Data</th><th>Escopo</th><th>Localidade</th>
+              <th>CN</th><th>CDSIP_SPO_PL / CDSIP_SPO_JG</th><th>ID VIVO</th><th>Endereço Link</th>
+              <th>Cidade</th><th>UF</th><th>Lat.</th><th>Long.</th><th></th>
+            </tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+
+        <!-- Painel Siprouter -->
+        <div id="sipPanel" style="display:none;margin-top:.5rem">
+          <div id="sipLoading" style="display:none;font-size:.78rem;color:var(--sub);text-align:center;padding:.5rem">Consultando siprouter…</div>
+          <div id="sipResult"></div>
+          <div id="sipEmpty"   style="display:none;font-size:.78rem;color:var(--sub);text-align:center;padding:.5rem"></div>
+          <span id="sipPanelMeta" style="display:none"></span>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- 4 | Dados Operadora -->
+    <div class="sec">
+      <div class="sec-header">
+        <h2 class="sec-title">4 · Dados Operadora</h2>
+        {% if not engineer_mode %}
+        <div style="display:flex;align-items:center;gap:.5rem">
+          <span class="cap-badge"><span id="opCount">0</span>/10</span>
+          <button type="button" class="btn-g btn-sm" id="addRowOperadora"><i class="bi bi-plus"></i></button>
+          <button type="button" class="btn-g btn-sm" id="clearRowsOperadora" style="font-size:.7rem">Limpar</button>
+        </div>
+        {% endif %}
+      </div>
+      <div class="sec-body" style="padding:.75rem">
+        <div class="data-sec">
+          <table id="tableOperadora">
+            <thead><tr>
+              <th>Ref</th><th>Localidade</th><th>EOT LC</th><th>EOT LD</th>
+              <th>CN</th><th>SBC</th><th>Faixa IP</th><th>Mask</th><th>ID OPERADORA</th>
+              <th>Endereço Link</th><th>Cidade</th><th>UF</th><th>Lat.</th><th>Long.</th>
+              {% if not engineer_mode %}<th></th>{% endif %}
+            </tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- 5 | Infraestrutura -->
+    <div class="sec">
+      <div class="sec-header"><h2 class="sec-title">5 · Infraestrutura</h2></div>
+      <div class="sec-body">
+        <div class="field-grid col2">
+          <div>
+            <label style="display:flex;align-items:center;gap:.5rem;font-size:.8rem;cursor:pointer">
+              <input type="checkbox" id="operadora_ciente" name="operadora_ciente" class="form-check-input"
+                     {% if form and form.operadora_ciente %}checked{% endif %}>
+              Operadora ciente da responsabilidade de infraestrutura?
+            </label>
+          </div>
+          <div>
+            <label class="v-label" for="responsavel_infra">Responsável</label>
+            <input class="v-input" type="text" id="responsavel_infra" name="responsavel_infra"
+                   value="{{ form.responsavel_infra if form else '' }}">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 6 | LCR Nacional -->
+    <div class="sec">
+      <div class="sec-header"><h2 class="sec-title">6 · LCR Nacional</h2></div>
+      <div class="sec-body">
+        <div style="display:flex;flex-wrap:wrap;gap:1rem">
+          <label style="display:flex;align-items:center;gap:.4rem;font-size:.8rem;cursor:pointer">
+            <input type="checkbox" id="lcr_nacional" name="lcr_nacional" class="form-check-input"
+                   {% if form and form.lcr_nacional %}checked{% endif %}> LCR Nacional
+          </label>
+          <label style="display:flex;align-items:center;gap:.4rem;font-size:.8rem;cursor:pointer">
+            <input type="checkbox" id="white_list" name="white_list" class="form-check-input"
+                   {% if form and form.white_list %}checked{% endif %}> White List
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <!-- 7 | Faixa de Numeração -->
+    <div class="sec">
+      <div class="sec-header"><h2 class="sec-title">7 · Faixa de Numeração</h2></div>
+      <div class="sec-body">
+        <label style="display:flex;align-items:center;gap:.4rem;font-size:.8rem;cursor:pointer">
+          <input type="checkbox" id="prefixos_liberados_abr" name="prefixos_liberados_abr" class="form-check-input"
+                 {% if form and form.prefixos_liberados_abr %}checked{% endif %}> Prefixos liberados na ABR
+        </label>
+      </div>
+    </div>
+
+    <!-- 8 | Premissas -->
+    <div class="sec">
+      <div class="sec-header"><h2 class="sec-title">8 · Premissas de Abordagem</h2></div>
+      <div class="sec-body">
+        <div class="field-grid col2" style="margin-bottom:1rem">
+          <div style="grid-column:1/-1">
+            <label style="display:flex;align-items:flex-start;gap:.5rem;font-size:.8rem;cursor:pointer">
+              <input type="checkbox" id="premissas_ok" name="premissas_ok" class="form-check-input" style="margin-top:.15rem"
+                     {% if form and form.premissas_ok %}checked{% endif %}>
+              <span>Aprovação em acordo com as informações apresentadas e às 29 Pendências de Programação.</span>
+            </label>
+          </div>
+          <div>
+            <label class="v-label" for="aprovado_por">Aprovado por</label>
+            <input class="v-input" type="text" id="aprovado_por" name="aprovado_por"
+                   value="{{ form.aprovado_por if form else '' }}">
+          </div>
+        </div>
+        <div style="overflow-x:auto">
+          <table style="width:100%;border-collapse:collapse;font-size:.78rem">
+            <thead><tr style="background:#f9fafb;border-bottom:1px solid var(--bdr)">
+              <th style="padding:.45rem .75rem;font-weight:600;font-size:.7rem;color:var(--sub)">Tráfego</th>
+              <th style="padding:.45rem .75rem;font-weight:600;font-size:.7rem;color:var(--sub)">Descrição</th>
+            </tr></thead>
+            <tbody>
+              <tr style="border-bottom:1px solid var(--bdr)">
+                <td style="padding:.4rem .75rem;font-weight:600;white-space:nowrap">LC / TR LC</td>
+                <td style="padding:.4rem .75rem;color:var(--sub)">Chamadas entre operadoras dentro da mesma Área Local.</td>
+              </tr>
+              <tr style="border-bottom:1px solid var(--bdr)">
+                <td style="padding:.4rem .75rem;font-weight:600;white-space:nowrap">LD 15 / CNG VIVO</td>
+                <td style="padding:.4rem .75rem;color:var(--sub)">Encaminhamentos entre Vivo-STFC e operadora (LD15, SE e CNG).</td>
+              </tr>
+              <tr style="border-bottom:1px solid var(--bdr)">
+                <td style="padding:.4rem .75rem;font-weight:600;white-space:nowrap">LD Oper CSP XY</td>
+                <td style="padding:.4rem .75rem;color:var(--sub)">Tráfego LD com/sem CSP e CNG conforme acordado.</td>
+              </tr>
+              <tr style="border-bottom:1px solid var(--bdr)">
+                <td style="padding:.4rem .75rem;font-weight:600;white-space:nowrap">Transporte</td>
+                <td style="padding:.4rem .75rem;color:var(--sub)">Chamadas entregues pela operadora de qualquer CN para qualquer destino.</td>
+              </tr>
+              <tr>
+                <td style="padding:.4rem .75rem;font-weight:600;white-space:nowrap">VC1</td>
+                <td style="padding:.4rem .75rem;color:var(--sub)">Chamadas entre AL e VIVO-SMP no CN.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- 9 | Parâmetros Técnicos (somente Engenharia) -->
+    {% if engineer_mode %}
+    <div class="sec" id="eng-section">
+      <div class="sec-header">
+        <h2 class="sec-title">9 · Parâmetros Técnicos — Engenharia</h2>
+        <div style="display:flex;gap:.4rem">
+          <button type="button" id="engCheckAll"   class="btn-g btn-sm"><i class="bi bi-check2-square"></i> Marcar tudo</button>
+          <button type="button" id="engUncheckAll" class="btn-g btn-sm"><i class="bi bi-x-square"></i> Limpar</button>
+        </div>
+      </div>
+      <div class="sec-body">
+        <div class="eng-grid">
+
+          <div class="eng-card" data-eng-group="tratamento">
+            <div class="eng-card-title">Tratamento de Chamadas</div>
+            <div class="eng-card-body">
+              {% for key, text in [
+                ("tratamento.reinvite_obrigatorio", "Re-invites obrigatórios pela Origem para definição de codecs."),
+                ("tratamento.ptime_maxptime_20ms",  "Ptime/Maxptime: múltiplos de 20 ms para codecs móveis (3GPP 26.114)."),
+                ("tratamento.qos_marcacoes_rtp",    "RTP: marcação CS5 / DSCP 46 / EF.")
+              ] %}<div class="eng-row"><input type="checkbox" class="eng-flag" data-key="{{ key }}"><p>{{ text }}</p></div>{% endfor %}
+            </div>
+          </div>
+
+          <div class="eng-card" data-eng-group="codec">
+            <div class="eng-card-title">CODEC / Modo</div>
+            <div class="eng-card-body">
+              {% for key, text in [
+                ("codec.sipi_sem_rn3_portado",  "SIP-I sem RN3 (060) para tráfego portado."),
+                ("codec.oferta_g711a_g729_stfc", "STFC/STFC e STFC/SMP: G.711A e G.729."),
+                ("codec.amr_g711a_smp",          "SMP/SMP: AMR e G.711A."),
+                ("codec.g711u_nao_suportado",    "G.711u não suportado.")
+              ] %}<div class="eng-row"><input type="checkbox" class="eng-flag" data-key="{{ key }}"><p>{{ text }}</p></div>{% endfor %}
+            </div>
+          </div>
+
+          <div class="eng-card" data-eng-group="id">
+            <div class="eng-card-title">Identificação</div>
+            <div class="eng-card-body">
+              {% for key, text in [
+                ("id.originador_fixo_isupbr_regiao3",         "Rede Fixa: ISUPBR (Região III)."),
+                ("id.originador_movel_isupbr_itu92_opcional", "Rede Móvel: ISUPBR (ITU-92 opcional)."),
+                ("id.fax_t38_nao_suportado",                  "FAX T.38 não suportado."),
+                ("id.bgp_ip30_mpls_contingencia",             "BGP IP/30 com MPLS e link de contingência.")
+              ] %}<div class="eng-row"><input type="checkbox" class="eng-flag" data-key="{{ key }}"><p>{{ text }}</p></div>{% endfor %}
+            </div>
+          </div>
+
+          <div class="eng-card" data-eng-group="rfc">
+            <div class="eng-card-title">RFC Principais</div>
+            <div class="eng-card-body">
+              {% for key, text in [
+                ("rfc.3261_base",           "RFC 3261 — SIP base."),
+                ("rfc.3262_100rel_prack",   "RFC 3262 — 100rel / PRACK."),
+                ("rfc.sdp_3264_3266_2327_4566","RFC 3264/3266/2327/4566 — SDP."),
+                ("rfc.4028_timers",         "RFC 4028 — SIP Timers.")
+              ] %}<div class="eng-row"><input type="checkbox" class="eng-flag" data-key="{{ key }}"><p>{{ text }}</p></div>{% endfor %}
+            </div>
+          </div>
+
+          <div class="eng-card" data-eng-group="habilitadas">
+            <div class="eng-card-title">RFC Habilitadas</div>
+            <div class="eng-card-body">
+              {% for key, text in [
+                ("habilitadas.3389_cn",   "RFC 3389 — Comfort Noise."),
+                ("habilitadas.2833_dtmf", "RFC 2833 — DTMF."),
+                ("habilitadas.3264_hold", "RFC 3264 — Hold.")
+              ] %}<div class="eng-row"><input type="checkbox" class="eng-flag" data-key="{{ key }}"><p>{{ text }}</p></div>{% endfor %}
+            </div>
+          </div>
+
+          <div class="eng-card" data-eng-group="early">
+            <div class="eng-card-title">Early Media / RBT</div>
+            <div class="eng-card-body">
+              {% for key, text in [
+                ("early.3960_early_media",       "RFC 3960 — Early Media e Ring Tone."),
+                ("early.180ring_proxy_rbt_local", "SIP 180 Ring puro: Proxy gera RBT localmente."),
+                ("early.6337_offer_answer",      "RFC 6337 — Offer-Answer.")
+              ] %}<div class="eng-row"><input type="checkbox" class="eng-flag" data-key="{{ key }}"><p>{{ text }}</p></div>{% endfor %}
+            </div>
+          </div>
+
+        </div>
+
+        <div style="margin-top:1rem">
+          <label class="v-label" for="eng_notes">Observações</label>
+          <textarea class="v-input" id="eng_notes" rows="2" placeholder="Particularidades, exceções…">{{ (form.engenharia_params_json or '{}') }}</textarea>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
+  </form>
+</div>
+
+<!-- Barra de ações -->
+<div class="action-bar">
+  {% if engineer_mode %}
+    <a href="{{ url_for('engenharia.form_list') }}" class="btn-g">Cancelar</a>
+    <button type="button" id="btnSaveEng" onclick="document.getElementById('formTecnico').requestSubmit()" class="btn-p">
+      <span class="spinner-border spinner-border-sm d-none me-1" id="spin"></span> Salvar validação
+    </button>
+  {% else %}
+    <button type="button" class="btn-g" id="resetForm">Limpar</button>
+    <button type="button" id="btnSave" class="btn-o" onclick="setStatus('rascunho');document.getElementById('formTecnico').requestSubmit()">
+      <span class="spinner-border spinner-border-sm d-none me-1" id="spinSave"></span> Salvar rascunho
+    </button>
+    <button type="button" id="btnFinish" class="btn-p" onclick="finalizeSubmit()">
+      <span class="spinner-border spinner-border-sm d-none me-1" id="spinFinish"></span> Finalizar
+    </button>
+  {% endif %}
+</div>
+
+<!-- =====================================================================
+     JAVASCRIPT
+     ===================================================================== -->
+<script data-engineer="{{ 'true' if engineer_mode else 'false' }}">
+const ENG = document.currentScript.getAttribute('data-engineer') === 'true';
+const CAP = 10;
+
+/* ── CN map ── */
+let CN_MAP = {};
+fetch('/api/cns').then(r=>r.json()).then(data=>{
+  data.forEach(({codigo,nome,uf})=>{ CN_MAP[String(codigo||'').padStart(2,'0')]={cidade:nome||'',uf:uf||''}; });
+}).catch(()=>{});
+const cn2meta = cn => CN_MAP[String(cn||'').trim().padStart(2,'0')] || {cidade:'',uf:''};
+
+/* ── Estado ── */
+let dirty=false, submitting=false;
+const setDirty=()=>{ dirty=true; };
+
+/* ── Helpers de tabela ── */
+const mkInput=(ph,attrs={})=>{
+  const i=document.createElement('input');
+  i.placeholder=ph; i.style.cssText='width:100%;padding:.3rem .4rem;border:1px solid var(--bdr);border-radius:6px;font-size:.75rem;outline:none';
+  Object.entries(attrs).forEach(([k,v])=>{ if(v!=null) i.setAttribute(k,v); });
+  i.addEventListener('input',setDirty); i.addEventListener('change',setDirty);
+  i.addEventListener('focus',()=>{ i.style.borderColor='var(--p)'; i.style.boxShadow='0 0 0 2px rgba(107,9,166,.08)'; });
+  i.addEventListener('blur', ()=>{ i.style.borderColor='var(--bdr)'; i.style.boxShadow='none'; });
+  return i;
+};
+const mkCheck=()=>{
+  const w=document.createElement('div'); w.style='display:flex;justify-content:center;padding:.2rem 0';
+  const c=document.createElement('input'); c.type='checkbox'; c.style='accent-color:var(--p);cursor:pointer';
+  c.addEventListener('change',setDirty); w.appendChild(c); return w;
+};
+const mkDel=()=>{
+  const b=document.createElement('button'); b.type='button'; b.className='del-btn'; b.innerHTML='<i class="bi bi-dash"></i>';
+  b.addEventListener('click',e=>{ e.currentTarget.closest('tr').remove(); upd(); setDirty(); });
+  return b;
+};
+const upd=()=>{
+  const vc=document.getElementById('vivoCount'); if(vc) vc.textContent=document.querySelectorAll('#tableVivo tbody tr').length;
+  const oc=document.getElementById('opCount');   if(oc) oc.textContent=document.querySelectorAll('#tableOperadora tbody tr').length;
+};
+
+/* ── Serialização ── */
+function serVivo(){
+  return Array.from(document.querySelectorAll('#tableVivo tbody tr')).map(tr=>{
+    const c=tr.querySelectorAll('td');
+    return {ref:c[0]?.querySelector('input')?.value||'',data:c[1]?.querySelector('input')?.value||'',escopo:c[2]?.querySelector('input')?.value||'',localidade:c[3]?.querySelector('input')?.value||'',cn:c[4]?.querySelector('input')?.value||'',bloco_ip:c[5]?.querySelector('input')?.value||'',id_vivo:c[6]?.querySelector('input')?.value||'',endereco_link:c[7]?.querySelector('input')?.value||'',cidade:c[8]?.querySelector('input')?.value||'',uf:c[9]?.querySelector('input')?.value||'',lat:c[10]?.querySelector('input')?.value||'',long:c[11]?.querySelector('input')?.value||''};
+  });
+}
+function serOp(){
+  return Array.from(document.querySelectorAll('#tableOperadora tbody tr')).map(tr=>{
+    const c=tr.querySelectorAll('td');
+    return {ref:c[0]?.querySelector('input')?.value||'',localidade:c[1]?.querySelector('input')?.value||'',eto_lc:c[2]?.querySelector('input')?.value||'',eot_ld:c[3]?.querySelector('input')?.value||'',cn:c[4]?.querySelector('input')?.value||'',sbc:c[5]?.querySelector('input')?.value||'',faixa_ip:c[6]?.querySelector('input')?.value||'',mask:c[7]?.querySelector('input')?.value||'',id_op:c[8]?.querySelector('input')?.value||'',endereco_link:c[9]?.querySelector('input')?.value||'',cidade:c[10]?.querySelector('input')?.value||'',uf:c[11]?.querySelector('input')?.value||'',lat:c[12]?.querySelector('input')?.value||'',long:c[13]?.querySelector('input')?.value||''};
+  });
+}
+
+/* ── Siprouter SP Query ── */
+const SIP = (function(){
+  const panel    = document.getElementById('sipPanel');
+  const metaEl   = document.getElementById('sipPanelMeta');
+  const loadEl   = document.getElementById('sipLoading');
+  const resultEl = document.getElementById('sipResult');
+  const emptyEl  = document.getElementById('sipEmpty');
+  if(!panel) return { query:()=>{} };
+
+  let _last='', _tmr=null;
+
+  function getFlags(){
+    const scm = document.getElementById('scm')?.checked ? '1' : '0';
+    const av  = document.getElementById('av')?.checked  ? '1' : '0';
+    return {scm, av};
+  }
+
+  function renderResult(data, rowIdx){
+    loadEl.style.display='none'; emptyEl.style.display='none'; resultEl.innerHTML='';
+
+    if(!data.found){
+      emptyEl.style.display='block';
+      emptyEl.textContent = data.mensagem || 'Nenhum bloco IP encontrado.';
+      panel.style.display='block';
+      return;
+    }
+
+    // Auto-preencher o campo — apenas isso, sem card extra
+    const pl    = data.pl_bloco || '';
+    const jg    = data.jg_bloco || '';
+    const valor = pl && jg ? `PL:${pl} / JG:${jg}` : (pl || jg);
+    fillBlocoIP(valor, rowIdx);
+
+    // Painel discreto apenas com a mensagem de confirmação
+    metaEl.textContent = `CN ${data.cn} · ${data.descricao || ''} · ${data.mensagem || ''}`;
+    panel.style.display='block';
+  }
+
+  function fillBlocoIP(bloco, rowIdx){
+    const rows=document.querySelectorAll('#tableVivo tbody tr');
+    if(rowIdx<0||rowIdx>=rows.length) return;
+    const inp=rows[rowIdx].querySelectorAll('td')[5]?.querySelector('input');
+    if(inp){
+      inp.value=bloco;
+      inp.style.background='#d1fae5';
+      setTimeout(()=>{ inp.style.background=''; },1200);
+      setDirty();
+    }
+  }
+
+  async function query(cn, rowIdx){
+    const rn1 = (document.getElementById('rn1')?.value||'').trim();
+    if(!rn1 || !cn || String(cn).replace(/\D/g,'').length < 2) return;
+
+    const {scm, av} = getFlags();
+    const ck = `${cn}:${rn1}:${scm}:${av}:${rowIdx}`;
+    if(ck===_last) return;
+    _last=ck;
+
+    clearTimeout(_tmr);
+    _tmr=setTimeout(async()=>{
+      panel.style.display='block';
+      loadEl.style.display='block';
+      resultEl.innerHTML='';
+      emptyEl.style.display='none';
+
+      try{
+        const r = await fetch(`/api/siprouter/query?cn=${encodeURIComponent(cn)}&rn1=${encodeURIComponent(rn1)}&scm=${scm}&av=${av}`);
+        if(!r.ok) throw new Error(r.status);
+        renderResult(await r.json(), rowIdx);
+      }catch(e){
+        loadEl.style.display='none';
+        emptyEl.style.display='block';
+        emptyEl.textContent='Erro ao consultar siprouter. Verifique CN e RN1.';
+      }
+    }, 320);
+  }
+
+  function resetCache(){ _last = ''; }
+
+  return { query, resetCache };
+})();
+
+// Re-disparar consulta quando SCM/AV mudar
+document.querySelectorAll('.sip-flag').forEach(chk=>{
+  chk.addEventListener('change',()=>{
+    // Invalidar cache forçando nova consulta
+    const firstRow = document.querySelector('#tableVivo tbody tr');
+    if(!firstRow) return;
+    const cnI = firstRow.querySelector('[data-field="cn"]');
+    if(cnI && cnI.value.length>=2){
+      const ri = 0;
+      SIP.query(cnI.value, ri);
+    }
+  });
+  // Estilo visual do chip SCM/AV
+  const lbl = chk.closest('label');
+  const syncChip=()=>{
+    if(!lbl) return;
+    lbl.style.borderColor = chk.checked ? 'var(--p)' : 'var(--bdr)';
+    lbl.style.background  = chk.checked ? 'var(--p-lt)' : 'transparent';
+    lbl.style.color       = chk.checked ? 'var(--p)' : 'inherit';
+  };
+  chk.addEventListener('change', syncChip); syncChip();
+});
+
+/* ── Wire CN autofill ── */
+function wireCN(tr){
+  const cnI=tr.querySelector('[data-field="cn"]');
+  const ufI=tr.querySelector('[data-field="uf"]');
+  const ciI=tr.querySelector('[data-field="cidade"]');
+  if(!cnI) return;
+  let t1=null;
+  const cnH=()=>{
+    const v=(cnI.value||'').replace(/\D/g,'').slice(0,2); cnI.value=v;
+    const m=cn2meta(v);
+    if(ciI&&m.cidade) ciI.value=m.cidade;
+    if(ufI&&m.uf) ufI.value=m.uf;
+    setDirty();
+    if(v.length===2){
+      clearTimeout(t1);
+      t1=setTimeout(()=>{
+        const ri=Array.from(tr.parentElement.children).indexOf(tr);
+        SIP.query(v, ri);
+      },200);
+    }
+  };
+  ['input','change','blur'].forEach(ev=>{ cnI.addEventListener(ev,cnH); });
+  if(ufI) ['input','change','blur'].forEach(ev=>{ ufI.addEventListener('change',setDirty); });
+  if((cnI.value||'').trim().length>=2) cnH();
+}
+
+// Re-disparar consulta quando RN1 do formulário mudar — para todas as linhas
+(function(){
+  const rn1I = document.getElementById('rn1');
+  if(!rn1I) return;
+  let t=null;
+  rn1I.addEventListener('input',()=>{
+    clearTimeout(t);
+    t=setTimeout(()=>{
+      SIP.resetCache();
+      document.querySelectorAll('#tableVivo tbody tr').forEach((tr,ri)=>{
+        const cnI=tr.querySelector('[data-field="cn"]');
+        const cn=(cnI?.value||'').replace(/\D/g,'');
+        if(cn.length>=2) SIP.query(cn, ri);
+      });
+    },400);
+  });
+})();
+
+/* ── Tabelas dinâmicas ── */
+(function(){
+  let vi=[],oi=[];
+  const fe=document.getElementById('formTecnico');
+  try{ vi=JSON.parse(fe.getAttribute('data-vivo-json')||'[]'); }catch(_){}
+  try{ oi=JSON.parse(fe.getAttribute('data-operadora-json')||'[]'); }catch(_){}
+  const tv=document.querySelector('#tableVivo tbody');
+  const to=document.querySelector('#tableOperadora tbody');
+
+  function addVivo(v={}){
+    if(!tv) return;
+    if(tv.children.length>=CAP){ alert('Máximo '+CAP+' linhas.'); return; }
+    const tr=document.createElement('tr');
+    [['ref',{}],['data',{}],['escopo',{}],['localidade',{}],
+     ['cn',{'data-field':'cn',list:'cnList',inputmode:'numeric',maxlength:'2'}],
+     ['bloco_ip',{}],['id_vivo',{}],['endereco_link',{}],
+     ['cidade',{'data-field':'cidade'}],
+     ['uf',{'data-field':'uf',maxlength:'2'}],
+     ['lat',{}],['long',{}]
+    ].forEach(([k,a])=>{ const td=document.createElement('td'); const i=mkInput(k,a); i.value=v[k]??''; td.appendChild(i); tr.appendChild(td); });
+    const td=document.createElement('td'); td.appendChild(mkDel()); tr.appendChild(td);
+    tv.appendChild(tr); wireCN(tr); upd(); setDirty();
+  }
+
+  function addOp(v={}){
+    if(!to) return;
+    if(to.children.length>=CAP){ alert('Máximo '+CAP+' linhas.'); return; }
+    const tr=document.createElement('tr');
+    [['ref',{}],['localidade',{}],['eto_lc',{}],['eot_ld',{}],
+     ['cn',{'data-field':'cn',list:'cnList',inputmode:'numeric',maxlength:'2'}],
+     ['sbc',{}],['faixa_ip',{}]
+    ].forEach(([k,a])=>{ const td=document.createElement('td'); const i=mkInput(k,a); i.value=v[k]??''; td.appendChild(i); tr.appendChild(td); });
+    // Mask — editável pela Engenharia
+    const tdMask=document.createElement('td');
+    const iMask=mkInput('mask',{});
+    iMask.value=v.mask??'';
+    if(ENG){
+      iMask.classList.add('eng-mask');
+    } else {
+      iMask.setAttribute('readonly','');
+      iMask.style.pointerEvents='none';
+    }
+    tdMask.appendChild(iMask); tr.appendChild(tdMask);
+    // ID OPERADORA
+    [['id_op',{}],['endereco_link',{}],['cidade',{'data-field':'cidade'}],['uf',{'data-field':'uf',maxlength:'2'}],['lat',{}],['long',{}]
+    ].forEach(([k,a])=>{ const td=document.createElement('td'); const i=mkInput(k,a); i.value=v[k]??''; td.appendChild(i); tr.appendChild(td); });
+    if(!ENG){ const td=document.createElement('td'); td.appendChild(mkDel()); tr.appendChild(td); }
+    to.appendChild(tr); wireCN(tr); upd(); setDirty();
+  }
+
+  (Array.isArray(vi)?vi:[]).forEach(addVivo);
+  (Array.isArray(oi)?oi:[]).forEach(addOp);
+  document.getElementById('addRowVivo')?.addEventListener('click',()=>addVivo({}));
+  document.getElementById('clearRowsVivo')?.addEventListener('click',()=>{ if(tv){ tv.innerHTML=''; upd(); setDirty(); } });
+  document.getElementById('addRowOperadora')?.addEventListener('click',()=>addOp({}));
+  document.getElementById('clearRowsOperadora')?.addEventListener('click',()=>{ if(to){ to.innerHTML=''; upd(); setDirty(); } });
+  upd();
+
+  // Consultar siprouter para todas as linhas que têm CN mas não têm bloco_ip
+  // Executado após o load inicial com um delay para garantir que o DOM está pronto
+  setTimeout(()=>{
+    const rn1Val=(document.getElementById('rn1')?.value||'').trim();
+    if(!rn1Val) return;
+    document.querySelectorAll('#tableVivo tbody tr').forEach((tr,ri)=>{
+      const cnI=tr.querySelector('[data-field="cn"]');
+      const blocoInp=tr.querySelectorAll('td')[5]?.querySelector('input');
+      const cn=(cnI?.value||'').replace(/\D/g,'');
+      if(cn.length===2 && !(blocoInp?.value||'').trim()){
+        SIP.query(cn, ri);
+      }
+    });
+  }, 600);
+})();
+
+/* ── Engenharia hydrate ── */
+(function(){
+  if(!ENG) return;
+  let s={};
+  try{ s=JSON.parse(document.getElementById('formTecnico').getAttribute('data-engenharia-json')||'{}'); }catch(_){}
+  document.querySelectorAll('#eng-section .eng-flag[data-key]').forEach(c=>{ const k=c.getAttribute('data-key'); if(k in s) c.checked=!!s[k]; });
+  if(typeof s.notes==='string'){ const n=document.getElementById('eng_notes'); if(n) n.value=s.notes; }
+  document.getElementById('engCheckAll')?.addEventListener('click',()=>{ document.querySelectorAll('#eng-section .eng-flag').forEach(c=>c.checked=true); document.querySelectorAll('.eng-card').forEach(c=>c.classList.remove('invalid')); setDirty(); });
+  document.getElementById('engUncheckAll')?.addEventListener('click',()=>{ document.querySelectorAll('#eng-section .eng-flag').forEach(c=>c.checked=false); setDirty(); });
+})();
+
+/* ── Qual? toggle ── */
+(function(){
+  const at=document.getElementById('atendimento'), qg=document.getElementById('qualGroup');
+  const toggle=()=>{ if(qg) qg.classList.toggle('d-none',!(at?.value||'').startsWith('REG')); };
+  at?.addEventListener('change',toggle); toggle();
+})();
+
+/* ── Escopo chips ── */
+(function(){
+  if(ENG) return;
+  const h=document.getElementById('escopo_flags_json'); if(!h) return;
+  let flags=[]; try{ flags=JSON.parse(h.value||'[]'); }catch(_){}
+  document.querySelectorAll('.esc-flag').forEach(c=>{
+    if(flags.includes(c.getAttribute('data-flag'))) c.checked=true;
+    c.addEventListener('change',()=>{
+      const cur=[]; document.querySelectorAll('.esc-flag:checked').forEach(x=>cur.push(x.getAttribute('data-flag')));
+      h.value=JSON.stringify(cur); setDirty();
+    });
+    // Visual feedback
+    const lbl=c.closest('label');
+    const sync=()=>{ if(lbl) lbl.style.cssText='display:flex;align-items:center;gap:.35rem;font-size:.8rem;cursor:pointer;padding:.3rem .6rem;border:1px solid '+(c.checked?'var(--p)':' var(--bdr)')+';border-radius:999px;transition:all .15s;background:'+(c.checked?'var(--p-lt)':'transparent')+';color:'+(c.checked?'var(--p)':'inherit'); };
+    c.addEventListener('change',sync); sync();
+  });
+})();
+
+/* ── Submit ── */
+const form=document.getElementById('formTecnico');
+function setStatus(v){ const s=document.getElementById('status'); if(s) s.value=v; }
+function finalizeSubmit(){
+  if(!confirm('Finalizar e enviar para Engenharia?')) return;
+  setStatus('enviado');
+  document.getElementById('formTecnico').requestSubmit();
+}
+
+window.addEventListener('beforeunload',e=>{ if(dirty&&!submitting){ e.preventDefault(); e.returnValue=''; } });
+
+document.getElementById('resetForm')?.addEventListener('click',()=>{
+  form.reset();
+  const tv=document.querySelector('#tableVivo tbody'); if(tv) tv.innerHTML='';
+  const to=document.querySelector('#tableOperadora tbody'); if(to) to.innerHTML='';
+  document.getElementById('qualGroup')?.classList.add('d-none');
+  upd(); setDirty(); window.scrollTo({top:0,behavior:'smooth'});
+});
+
+document.querySelectorAll('#formTecnico input:not([type="hidden"]),#formTecnico select,#formTecnico textarea').forEach(el=>{
+  el.addEventListener('input',setDirty); el.addEventListener('change',setDirty);
+});
+
+form.addEventListener('submit',e=>{
+  // Serializar tabelas
+  const vh=document.getElementById('dados_vivo_json');
+  const oh=document.getElementById('dados_operadora_json');
+  if(ENG&&document.getElementById('tableVivo'))       vh.value=JSON.stringify(serVivo());
+  if(document.getElementById('tableOperadora'))       oh.value=JSON.stringify(serOp());
+
+  if(ENG){
+    const d={};
+    document.querySelectorAll('#eng-section .eng-flag[data-key]').forEach(c=>{ d[c.getAttribute('data-key')]=!!c.checked; });
+    const n=document.getElementById('eng_notes'); if(n&&n.value.trim()) d.notes=n.value.trim();
+    document.getElementById('engenharia_params_json').value=JSON.stringify(d);
+    // Validar grupos
+    let ok=true;
+    document.querySelectorAll('#eng-section .eng-card[data-eng-group]').forEach(card=>{
+      card.classList.remove('invalid');
+      if(!card.querySelectorAll('.eng-flag:checked').length){ card.classList.add('invalid'); ok=false; }
+    });
+    if(!ok){
+      e.preventDefault(); e.stopPropagation();
+      alert('Preencha todos os grupos de parâmetros da Seção 9.');
+      document.querySelector('.eng-card.invalid')?.scrollIntoView({behavior:'smooth',block:'center'});
+      return;
+    }
+  }
+
+  if(!form.checkValidity()){
+    e.preventDefault(); e.stopPropagation();
+    const inv=form.querySelector(':invalid');
+    inv?.scrollIntoView({behavior:'smooth',block:'center'}); inv?.focus({preventScroll:true});
+    return;
+  }
+  submitting=true;
+  // Spinner
+  if(ENG){ const s=document.getElementById('spin'); if(s) s.classList.remove('d-none'); }
+  else if(document.getElementById('btnSave')?.matches(':active')){ const s=document.getElementById('spinSave'); if(s) s.classList.remove('d-none'); }
+  else { const s=document.getElementById('spinFinish'); if(s) s.classList.remove('d-none'); }
+});
+
+/* ── Hotkeys ── */
+document.addEventListener('keydown',e=>{
+  if(['INPUT','TEXTAREA','SELECT'].includes(e.target?.tagName)){
+    if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='s'){
+      e.preventDefault();
+      if(ENG) document.getElementById('btnSaveEng')?.click();
+      else{ setStatus('rascunho'); document.getElementById('btnSave')?.click(); }
+    }
+    return;
+  }
+  if(e.key==='g'||e.key==='G') window.scrollTo({top:0,behavior:'smooth'});
+});
+</script>
+{% endblock %}
