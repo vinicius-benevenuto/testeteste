@@ -871,12 +871,12 @@ class PTIWorkbookBuilder:
                 img_anchor_row = cursor
                 sbc_op_img = (op_row.get("sbc", "") if op_row else "") or ""
                 row_labels = [
-                    {"text": "Roteador OP", "xy_pct": (0.65, 0.36), "font_size_pct": cfg["rfp"], "stroke_width_pct": cfg["rsp"]},
-                    {"text": "Roteador OP", "xy_pct": (0.65, 0.55), "font_size_pct": cfg["rfp"], "stroke_width_pct": cfg["rsp"]},
-                    {"text": "Link resp Vivo", "xy_pct": (0.48, 0.58), "font_size_pct": cfg["lfsz"], "stroke_width_pct": 0.006},
-                    {"text": f"Link resp {n}", "xy_pct": (0.50, 0.28), "font_size_pct": cfg["lfsz"], "stroke_width_pct": 0.006},
-                    {"text": "RAC/RAV/HL4", "xy_pct": (0.34, 0.36), "font_size_pct": 0.010, "stroke_width_pct": 0.006},
-                    {"text": "RAC/RAV/HL4", "xy_pct": (0.34, 0.55), "font_size_pct": 0.010, "stroke_width_pct": 0.006},
+                    {"text": f"ROTEADOR {n}", "xy_pct": (0.65, 0.36), "font_size_pct": cfg["rfp"], "stroke_width_pct": cfg["rsp"]},
+                    {"text": f"ROTEADOR {n}", "xy_pct": (0.65, 0.55), "font_size_pct": cfg["rfp"], "stroke_width_pct": cfg["rsp"]},
+                    {"text": "LINK RESP VIVO", "xy_pct": (0.50, 0.70), "font_size_pct": cfg["lfsz"], "stroke_width_pct": 0.006},
+                    {"text": f"LINK RESP {n}", "xy_pct": (0.50, 0.18), "font_size_pct": cfg["lfsz"], "stroke_width_pct": 0.006},
+                    {"text": "ROTEADOR VIVO", "xy_pct": (0.34, 0.36), "font_size_pct": 0.010, "stroke_width_pct": 0.006},
+                    {"text": "ROTEADOR VIVO", "xy_pct": (0.34, 0.55), "font_size_pct": 0.010, "stroke_width_pct": 0.006},
                     {"text": "CDSIP_SPO_PL", "xy_pct": (0.14, 0.41), "font_size_pct": 0.022, "stroke_width_pct": 0.006},
                     {"text": "CDSIP_SPO_JG", "xy_pct": (0.14, 0.58), "font_size_pct": 0.022, "stroke_width_pct": 0.006},
                     # Títulos acima das nuvens (não mais dentro delas)
