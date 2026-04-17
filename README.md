@@ -713,7 +713,9 @@ const SIP = (function(){
     }, 320);
   }
 
-  return { query };
+  function resetCache(){ _last = ''; }
+
+  return { query, resetCache };
 })();
 
 // Re-disparar consulta quando SCM/AV mudar
@@ -765,7 +767,7 @@ function wireCN(tr){
   if((cnI.value||'').trim().length>=2) cnH();
 }
 
-// Re-disparar consulta quando RN1 do formulário mudar
+// Re-disparar consulta quando RN1 do formulário mudar — para todas as linhas
 (function(){
   const rn1I = document.getElementById('rn1');
   if(!rn1I) return;
@@ -773,12 +775,12 @@ function wireCN(tr){
   rn1I.addEventListener('input',()=>{
     clearTimeout(t);
     t=setTimeout(()=>{
-      const firstRow=document.querySelector('#tableVivo tbody tr');
-      if(!firstRow) return;
-      const cnI=firstRow.querySelector('[data-field="cn"]');
-      if(cnI&&cnI.value.length>=2){
-        SIP.query(cnI.value, 0);
-      }
+      SIP.resetCache();
+      document.querySelectorAll('#tableVivo tbody tr').forEach((tr,ri)=>{
+        const cnI=tr.querySelector('[data-field="cn"]');
+        const cn=(cnI?.value||'').replace(/\D/g,'');
+        if(cn.length>=2) SIP.query(cn, ri);
+      });
     },400);
   });
 })();
@@ -840,6 +842,21 @@ function wireCN(tr){
   document.getElementById('addRowOperadora')?.addEventListener('click',()=>addOp({}));
   document.getElementById('clearRowsOperadora')?.addEventListener('click',()=>{ if(to){ to.innerHTML=''; upd(); setDirty(); } });
   upd();
+
+  // Consultar siprouter para todas as linhas que têm CN mas não têm bloco_ip
+  // Executado após o load inicial com um delay para garantir que o DOM está pronto
+  setTimeout(()=>{
+    const rn1Val=(document.getElementById('rn1')?.value||'').trim();
+    if(!rn1Val) return;
+    document.querySelectorAll('#tableVivo tbody tr').forEach((tr,ri)=>{
+      const cnI=tr.querySelector('[data-field="cn"]');
+      const blocoInp=tr.querySelectorAll('td')[5]?.querySelector('input');
+      const cn=(cnI?.value||'').replace(/\D/g,'');
+      if(cn.length===2 && !(blocoInp?.value||'').trim()){
+        SIP.query(cn, ri);
+      }
+    });
+  }, 600);
 })();
 
 /* ── Engenharia hydrate ── */
