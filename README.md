@@ -1,83 +1,128 @@
-PS C:\Users\40418843\Desktop\vivo_hub> py run.py
-2026-04-17 11:36:59 [INFO] vivohub: VIVOHUB iniciado. Diretório SBC: C:/Users/40418843/Desktop/dados-sbcs
- * Serving Flask app 'app'
- * Debug mode: off
-2026-04-17 11:36:59 [INFO] werkzeug: WARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.
- * Running on http://127.0.0.1:5000
-2026-04-17 11:36:59 [INFO] werkzeug: Press CTRL+C to quit
-2026-04-17 11:37:03 [INFO] siprouter_sp: siprouter_sp: 180 registros inseridos.
-2026-04-17 11:37:03 [ERROR] app: Exception on / [GET]
-Traceback (most recent call last):
-  File "C:\Users\40418843\AppData\Roaming\Python\Python312\site-packages\flask\app.py", line 1511, in wsgi_app
-    response = self.full_dispatch_request()
-               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\Users\40418843\AppData\Roaming\Python\Python312\site-packages\flask\app.py", line 919, in full_dispatch_request
-    rv = self.handle_user_exception(e)
-         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\Users\40418843\AppData\Roaming\Python\Python312\site-packages\flask\app.py", line 917, in full_dispatch_request
-    rv = self.dispatch_request()
-         ^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\Users\40418843\AppData\Roaming\Python\Python312\site-packages\flask\app.py", line 902, in dispatch_request
-    return self.ensure_sync(self.view_functions[rule.endpoint])(**view_args)  # type: ignore[no-any-return]
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\Users\40418843\Desktop\vivo_hub\auth.py", line 25, in wrapped
-    return redirect(url_for("login"))
-                    ^^^^^^^^^^^^^^^^
-  File "C:\Users\40418843\AppData\Roaming\Python\Python312\site-packages\flask\helpers.py", line 232, in url_for
-    return current_app.url_for(
-           ^^^^^^^^^^^^^^^^^^^^
-  File "C:\Users\40418843\AppData\Roaming\Python\Python312\site-packages\flask\app.py", line 1121, in url_for
-    return self.handle_url_build_error(error, endpoint, values)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\Users\40418843\AppData\Roaming\Python\Python312\site-packages\flask\app.py", line 1110, in url_for
-    rv = url_adapter.build(  # type: ignore[union-attr]
-         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\Users\40418843\AppData\Roaming\Python\Python312\site-packages\werkzeug\routing\map.py", line 924, in build
-    raise BuildError(endpoint, values, method, self)
-werkzeug.routing.exceptions.BuildError: Could not build url for endpoint 'login'. Did you mean 'auth.login' instead?
-2026-04-17 11:37:03 [INFO] werkzeug: 127.0.0.1 - - [17/Apr/2026 11:37:03] "GET / HTTP/1.1" 500 -
-2026-04-17 11:37:03 [INFO] werkzeug: 127.0.0.1 - - [17/Apr/2026 11:37:03] "GET /favicon.ico HTTP/1.1" 404 -
-2026-04-17 11:37:07 [INFO] werkzeug: 127.0.0.1 - - [17/Apr/2026 11:37:07] "GET /login HTTP/1.1" 200 -
-2026-04-17 11:37:08 [INFO] werkzeug: 127.0.0.1 - - [17/Apr/2026 11:37:08] "GET /static/favicon.ico HTTP/1.1" 404 -
-2026-04-17 11:37:12 [INFO] werkzeug: 127.0.0.1 - - [17/Apr/2026 11:37:12] "GET /admin_login HTTP/1.1" 200 -
-2026-04-17 11:37:16 [INFO] werkzeug: 127.0.0.1 - - [17/Apr/2026 11:37:16] "POST /admin_login HTTP/1.1" 302 -
-2026-04-17 11:37:16 [INFO] werkzeug: 127.0.0.1 - - [17/Apr/2026 11:37:16] "GET /register HTTP/1.1" 200 -
-2026-04-17 11:37:35 [INFO] werkzeug: 127.0.0.1 - - [17/Apr/2026 11:37:35] "POST /register HTTP/1.1" 302 -
-2026-04-17 11:37:35 [INFO] werkzeug: 127.0.0.1 - - [17/Apr/2026 11:37:35] "GET /register HTTP/1.1" 200 -
-2026-04-17 11:37:56 [INFO] werkzeug: 127.0.0.1 - - [17/Apr/2026 11:37:56] "POST /register HTTP/1.1" 302 -
-2026-04-17 11:37:56 [INFO] werkzeug: 127.0.0.1 - - [17/Apr/2026 11:37:56] "GET /register HTTP/1.1" 200 -
-2026-04-17 11:37:57 [INFO] werkzeug: 127.0.0.1 - - [17/Apr/2026 11:37:57] "GET /admin_login HTTP/1.1" 200 -
-2026-04-17 11:37:59 [INFO] werkzeug: 127.0.0.1 - - [17/Apr/2026 11:37:59] "GET /login HTTP/1.1" 200 -
-2026-04-17 11:38:08 [INFO] werkzeug: 127.0.0.1 - - [17/Apr/2026 11:38:08] "POST /login HTTP/1.1" 302 -
-2026-04-17 11:38:08 [INFO] werkzeug: 127.0.0.1 - - [17/Apr/2026 11:38:08] "GET /central_atacado HTTP/1.1" 200 -
-2026-04-17 11:38:10 [INFO] werkzeug: 127.0.0.1 - - [17/Apr/2026 11:38:10] "GET /atacado_formularios/new HTTP/1.1" 200 -
-2026-04-17 11:38:10 [INFO] werkzeug: 127.0.0.1 - - [17/Apr/2026 11:38:10] "GET /api/cns HTTP/1.1" 200 -
-2026-04-17 11:39:06 [INFO] werkzeug: 127.0.0.1 - - [17/Apr/2026 11:39:06] "POST /atacado_formularios/new HTTP/1.1" 302 -
-2026-04-17 11:39:06 [INFO] werkzeug: 127.0.0.1 - - [17/Apr/2026 11:39:06] "GET /atacado_formularios HTTP/1.1" 200 -
-2026-04-17 11:39:11 [INFO] werkzeug: 127.0.0.1 - - [17/Apr/2026 11:39:11] "GET /logout HTTP/1.1" 302 -
-2026-04-17 11:39:11 [INFO] werkzeug: 127.0.0.1 - - [17/Apr/2026 11:39:11] "GET /login HTTP/1.1" 200 -
-2026-04-17 11:39:24 [INFO] werkzeug: 127.0.0.1 - - [17/Apr/2026 11:39:24] "POST /login HTTP/1.1" 302 -
-2026-04-17 11:39:24 [INFO] werkzeug: 127.0.0.1 - - [17/Apr/2026 11:39:24] "GET /central_engenharia HTTP/1.1" 200 -
-2026-04-17 11:39:28 [INFO] werkzeug: 127.0.0.1 - - [17/Apr/2026 11:39:28] "GET /engenharia_formularios HTTP/1.1" 200 -
-2026-04-17 11:39:30 [INFO] werkzeug: 127.0.0.1 - - [17/Apr/2026 11:39:30] "GET /engenharia_formularios/1 HTTP/1.1" 200 -
-2026-04-17 11:39:30 [INFO] werkzeug: 127.0.0.1 - - [17/Apr/2026 11:39:30] "GET /api/cns HTTP/1.1" 200 -
-2026-04-17 11:39:30 [INFO] werkzeug: 127.0.0.1 - - [17/Apr/2026 11:39:30] "GET /api/siprouter/query?cn=01&rn1=RN1%20TESTE&scm=0&av=0 HTTP/1.1" 200 -
-2026-04-17 11:40:16 [INFO] werkzeug: 127.0.0.1 - - [17/Apr/2026 11:40:16] "POST /engenharia_formularios/1 HTTP/1.1" 302 -
-2026-04-17 11:40:16 [INFO] werkzeug: 127.0.0.1 - - [17/Apr/2026 11:40:16] "GET /engenharia_formularios HTTP/1.1" 200 -
-2026-04-17 11:40:19 [INFO] excel.builder: IPAM DEBUG | vivo_rows=1 op_rows=1
-2026-04-17 11:40:19 [INFO] excel.builder: IPAM DEBUG | linha 0 | cn='01' | mask_op='' | mask_vr=''
-2026-04-17 11:40:19 [WARNING] excel.builder: IPAM | linha 0 pulada: cn='01' mask=''
-2026-04-17 11:40:19 [INFO] excel.builder: Gerando PTI Excel para 'OPERADORA TESTE'...
-2026-04-17 11:40:20 [INFO] excel.builder: PTI Excel gerado com sucesso.
-2026-04-17 11:40:20 [INFO] werkzeug: 127.0.0.1 - - [17/Apr/2026 11:40:20] "GET /formularios/1/excel_index HTTP/1.1" 200 -
-2026-04-17 11:40:30 [INFO] werkzeug: 127.0.0.1 - - [17/Apr/2026 11:40:30] "GET /engenharia_formularios/1 HTTP/1.1" 200 -
-2026-04-17 11:40:30 [INFO] werkzeug: 127.0.0.1 - - [17/Apr/2026 11:40:30] "GET /api/cns HTTP/1.1" 200 -
-2026-04-17 11:40:31 [INFO] werkzeug: 127.0.0.1 - - [17/Apr/2026 11:40:31] "GET /api/siprouter/query?cn=01&rn1=RN1%20TESTE&scm=0&av=0 HTTP/1.1" 200 -
-2026-04-17 11:40:40 [INFO] werkzeug: 127.0.0.1 - - [17/Apr/2026 11:40:40] "POST /engenharia_formularios/1 HTTP/1.1" 302 -
-2026-04-17 11:40:40 [INFO] werkzeug: 127.0.0.1 - - [17/Apr/2026 11:40:40] "GET /engenharia_formularios HTTP/1.1" 200 -
-2026-04-17 11:40:42 [INFO] excel.builder: IPAM DEBUG | vivo_rows=1 op_rows=1
-2026-04-17 11:40:42 [INFO] excel.builder: IPAM DEBUG | linha 0 | cn='01' | mask_op='' | mask_vr=''
-2026-04-17 11:40:42 [WARNING] excel.builder: IPAM | linha 0 pulada: cn='01' mask=''
-2026-04-17 11:40:42 [INFO] excel.builder: Gerando PTI Excel para 'OPERADORA TESTE'...
-2026-04-17 11:40:43 [INFO] excel.builder: PTI Excel gerado com sucesso.
-2026-04-17 11:40:43 [INFO] werkzeug: 127.0.0.1 - - [17/Apr/2026 11:40:43] "GET /formularios/1/excel_index HTTP/1.1" 200 -
+"""routes/engenharia.py — Formulários, validação de engenharia e geração de Excel."""
+import logging
+from datetime import datetime
+from io import BytesIO
+
+from flask import (
+    Blueprint, abort, flash, redirect, render_template,
+    request, send_file, session, url_for, current_app,
+)
+
+from auth import login_required, role_required
+from db import get_db
+from forms import _parse_json_dict, truncate_json_list
+from helpers import safe_filename
+from queries import build_list_query, get_status_counters
+
+logger = logging.getLogger(__name__)
+bp = Blueprint("engenharia", __name__)
+
+
+# ---------------------------------------------------------------------------
+# LISTAGEM
+# ---------------------------------------------------------------------------
+@bp.get("/engenharia_formularios")
+@login_required
+@role_required("engenharia")
+def form_list():
+    db     = get_db()
+    q      = (request.args.get("q") or "").strip()
+    status = (request.args.get("status") or "").strip()
+    sort   = (request.args.get("sort") or "-created_at").strip()
+
+    sql, params = build_list_query(
+        "SELECT * FROM atacado_forms",
+        search_term=q or None,
+        status_filter=status or None,
+        sort_key=sort,
+    )
+    forms    = db.execute(sql, params).fetchall()
+    counters = get_status_counters(db)
+
+    return render_template(
+        "engenharia_formularios.html",
+        forms=forms,
+        counters=counters,
+    )
+
+
+# ---------------------------------------------------------------------------
+# VISUALIZAR / VALIDAR
+# ---------------------------------------------------------------------------
+@bp.route("/engenharia_formularios/<int:form_id>", methods=["GET", "POST"])
+@login_required
+@role_required("engenharia")
+def form_view(form_id: int):
+    db   = get_db()
+    form = db.execute(
+        "SELECT * FROM atacado_forms WHERE id = ?", (form_id,)
+    ).fetchone()
+    if not form:
+        abort(404)
+
+    if request.method == "POST":
+        resp_eng = (request.form.get("responsavel_engenharia") or "").strip()
+        if not resp_eng:
+            flash('Informe o "Responsável Eng de ITX" para salvar.', "warning")
+            return redirect(url_for("engenharia.form_view", form_id=form_id))
+
+        eng_json  = _parse_json_dict(
+            request.form.get("engenharia_params_json", "") or "{}"
+        )
+        vivo_json = truncate_json_list(
+            request.form.get("dados_vivo_json", "[]"), "[]"
+        )
+        op_json   = truncate_json_list(
+            request.form.get("dados_operadora_json", "[]"), "[]"
+        )
+        db.execute(
+            "UPDATE atacado_forms "
+            "SET engenharia_params_json=?, responsavel_engenharia=?, "
+            "dados_vivo_json=?, dados_operadora_json=?, updated_at=? "
+            "WHERE id=?",
+            (
+                eng_json, resp_eng, vivo_json, op_json,
+                datetime.utcnow().isoformat(timespec="seconds"),
+                form_id,
+            ),
+        )
+        db.commit()
+        flash("Validação da Engenharia salva.", "success")
+        return redirect(url_for("engenharia.form_list"))
+
+    return render_template("formulario_atacado.html", form=form, readonly=True)
+
+
+# ---------------------------------------------------------------------------
+# EXPORTAR EXCEL COMPLETO (PTI)
+# ---------------------------------------------------------------------------
+@bp.get("/formularios/<int:form_id>/excel_index")
+@login_required
+def exportar_excel(form_id: int):
+    try:
+        from excel.builder import PTIWorkbookBuilder
+    except ImportError:
+        flash("openpyxl não instalado.", "warning")
+        return redirect(url_for("central.index"))
+
+    db   = get_db()
+    form = db.execute(
+        "SELECT * FROM atacado_forms WHERE id = ?", (form_id,)
+    ).fetchone()
+    if not form:
+        abort(404)
+    if session.get("role") == "atacado" and form["owner_id"] != session.get("user_id"):
+        abort(403)
+
+    wb  = PTIWorkbookBuilder(form).build()
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    nome = safe_filename(form["nome_operadora"] or "Operadora")
+    ver  = form["version"] if "version" in form.keys() else 1
+    return send_file(
+        buf,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True,
+        download_name=f"PTI_{nome}_v{ver}_ID{form['id']}.xlsx",
+    )
