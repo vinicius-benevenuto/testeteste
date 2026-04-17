@@ -110,12 +110,18 @@ class PTIWorkbookBuilder:
         rn1_val   = (row_get(self.form, "rn1", "") or "").strip()
         nome_op   = (row_get(self.form, "nome_operadora", "") or "Operadora").strip()
         num = max(len(vivo_rows), len(self.op_rows))
+        logger.info("IPAM DEBUG | vivo_rows=%d op_rows=%d",
+                    len(vivo_rows), len(self.op_rows))
         for i in range(num):
-            vr        = vivo_rows[i]     if i < len(vivo_rows)     else {}
-            opr       = self.op_rows[i]  if i < len(self.op_rows)  else {}
+            vr        = vivo_rows[i]    if i < len(vivo_rows)    else {}
+            opr       = self.op_rows[i] if i < len(self.op_rows) else {}
             cn_usuario = vr.get("cn", "") or opr.get("cn", "")
-            mask_alvo  = opr.get("mask", "")
+            mask_alvo  = opr.get("mask", "") or vr.get("mask", "")
+            logger.info("IPAM DEBUG | linha %d | cn=%r | mask_op=%r | mask_vr=%r",
+                        i, cn_usuario, opr.get("mask",""), vr.get("mask",""))
             if not cn_usuario or not mask_alvo:
+                logger.warning("IPAM | linha %d pulada: cn=%r mask=%r",
+                               i, cn_usuario, mask_alvo)
                 continue
             # Descrição: RN1-XXXX - Nome da Operadora
             descricao = f"{rn1_val} - {nome_op}" if rn1_val else nome_op
@@ -1470,4 +1476,3 @@ class PTIWorkbookBuilder:
 
         logger.info("PTI Excel gerado com sucesso.")
         return self.wb
-
