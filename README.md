@@ -1,172 +1,80 @@
-{% extends "base.html" %}
-{% block title %}Formulários — PTI AUTOMATIZADO{% endblock %}
-{% block extra_head %}
-<style>
-  .op-cell { max-width:320px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .id-btn { background:none; border:none; cursor:pointer; color:var(--sub); padding:0 .2rem; font-size:.8rem; }
-  .id-btn:hover { color:var(--p); }
-  .filter-bar { display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; }
-  @media(max-width:640px){ .filter-bar { flex-direction:column; align-items:stretch; } }
-</style>
-{% endblock %}
-{% block content %}
-<div class="page">
-
-  <!-- Header -->
-  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:1.5rem;gap:1rem;flex-wrap:wrap">
-    <div>
-      <h1 class="v-title">Formulários</h1>
-      <p class="v-sub">Pré-PTIs do Atacado · <kbd class="kbd">N</kbd> novo &nbsp;<kbd class="kbd">/</kbd> buscar</p>
-    </div>
-    <a href="{{ url_for('atacado.form_new') }}" class="btn-p"><i class="bi bi-plus"></i> Novo</a>
-  </div>
-
-  <!-- Filtros -->
-  {% set q    = request.args.get('q','') %}
-  {% set s    = request.args.get('status','') %}
-  {% set sort = request.args.get('sort','-created_at') %}
-  <div class="card" style="padding:1rem;margin-bottom:1rem">
-    <div class="filter-bar">
-      <form method="get" style="display:contents">
-        <input type="hidden" name="q" value="{{ q }}">
-        <select class="v-input v-input-sm" name="status" style="width:auto;min-width:140px">
-          <option value=""           {{ 'selected' if s=='' }}>Todos os status</option>
-          <option value="rascunho"   {{ 'selected' if s=='rascunho' }}>Rascunho</option>
-          <option value="enviado"    {{ 'selected' if s=='enviado' }}>Enviado</option>
-          <option value="em revisão" {{ 'selected' if s=='em revisão' }}>Em revisão</option>
-          <option value="aprovado"   {{ 'selected' if s=='aprovado' }}>Aprovado</option>
-        </select>
-        <select class="v-input v-input-sm" name="sort" style="width:auto;min-width:150px">
-          <option value="-created_at"    {{ 'selected' if sort=='-created_at' }}>Mais recentes</option>
-          <option value="created_at"     {{ 'selected' if sort=='created_at' }}>Mais antigos</option>
-          <option value="nome_operadora" {{ 'selected' if sort=='nome_operadora' }}>Operadora A→Z</option>
-          <option value="-nome_operadora"{{ 'selected' if sort=='-nome_operadora' }}>Operadora Z→A</option>
-          <option value="-id"            {{ 'selected' if sort=='-id' }}>ID ↓</option>
-          <option value="id"             {{ 'selected' if sort=='id' }}>ID ↑</option>
-        </select>
-        <button type="submit" class="btn-g btn-sm"><i class="bi bi-funnel"></i></button>
-      </form>
-      <form method="get" style="display:flex;gap:.4rem;margin-left:auto">
-        <input type="hidden" name="status" value="{{ s }}">
-        <input type="hidden" name="sort"   value="{{ sort }}">
-        <input class="v-input v-input-sm" type="text" id="searchInput" name="q"
-               value="{{ q }}" placeholder="Buscar operadora…" style="width:200px">
-        <button type="submit" class="btn-g btn-sm"><i class="bi bi-search"></i></button>
-        {% if q or s %}<a href="{{ url_for('atacado.form_list') }}" class="btn-g btn-sm">Limpar</a>{% endif %}
-      </form>
-    </div>
-  </div>
-
-  <!-- Tabela -->
-  {% if forms and forms|length %}
-  <div class="card" style="overflow:hidden">
-    <div style="overflow-x:auto">
-      <table class="v-table">
-        <thead>
-          <tr>
-            <th>ID</th>
-            <th>Operadora</th>
-            <th>Status</th>
-            <th>Criado</th>
-            <th style="text-align:right">Ações</th>
-          </tr>
-        </thead>
-        <tbody id="resultsBody">
-          {% for f in forms %}
-            {% set st = (f.status or 'rascunho')|lower %}
-            <tr>
-              <td style="font-weight:600;color:var(--sub);font-size:.8rem">
-                #{{ f.id }}
-                <button class="id-btn" data-id="{{ f.id }}" title="Copiar ID"><i class="bi bi-clipboard"></i></button>
-              </td>
-              <td class="op-cell" title="{{ f.nome_operadora or '—' }}">
-                {{ f.nome_operadora or '—' }}
-              </td>
-              <td>
-                <span class="badge-s {% if st=='aprovado' %}done{% elif st=='em revisão' %}review{% elif st=='enviado' %}sent{% else %}draft{% endif %}">
-                  {{ st|capitalize }}
-                </span>
-              </td>
-              <td style="color:var(--sub);font-size:.8rem">{{ (f.created_at or '')|date_br }}</td>
-              <td style="text-align:right">
-                <div style="display:flex;gap:.35rem;justify-content:flex-end">
-                  <a href="{{ url_for('atacado.form_edit', form_id=f.id) }}" class="btn-g btn-sm">
-                    <i class="bi bi-pencil"></i> Editar
-                  </a>
-                  <button class="btn-danger btn-sm del-form-btn"
-                          data-id="{{ f.id }}"
-                          data-name="{{ f.nome_operadora | e or '—' }}"
-                          style="border-radius:7px;border:1px solid #fecaca;background:#fef2f2;color:#991b1b;cursor:pointer;font-size:.75rem;font-weight:600;padding:.3rem .6rem">
-                    <i class="bi bi-trash"></i>
-                  </button>
-                </div>
-              </td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </div>
-  {% else %}
-  <div class="card empty">
-    <i class="bi bi-inbox"></i>
-    {% if q %}
-      <p>Sem resultados para <strong>{{ q }}</strong></p>
-    {% else %}
-      <p>Nenhum formulário criado ainda.</p>
+PS C:\Users\40418843\Desktop\vivo_hub> py run.py
+2026-05-02 16:02:36 [INFO] vivohub: VIVOHUB iniciado. Diretório SBC: C:/Users/40418843/Desktop/dados-sbcs
+ * Serving Flask app 'app'
+ * Debug mode: off
+2026-05-02 16:02:36 [INFO] werkzeug: WARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.
+ * Running on http://127.0.0.1:5000
+2026-05-02 16:02:36 [INFO] werkzeug: Press CTRL+C to quit
+2026-05-02 16:02:47 [INFO] siprouter_sp: siprouter_sp: 180 registros inseridos.
+2026-05-02 16:02:47 [INFO] werkzeug: 127.0.0.1 - - [02/May/2026 16:02:47] "GET /login HTTP/1.1" 200 -
+2026-05-02 16:02:58 [INFO] werkzeug: 127.0.0.1 - - [02/May/2026 16:02:58] "GET /admin_login HTTP/1.1" 200 -
+2026-05-02 16:03:06 [INFO] werkzeug: 127.0.0.1 - - [02/May/2026 16:03:06] "POST /admin_login HTTP/1.1" 302 -
+2026-05-02 16:03:06 [INFO] werkzeug: 127.0.0.1 - - [02/May/2026 16:03:06] "GET /register HTTP/1.1" 200 -
+2026-05-02 16:03:20 [INFO] werkzeug: 127.0.0.1 - - [02/May/2026 16:03:20] "POST /register HTTP/1.1" 302 -
+2026-05-02 16:03:20 [INFO] werkzeug: 127.0.0.1 - - [02/May/2026 16:03:20] "GET /register HTTP/1.1" 200 -
+2026-05-02 16:03:34 [INFO] werkzeug: 127.0.0.1 - - [02/May/2026 16:03:34] "POST /register HTTP/1.1" 302 -
+2026-05-02 16:03:35 [INFO] werkzeug: 127.0.0.1 - - [02/May/2026 16:03:35] "GET /register HTTP/1.1" 200 -
+2026-05-02 16:03:36 [INFO] werkzeug: 127.0.0.1 - - [02/May/2026 16:03:36] "GET /logout HTTP/1.1" 302 -
+2026-05-02 16:03:37 [INFO] werkzeug: 127.0.0.1 - - [02/May/2026 16:03:37] "GET /login HTTP/1.1" 200 -
+2026-05-02 16:03:57 [INFO] werkzeug: 127.0.0.1 - - [02/May/2026 16:03:57] "POST /login HTTP/1.1" 302 -
+2026-05-02 16:03:57 [INFO] werkzeug: 127.0.0.1 - - [02/May/2026 16:03:57] "GET /central_atacado HTTP/1.1" 200 -
+2026-05-02 16:04:10 [INFO] werkzeug: 127.0.0.1 - - [02/May/2026 16:04:10] "GET /atacado_formularios?status=aprovado HTTP/1.1" 200 -
+2026-05-02 16:04:17 [INFO] werkzeug: 127.0.0.1 - - [02/May/2026 16:04:17] "GET /logout HTTP/1.1" 302 -
+2026-05-02 16:04:17 [INFO] werkzeug: 127.0.0.1 - - [02/May/2026 16:04:17] "GET /login HTTP/1.1" 200 -
+2026-05-02 16:04:33 [INFO] werkzeug: 127.0.0.1 - - [02/May/2026 16:04:33] "POST /login HTTP/1.1" 302 -
+2026-05-02 16:04:33 [INFO] werkzeug: 127.0.0.1 - - [02/May/2026 16:04:33] "GET /central_atacado HTTP/1.1" 200 -
+2026-05-02 16:04:36 [INFO] werkzeug: 127.0.0.1 - - [02/May/2026 16:04:36] "GET /atacado_formularios/new HTTP/1.1" 200 -
+2026-05-02 16:06:16 [INFO] werkzeug: 127.0.0.1 - - [02/May/2026 16:06:16] "POST /atacado_formularios/new HTTP/1.1" 302 -
+2026-05-02 16:06:16 [INFO] werkzeug: 127.0.0.1 - - [02/May/2026 16:06:16] "GET /atacado_formularios HTTP/1.1" 200 -
+2026-05-02 16:06:27 [INFO] werkzeug: 127.0.0.1 - - [02/May/2026 16:06:27] "GET /atacado_formularios HTTP/1.1" 200 -
+2026-05-02 16:06:30 [INFO] werkzeug: 127.0.0.1 - - [02/May/2026 16:06:30] "GET /atacado_formularios?status=aprovado HTTP/1.1" 200 -
+2026-05-02 16:06:34 [INFO] werkzeug: 127.0.0.1 - - [02/May/2026 16:06:34] "GET /logout HTTP/1.1" 302 -
+2026-05-02 16:06:34 [INFO] werkzeug: 127.0.0.1 - - [02/May/2026 16:06:34] "GET /login HTTP/1.1" 200 -
+2026-05-02 16:06:41 [INFO] werkzeug: 127.0.0.1 - - [02/May/2026 16:06:41] "POST /login HTTP/1.1" 302 -
+2026-05-02 16:06:41 [INFO] werkzeug: 127.0.0.1 - - [02/May/2026 16:06:41] "GET /central_engenharia HTTP/1.1" 200 -
+2026-05-02 16:06:45 [ERROR] app: Exception on /engenharia_formularios [GET]
+Traceback (most recent call last):
+  File "C:\Users\40418843\AppData\Roaming\Python\Python312\site-packages\flask\app.py", line 1511, in wsgi_app
+    response = self.full_dispatch_request()
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\40418843\AppData\Roaming\Python\Python312\site-packages\flask\app.py", line 919, in full_dispatch_request
+    rv = self.handle_user_exception(e)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\40418843\AppData\Roaming\Python\Python312\site-packages\flask\app.py", line 917, in full_dispatch_request
+    rv = self.dispatch_request()
+         ^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\40418843\AppData\Roaming\Python\Python312\site-packages\flask\app.py", line 902, in dispatch_request
+    return self.ensure_sync(self.view_functions[rule.endpoint])(**view_args)  # type: ignore[no-any-return]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\40418843\Desktop\vivo_hub\auth.py", line 26, in wrapped
+    return view(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\40418843\Desktop\vivo_hub\auth.py", line 39, in wrapped
+    return view(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\40418843\Desktop\vivo_hub\routes\engenharia.py", line 42, in form_list
+    return render_template(
+           ^^^^^^^^^^^^^^^^
+  File "C:\Users\40418843\AppData\Roaming\Python\Python312\site-packages\flask\templating.py", line 149, in render_template
+    template = app.jinja_env.get_or_select_template(template_name_or_list)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\40418843\AppData\Roaming\Python\Python312\site-packages\jinja2\environment.py", line 1087, in get_or_select_template
+    return self.get_template(template_name_or_list, parent, globals)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\40418843\AppData\Roaming\Python\Python312\site-packages\jinja2\environment.py", line 1016, in get_template
+    return self._load_template(name, globals)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\40418843\AppData\Roaming\Python\Python312\site-packages\jinja2\environment.py", line 975, in _load_template
+    template = self.loader.load(self, name, self.make_globals(globals))
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\40418843\AppData\Roaming\Python\Python312\site-packages\jinja2\loaders.py", line 138, in load
+    code = environment.compile(source, name, filename)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\40418843\AppData\Roaming\Python\Python312\site-packages\jinja2\environment.py", line 771, in compile
+    self.handle_exception(source=source_hint)
+  File "C:\Users\40418843\AppData\Roaming\Python\Python312\site-packages\jinja2\environment.py", line 942, in handle_exception
+    raise rewrite_traceback_stack(source=source)
+  File "C:\Users\40418843\Desktop\vivo_hub\templates\engenharia_formularios.html", line 38, in template
     {% endif %}
-    <a href="{{ url_for('atacado.form_new') }}" class="btn-p btn-sm" style="margin-top:.75rem">
-      <i class="bi bi-plus"></i> Criar primeiro PTI
-    </a>
-  </div>
-  {% endif %}
-
-</div>
-
-<!-- Modal exclusão (invisível) -->
-<form method="post" id="deleteForm" action="#" style="display:none"></form>
-{% endblock %}
-{% block extra_scripts %}
-<script>
-// Copiar ID
-document.querySelectorAll('.id-btn').forEach(btn=>{
-  btn.addEventListener('click',async()=>{
-    try{
-      await navigator.clipboard.writeText(btn.dataset.id);
-      btn.innerHTML='<i class="bi bi-clipboard-check"></i>';
-      setTimeout(()=>{ btn.innerHTML='<i class="bi bi-clipboard"></i>'; },1200);
-    }catch(_){}
-  });
-});
-
-// Confirmar exclusão via data attributes
-const DELETE_URL = "{{ url_for('atacado.form_delete', form_id=0) }}";
-document.querySelectorAll('.del-form-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    const id   = btn.dataset.id;
-    const name = btn.dataset.name || '—';
-    if(!confirm(`Excluir formulário #${id} (${name})?\n\nEsta ação não pode ser desfeita.`)) return;
-    const f = document.getElementById('deleteForm');
-    f.action = DELETE_URL.replace('/0/', '/' + id + '/');
-    f.submit();
-  });
-});
-
-// Realçar busca
-(function(){
-  const q = new URLSearchParams(location.search).get('q');
-  if(!q) return;
-  const re = new RegExp('('+q.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+')','gi');
-  document.querySelectorAll('#resultsBody .op-cell').forEach(td=>{
-    td.innerHTML = td.textContent.replace(re,'<mark>$1</mark>');
-  });
-})();
-
-// Atalhos
-document.addEventListener('keydown',e=>{
-  if(['INPUT','TEXTAREA','SELECT'].includes(e.target?.tagName)) return;
-  if(e.key==='n'||e.key==='N'){ e.preventDefault(); location.href="{{ url_for('atacado.form_new') }}"; }
-  if(e.key==='/'){ e.preventDefault(); document.getElementById('searchInput')?.focus(); }
-});
-</script>
-{% endblock %}
+jinja2.exceptions.TemplateSyntaxError: Encountered unknown tag 'endif'. Jinja was looking for the following tags: 'endblock'. The innermost block that needs to be closed is 'block'.
+2026-05-02 16:06:45 [INFO] werkzeug: 127.0.0.1 - - [02/May/2026 16:06:45] "GET /engenharia_formularios HTTP/1.1" 500 -
