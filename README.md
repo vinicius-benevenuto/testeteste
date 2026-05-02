@@ -18,39 +18,39 @@
     font-size:.68rem; font-weight:700; padding:.15rem .4rem;
     border-radius:5px; background:var(--p); color:#fff; white-space:nowrap;
   }
-  .filter-bar { display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; }
 </style>
 {% endblock %}
 {% block content %}
 <div class="page">
 
   <!-- Header -->
-  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:1.5rem;gap:1rem;flex-wrap:wrap">
-    <div>
-      <h1 class="v-title">Meus PTIs</h1>
-      <p class="v-sub">Agrupados por operadora · versões por formulário</p>
-    </div>
-    <a href="{{ url_for('atacado.form_new') }}" class="btn-p"><i class="bi bi-plus"></i> Novo PTI</a>
+  <div style="margin-bottom:1.5rem">
+    <h1 class="v-title">Formulários</h1>
+    <p class="v-sub">PTIs agrupados por operadora · todas as versões</p>
   </div>
 
   <!-- Filtros -->
-  <div class="card" style="padding:.75rem 1rem;margin-bottom:1.25rem">
-    <div class="filter-bar">
+  {% set q      = q or '' %}
+  {% set status = status or '' %}
+  <div class="card" style="padding:.75rem;margin-bottom:1rem">
+    <div style="display:flex;gap:.5rem;flex-wrap:wrap">
       <form method="get" style="display:contents">
+        <input type="hidden" name="q" value="{{ q }}">
         <select class="v-input v-input-sm" name="status" style="width:auto;min-width:140px">
-          <option value=""           {{ 'selected' if not status }}>Todos os status</option>
-          <option value="rascunho"   {{ 'selected' if status=='rascunho' }}>Rascunho</option>
+          <option value=""           {{ 'selected' if not status }}>Todos</option>
           <option value="enviado"    {{ 'selected' if status=='enviado' }}>Enviado</option>
+          <option value="em revisão" {{ 'selected' if status=='em revisão' }}>Em revisão</option>
           <option value="aprovado"   {{ 'selected' if status=='aprovado' }}>Aprovado</option>
+          <option value="rascunho"   {{ 'selected' if status=='rascunho' }}>Rascunho</option>
         </select>
         <button type="submit" class="btn-g btn-sm"><i class="bi bi-funnel"></i></button>
       </form>
       <form method="get" style="display:flex;gap:.4rem;margin-left:auto">
         <input type="hidden" name="status" value="{{ status }}">
-        <input class="v-input v-input-sm" type="text" id="searchInput" name="q"
-               value="{{ q }}" placeholder="Buscar operadora…" style="width:200px">
+        <input class="v-input v-input-sm" type="text" name="q" value="{{ q }}"
+               placeholder="Buscar operadora..." style="width:200px">
         <button type="submit" class="btn-g btn-sm"><i class="bi bi-search"></i></button>
-        {% if q or status %}<a href="{{ url_for('atacado.form_list') }}" class="btn-g btn-sm">Limpar</a>{% endif %}
+        {% if q or status %}<a href="{{ url_for('engenharia.form_list') }}" class="btn-g btn-sm">Limpar</a>{% endif %}
       </form>
     </div>
   </div>
@@ -75,7 +75,7 @@
               <th style="text-align:right">Ações</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody id="resultsBody">
             {% for f in versoes %}
               {% set st = (f.status or 'rascunho')|lower %}
               <tr>
@@ -92,21 +92,25 @@
                 <td style="font-size:.8rem;color:var(--sub)">{{ f.rn1 or '—' }}</td>
                 <td style="color:var(--sub);font-size:.8rem">{{ (f.updated_at or f.created_at or '')|date_br }}</td>
                 <td style="text-align:right">
-                  <div style="display:flex;gap:.3rem;justify-content:flex-end">
-                    <a href="{{ url_for('atacado.form_edit', form_id=f.id) }}" class="btn-g btn-sm">
-                      <i class="bi bi-pencil"></i> Editar
+                  <div style="display:flex;gap:.35rem;justify-content:flex-end">
+                    <a href="{{ url_for('engenharia.form_view', form_id=f.id) }}" class="btn-g btn-sm">
+                      <i class="bi bi-eye"></i> Abrir
                     </a>
-                    <form method="post" action="{{ url_for('atacado.form_new_version', form_id=f.id) }}">
-                      <button type="submit" class="btn-o btn-sm" title="Criar nova versão">
-                        <i class="bi bi-copy"></i> Nova versão
+                    <a href="{{ url_for('engenharia.exportar_excel', form_id=f.id) }}" class="btn-o btn-sm">
+                      <i class="bi bi-file-earmark-spreadsheet"></i> Excel v{{ f.version or 1 }}
+                    </a>
+                    {% if st != 'aprovado' %}
+                    <form method="post" action="{{ url_for('engenharia.validar', form_id=f.id) }}"
+                          onsubmit="return confirm('Aprovar PTI #{{ f.id }} v{{ f.version or 1 }} — {{ f.nome_operadora }}?')">
+                      <button type="submit" class="btn-p btn-sm">
+                        <i class="bi bi-check-circle"></i> Validar
                       </button>
                     </form>
-                    <button class="btn-danger btn-sm del-form-btn"
-                            data-id="{{ f.id }}"
-                            data-name="{{ f.nome_operadora|e or '—' }} v{{ f.version or 1 }}"
-                            style="border-radius:7px;border:1px solid #fecaca;background:#fef2f2;color:#991b1b;cursor:pointer;font-size:.75rem;font-weight:600;padding:.3rem .6rem">
-                      <i class="bi bi-trash"></i>
-                    </button>
+                    {% else %}
+                    <span class="badge-s done" style="padding:.3rem .6rem;font-size:.72rem">
+                      <i class="bi bi-check-circle-fill"></i> Aprovado
+                    </span>
+                    {% endif %}
                   </div>
                 </td>
               </tr>
@@ -122,17 +126,12 @@
     {% if q %}
       <p>Sem resultados para <strong>{{ q }}</strong></p>
     {% else %}
-      <p>Nenhum formulário criado ainda.</p>
+      <p>Nenhum formulário disponível.</p>
     {% endif %}
-    <a href="{{ url_for('atacado.form_new') }}" class="btn-p btn-sm" style="margin-top:.75rem">
-      <i class="bi bi-plus"></i> Criar primeiro PTI
-    </a>
   </div>
   {% endif %}
 
 </div>
-
-<form method="post" id="deleteForm" action="#" style="display:none"></form>
 {% endblock %}
 {% block extra_scripts %}
 <script>
@@ -145,22 +144,13 @@ document.querySelectorAll('.id-btn').forEach(btn=>{
     }catch(_){}
   });
 });
-
-const DELETE_URL = "{{ url_for('atacado.form_delete', form_id=0) }}";
-document.querySelectorAll('.del-form-btn').forEach(btn=>{
-  btn.addEventListener('click',()=>{
-    const id=btn.dataset.id, name=btn.dataset.name||'—';
-    if(!confirm(`Excluir formulário #${id} (${name})?\n\nEsta ação não pode ser desfeita.`)) return;
-    const f=document.getElementById('deleteForm');
-    f.action=DELETE_URL.replace('/0/','/'+id+'/');
-    f.submit();
+(function(){
+  const q = new URLSearchParams(location.search).get('q');
+  if(!q) return;
+  const re = new RegExp('('+q.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+')','gi');
+  document.querySelectorAll('#resultsBody .op-cell').forEach(td=>{
+    td.innerHTML = td.textContent.replace(re,'<mark>$1</mark>');
   });
-});
-
-document.addEventListener('keydown',e=>{
-  if(['INPUT','TEXTAREA','SELECT'].includes(e.target?.tagName)) return;
-  if(e.key==='n'||e.key==='N'){ e.preventDefault(); location.href="{{ url_for('atacado.form_new') }}"; }
-  if(e.key==='/'){ e.preventDefault(); document.getElementById('searchInput')?.focus(); }
-});
+})();
 </script>
 {% endblock %}
