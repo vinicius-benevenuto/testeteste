@@ -1,175 +1,72 @@
 {% extends "base.html" %}
-{% block title %}Formulários — PTI AUTOMATIZADO{% endblock %}
+{% block title %}Central Atacado — PTI AUTOMATIZADO{% endblock %}
 {% block extra_head %}
 <style>
-  .op-cell { max-width:320px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .id-btn { background:none; border:none; cursor:pointer; color:var(--sub); padding:0 .2rem; font-size:.8rem; }
-  .id-btn:hover { color:var(--p); }
-  .filter-bar { display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; }
-  @media(max-width:640px){ .filter-bar { flex-direction:column; align-items:stretch; } }
+  .action-card {
+    display:block; text-decoration:none; color:inherit;
+    padding:1.5rem; border-radius:var(--r); border:1px solid var(--bdr);
+    background:var(--surf); transition:box-shadow .2s, transform .15s;
+  }
+  .action-card:hover { box-shadow:var(--sh-lg); transform:translateY(-2px); text-decoration:none; color:inherit; }
+  .action-card-icon {
+    width:40px; height:40px; border-radius:10px;
+    background:var(--p-lt); color:var(--p);
+    display:flex; align-items:center; justify-content:center;
+    font-size:1.1rem; margin-bottom:1rem;
+  }
+  .action-card h3 { font-size:.95rem; font-weight:700; margin:0 0 .35rem; }
+  .action-card p  { font-size:.8rem; color:var(--sub); margin:0; }
 </style>
 {% endblock %}
 {% block content %}
 <div class="page">
 
   <!-- Header -->
-  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:1.5rem;gap:1rem;flex-wrap:wrap">
-    <div style="display:flex;align-items:center;gap:.75rem">
-      <a href="{{ url_for('central.central_atacado') }}" class="btn-g btn-sm">← Voltar</a>
-      <div>
-        <h1 class="v-title">Formulários</h1>
-        <p class="v-sub">Pré-PTIs do Atacado · <kbd class="kbd">N</kbd> novo &nbsp;<kbd class="kbd">/</kbd> buscar</p>
-      </div>
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:2rem;gap:1rem;flex-wrap:wrap">
+    <div>
+      <p style="font-size:.72rem;font-weight:600;color:var(--p);letter-spacing:.08em;text-transform:uppercase;margin:0 0 .35rem">Atacado</p>
+      <h1 class="v-title">Área de trabalho</h1>
     </div>
-    <a href="{{ url_for('atacado.form_new') }}" class="btn-p"><i class="bi bi-plus"></i> Novo</a>
-  </div>
-
-  <!-- Filtros -->
-  {% set q    = request.args.get('q','') %}
-  {% set s    = request.args.get('status','') %}
-  {% set sort = request.args.get('sort','-created_at') %}
-  <div class="card" style="padding:1rem;margin-bottom:1rem">
-    <div class="filter-bar">
-      <form method="get" style="display:contents">
-        <input type="hidden" name="q" value="{{ q }}">
-        <select class="v-input v-input-sm" name="status" style="width:auto;min-width:140px">
-          <option value=""           {{ 'selected' if s=='' }}>Todos os status</option>
-          <option value="rascunho"   {{ 'selected' if s=='rascunho' }}>Rascunho</option>
-          <option value="enviado"    {{ 'selected' if s=='enviado' }}>Enviado</option>
-          <option value="em revisão" {{ 'selected' if s=='em revisão' }}>Em revisão</option>
-          <option value="aprovado"   {{ 'selected' if s=='aprovado' }}>Aprovado</option>
-        </select>
-        <select class="v-input v-input-sm" name="sort" style="width:auto;min-width:150px">
-          <option value="-created_at"    {{ 'selected' if sort=='-created_at' }}>Mais recentes</option>
-          <option value="created_at"     {{ 'selected' if sort=='created_at' }}>Mais antigos</option>
-          <option value="nome_operadora" {{ 'selected' if sort=='nome_operadora' }}>Operadora A→Z</option>
-          <option value="-nome_operadora"{{ 'selected' if sort=='-nome_operadora' }}>Operadora Z→A</option>
-          <option value="-id"            {{ 'selected' if sort=='-id' }}>ID ↓</option>
-          <option value="id"             {{ 'selected' if sort=='id' }}>ID ↑</option>
-        </select>
-        <button type="submit" class="btn-g btn-sm"><i class="bi bi-funnel"></i></button>
-      </form>
-      <form method="get" style="display:flex;gap:.4rem;margin-left:auto">
-        <input type="hidden" name="status" value="{{ s }}">
-        <input type="hidden" name="sort"   value="{{ sort }}">
-        <input class="v-input v-input-sm" type="text" id="searchInput" name="q"
-               value="{{ q }}" placeholder="Buscar operadora…" style="width:200px">
-        <button type="submit" class="btn-g btn-sm"><i class="bi bi-search"></i></button>
-        {% if q or s %}<a href="{{ url_for('atacado.form_list') }}" class="btn-g btn-sm">Limpar</a>{% endif %}
-      </form>
+    <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+      <a href="{{ url_for('atacado.form_list') }}" class="btn-o">Meus formulários</a>
+      <a href="{{ url_for('atacado.form_new') }}"  class="btn-p"><i class="bi bi-plus"></i> Novo PTI</a>
     </div>
   </div>
 
-  <!-- Tabela -->
-  {% if forms and forms|length %}
-  <div class="card" style="overflow:hidden">
-    <div style="overflow-x:auto">
-      <table class="v-table">
-        <thead>
-          <tr>
-            <th>ID</th>
-            <th>Operadora</th>
-            <th>Status</th>
-            <th>Criado</th>
-            <th style="text-align:right">Ações</th>
-          </tr>
-        </thead>
-        <tbody id="resultsBody">
-          {% for f in forms %}
-            {% set st = (f.status or 'rascunho')|lower %}
-            <tr>
-              <td style="font-weight:600;color:var(--sub);font-size:.8rem">
-                #{{ f.id }}
-                <button class="id-btn" data-id="{{ f.id }}" title="Copiar ID"><i class="bi bi-clipboard"></i></button>
-              </td>
-              <td class="op-cell" title="{{ f.nome_operadora or '—' }}">
-                {{ f.nome_operadora or '—' }}
-              </td>
-              <td>
-                <span class="badge-s {% if st=='aprovado' %}done{% elif st=='em revisão' %}review{% elif st=='enviado' %}sent{% else %}draft{% endif %}">
-                  {{ st|capitalize }}
-                </span>
-              </td>
-              <td style="color:var(--sub);font-size:.8rem">{{ (f.created_at or '')|date_br }}</td>
-              <td style="text-align:right">
-                <div style="display:flex;gap:.35rem;justify-content:flex-end">
-                  <a href="{{ url_for('atacado.form_edit', form_id=f.id) }}" class="btn-g btn-sm">
-                    <i class="bi bi-pencil"></i> Editar
-                  </a>
-                  <button class="btn-danger btn-sm del-form-btn"
-                          data-id="{{ f.id }}"
-                          data-name="{{ f.nome_operadora | e or '—' }}"
-                          style="border-radius:7px;border:1px solid #fecaca;background:#fef2f2;color:#991b1b;cursor:pointer;font-size:.75rem;font-weight:600;padding:.3rem .6rem">
-                    <i class="bi bi-trash"></i>
-                  </button>
-                </div>
-              </td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </div>
-  {% else %}
-  <div class="card empty">
-    <i class="bi bi-inbox"></i>
-    {% if q %}
-      <p>Sem resultados para <strong>{{ q }}</strong></p>
-    {% else %}
-      <p>Nenhum formulário criado ainda.</p>
-    {% endif %}
-    <a href="{{ url_for('atacado.form_new') }}" class="btn-p btn-sm" style="margin-top:.75rem">
-      <i class="bi bi-plus"></i> Criar primeiro PTI
+  <!-- Ações -->
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:1rem">
+
+    <a class="action-card" href="{{ url_for('atacado.form_new') }}">
+      <div class="action-card-icon"><i class="bi bi-file-earmark-plus"></i></div>
+      <h3>Criar Pré-PTI</h3>
+      <p>Criar formulário de interligação</p>
     </a>
+
+    <a class="action-card" href="{{ url_for('atacado.form_list') }}">
+      <div class="action-card-icon"><i class="bi bi-list-task"></i></div>
+      <h3>Meus PTIs</h3>
+      <p>Consultar, editar e acompanhar</p>
+    </a>
+
+    <!-- Card de pesquisa -->
+    <div class="action-card" style="cursor:default">
+      <div class="action-card-icon"><i class="bi bi-search"></i></div>
+      <h3>Pesquisar PTI</h3>
+      <form method="get" action="{{ url_for('atacado.form_list') }}" style="margin-top:.5rem;display:flex;gap:.4rem">
+        <input class="v-input v-input-sm" type="text" name="q"
+               placeholder="Nome da operadora..." style="flex:1;min-width:0">
+        <button type="submit" class="btn-p btn-sm"><i class="bi bi-arrow-right"></i></button>
+      </form>
+    </div>
+
+    <a class="action-card" href="{{ url_for('atacado.form_list') }}?status=aprovado">
+      <div class="action-card-icon"><i class="bi bi-check2-circle"></i></div>
+      <h3>Aprovados</h3>
+      <p>PTIs validados pela Engenharia</p>
+    </a>
+
   </div>
-  {% endif %}
 
 </div>
-
-<!-- Modal exclusão (invisível) -->
-<form method="post" id="deleteForm" action="#" style="display:none"></form>
 {% endblock %}
-{% block extra_scripts %}
-<script>
-// Copiar ID
-document.querySelectorAll('.id-btn').forEach(btn=>{
-  btn.addEventListener('click',async()=>{
-    try{
-      await navigator.clipboard.writeText(btn.dataset.id);
-      btn.innerHTML='<i class="bi bi-clipboard-check"></i>';
-      setTimeout(()=>{ btn.innerHTML='<i class="bi bi-clipboard"></i>'; },1200);
-    }catch(_){}
-  });
-});
-
-// Confirmar exclusão via data attributes
-const DELETE_URL = "{{ url_for('atacado.form_delete', form_id=0) }}";
-document.querySelectorAll('.del-form-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    const id   = btn.dataset.id;
-    const name = btn.dataset.name || '—';
-    if(!confirm(`Excluir formulário #${id} (${name})?\n\nEsta ação não pode ser desfeita.`)) return;
-    const f = document.getElementById('deleteForm');
-    f.action = DELETE_URL.replace('/0/', '/' + id + '/');
-    f.submit();
-  });
-});
-
-// Realçar busca
-(function(){
-  const q = new URLSearchParams(location.search).get('q');
-  if(!q) return;
-  const re = new RegExp('('+q.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+')','gi');
-  document.querySelectorAll('#resultsBody .op-cell').forEach(td=>{
-    td.innerHTML = td.textContent.replace(re,'<mark>$1</mark>');
-  });
-})();
-
-// Atalhos
-document.addEventListener('keydown',e=>{
-  if(['INPUT','TEXTAREA','SELECT'].includes(e.target?.tagName)) return;
-  if(e.key==='n'||e.key==='N'){ e.preventDefault(); location.href="{{ url_for('atacado.form_new') }}"; }
-  if(e.key==='/'){ e.preventDefault(); document.getElementById('searchInput')?.focus(); }
-});
-</script>
-{% endblock %}
+{% block extra_scripts %}{% endblock %}
