@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Central Atacado — PTI AUTOMATIZADO{% endblock %}
+{% block title %}Central Engenharia — PTI AUTOMATIZADO{% endblock %}
 {% block extra_head %}
 <style>
   .action-card {
@@ -24,49 +24,40 @@
   <!-- Header -->
   <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:2rem;gap:1rem;flex-wrap:wrap">
     <div>
-      <p style="font-size:.72rem;font-weight:600;color:var(--p);letter-spacing:.08em;text-transform:uppercase;margin:0 0 .35rem">Atacado</p>
+      <p style="font-size:.72rem;font-weight:600;color:var(--p);letter-spacing:.08em;text-transform:uppercase;margin:0 0 .35rem">Engenharia</p>
       <h1 class="v-title">Área de trabalho</h1>
     </div>
     <div style="display:flex;gap:.5rem;flex-wrap:wrap">
-      <a href="{{ url_for('atacado.form_list') }}" class="btn-o">Meus formulários</a>
-      <a href="{{ url_for('atacado.form_new') }}"  class="btn-p"><i class="bi bi-plus"></i> Novo PTI</a>
+      <a href="{{ url_for('engenharia.form_list') }}?show_files=1" class="btn-o"><i class="bi bi-folder2-open"></i> Exports</a>
+      <a href="{{ url_for('engenharia.form_list') }}"              class="btn-p"><i class="bi bi-clipboard-check"></i> Validar</a>
     </div>
   </div>
 
   <!-- Pesquisa rápida -->
   <div class="card" style="padding:.75rem 1rem;margin-bottom:1.5rem">
-    <form method="get" action="{{ url_for('atacado.form_list') }}"
+    <form method="get" action="{{ url_for('engenharia.form_list') }}"
           style="display:flex;gap:.5rem;align-items:center">
       <input class="v-input v-input-sm" type="text" name="q"
-             placeholder="Buscar PTI por operadora…" style="flex:1;max-width:360px">
+             placeholder="Buscar qualquer PTI por operadora…" style="flex:1;max-width:360px">
       <button type="submit" class="btn-p btn-sm">
         <i class="bi bi-search"></i> Buscar
       </button>
-      <a href="{{ url_for('atacado.form_new') }}" class="btn-g btn-sm">
-        <i class="bi bi-plus"></i> Novo PTI
-      </a>
     </form>
   </div>
 
   <!-- Ações -->
   <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:1rem">
 
-    <a class="action-card" href="{{ url_for('atacado.form_new') }}">
-      <div class="action-card-icon"><i class="bi bi-file-earmark-plus"></i></div>
-      <h3>Criar Pré-PTI</h3>
-      <p>Criar formulário de interligação</p>
+    <a class="action-card" href="{{ url_for('engenharia.form_list') }}">
+      <div class="action-card-icon"><i class="bi bi-clipboard-check"></i></div>
+      <h3>Validar Pré-PTIs</h3>
+      <p>Revisar e preencher Seção 9</p>
     </a>
 
-    <a class="action-card" href="{{ url_for('atacado.form_list') }}">
-      <div class="action-card-icon"><i class="bi bi-list-task"></i></div>
-      <h3>Meus PTIs</h3>
-      <p>Consultar, editar e acompanhar</p>
-    </a>
-
-    <a class="action-card" href="{{ url_for('atacado.form_list') }}?status=aprovado">
-      <div class="action-card-icon"><i class="bi bi-check2-circle"></i></div>
-      <h3>Aprovados</h3>
-      <p>PTIs validados pela Engenharia</p>
+    <a class="action-card" href="{{ url_for('engenharia.form_list') }}?status=aprovado">
+      <div class="action-card-icon"><i class="bi bi-file-earmark-spreadsheet"></i></div>
+      <h3>Pré-PTIs Validados</h3>
+      <p>Baixar e gerenciar PTIs gerados</p>
     </a>
 
   </div>
