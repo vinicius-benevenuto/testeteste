@@ -1,259 +1,159 @@
-"""routes/atacado.py — CRUD de formulários do perfil Atacado + versionamento."""
-import logging
-from datetime import datetime
+{% extends "base.html" %}
+{% block title %}Formulários — PTI AUTOMATIZADO{% endblock %}
+{% block extra_head %}
+<style>
+  .op-cell { max-width:300px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .id-btn  { background:none; border:none; cursor:pointer; color:var(--sub); padding:0 .2rem; font-size:.8rem; }
+  .id-btn:hover { color:var(--p); }
+  .op-group { margin-bottom:1.5rem; }
+  .op-group-header {
+    display:flex; align-items:center; justify-content:space-between;
+    padding:.6rem 1rem; background:var(--p-lt); border:1px solid var(--bdr);
+    border-radius:var(--r) var(--r) 0 0; cursor:pointer;
+  }
+  .op-group-header h3 { font-size:.88rem; font-weight:700; color:var(--p); margin:0; }
+  .op-group-body { border:1px solid var(--bdr); border-top:none;
+    border-radius:0 0 var(--r) var(--r); overflow:hidden; }
+  .v-badge {
+    font-size:.68rem; font-weight:700; padding:.15rem .4rem;
+    border-radius:5px; background:var(--p); color:#fff; white-space:nowrap;
+  }
+</style>
+{% endblock %}
+{% block content %}
+<div class="page">
 
-from flask import (
-    Blueprint, abort, flash, redirect, render_template,
-    request, session, url_for,
-)
+  <!-- Header -->
+  <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:1.5rem;flex-wrap:wrap">
+    <a href="{{ url_for('central.central_engenharia') }}" class="btn-g btn-sm">← Voltar</a>
+    <div>
+      <h1 class="v-title">Formulários</h1>
+      <p class="v-sub">PTIs agrupados por operadora · todas as versões</p>
+    </div>
+  </div>
 
-from auth import login_required, role_required
-from config import BOOLEAN_FIELDS, MAX_TABLE_ROWS, TEXT_FIELDS
-from db import get_db
-from forms import extract_form_payload, validate_table_rows
-from queries import get_status_counters
+  <!-- Filtros -->
+  {% set q      = q or '' %}
+  {% set status = status or '' %}
+  <div class="card" style="padding:.75rem;margin-bottom:1rem">
+    <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+      <form method="get" style="display:contents">
+        <input type="hidden" name="q" value="{{ q }}">
+        <select class="v-input v-input-sm" name="status" style="width:auto;min-width:140px">
+          <option value=""           {{ 'selected' if not status }}>Todos</option>
+          <option value="enviado"    {{ 'selected' if status=='enviado' }}>Enviado</option>
+          <option value="em revisão" {{ 'selected' if status=='em revisão' }}>Em revisão</option>
+          <option value="aprovado"   {{ 'selected' if status=='aprovado' }}>Aprovado</option>
+          <option value="rascunho"   {{ 'selected' if status=='rascunho' }}>Rascunho</option>
+        </select>
+        <button type="submit" class="btn-g btn-sm"><i class="bi bi-funnel"></i></button>
+      </form>
+      <form method="get" style="display:flex;gap:.4rem;margin-left:auto">
+        <input type="hidden" name="status" value="{{ status }}">
+        <input class="v-input v-input-sm" type="text" name="q" value="{{ q }}"
+               placeholder="Buscar operadora..." style="width:200px">
+        <button type="submit" class="btn-g btn-sm"><i class="bi bi-search"></i></button>
+        {% if q or status %}<a href="{{ url_for('engenharia.form_list') }}" class="btn-g btn-sm">Limpar</a>{% endif %}
+      </form>
+    </div>
+  </div>
 
-logger = logging.getLogger(__name__)
-bp = Blueprint("atacado", __name__, url_prefix="/atacado_formularios")
+  <!-- Grupos por operadora -->
+  {% if grupos %}
+    {% for nome_op, versoes in grupos.items() %}
+    <div class="op-group">
+      <div class="op-group-header" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'':'none'">
+        <h3><i class="bi bi-building" style="margin-right:.4rem"></i>{{ nome_op }}</h3>
+        <span style="font-size:.75rem;color:var(--sub)">{{ versoes|length }} versão{{ 'ões' if versoes|length > 1 else '' }}</span>
+      </div>
+      <div class="op-group-body">
+        <table class="v-table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Versão</th>
+              <th>Status</th>
+              <th>RN1</th>
+              <th>Atualizado</th>
+              <th style="text-align:right">Ações</th>
+            </tr>
+          </thead>
+          <tbody id="resultsBody">
+            {% for f in versoes %}
+              {% set st = (f.status or 'rascunho')|lower %}
+              <tr>
+                <td style="font-weight:600;color:var(--sub);font-size:.8rem">
+                  #{{ f.id }}
+                  <button class="id-btn" data-id="{{ f.id }}" title="Copiar ID"><i class="bi bi-clipboard"></i></button>
+                </td>
+                <td><span class="v-badge">v{{ f.version or 1 }}</span></td>
+                <td>
+                  <span class="badge-s {% if st=='aprovado' %}done{% elif st=='em revisão' %}review{% elif st=='enviado' %}sent{% else %}draft{% endif %}">
+                    {{ st|capitalize }}
+                  </span>
+                </td>
+                <td style="font-size:.8rem;color:var(--sub)">{{ f.rn1 or '—' }}</td>
+                <td style="color:var(--sub);font-size:.8rem">{{ (f.updated_at or f.created_at or '')|date_br }}</td>
+                <td style="text-align:right">
+                  <div style="display:flex;gap:.35rem;justify-content:flex-end">
+                    <a href="{{ url_for('engenharia.form_view', form_id=f.id) }}" class="btn-g btn-sm">
+                      <i class="bi bi-eye"></i> Abrir
+                    </a>
+                    <a href="{{ url_for('engenharia.exportar_excel', form_id=f.id) }}" class="btn-o btn-sm">
+                      <i class="bi bi-file-earmark-spreadsheet"></i> Excel v{{ f.version or 1 }}
+                    </a>
+                    {% if st != 'aprovado' %}
+                    <form method="post" action="{{ url_for('engenharia.validar', form_id=f.id) }}"
+                          onsubmit="return confirm('Aprovar PTI #{{ f.id }} v{{ f.version or 1 }} — {{ f.nome_operadora }}?')">
+                      <button type="submit" class="btn-p btn-sm">
+                        <i class="bi bi-check-circle"></i> Validar
+                      </button>
+                    </form>
+                    {% else %}
+                    <span class="badge-s done" style="padding:.3rem .6rem;font-size:.72rem">
+                      <i class="bi bi-check-circle-fill"></i> Aprovado
+                    </span>
+                    {% endif %}
+                  </div>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% endfor %}
+  {% else %}
+  <div class="card empty">
+    <i class="bi bi-inbox"></i>
+    {% if q %}
+      <p>Sem resultados para <strong>{{ q }}</strong></p>
+    {% else %}
+      <p>Nenhum formulário disponível.</p>
+    {% endif %}
+  </div>
+  {% endif %}
 
-_FORBIDDEN = {"n/a", "na", "não se aplica", "nao se aplica", "-", "--", "none", "null", ""}
-
-
-def _field_invalid(val: str) -> bool:
-    return (val or "").strip().lower() in _FORBIDDEN
-
-
-# ---------------------------------------------------------------------------
-# LISTAGEM — agrupada por operadora, com versões
-# ---------------------------------------------------------------------------
-@bp.get("")
-@login_required
-@role_required("atacado")
-def form_list():
-    db     = get_db()
-    uid    = session["user_id"]
-    q      = (request.args.get("q") or "").strip()
-    status = (request.args.get("status") or "").strip()
-
-    sql    = "SELECT * FROM atacado_forms WHERE CAST(owner_id AS TEXT) = CAST(? AS TEXT)"
-    params = [uid]
-    if status:
-        sql += " AND LOWER(COALESCE(status,'')) = LOWER(?)"
-        params.append(status)
-    if q:
-        sql += " AND nome_operadora LIKE ?"
-        params.append(f"%{q}%")
-    sql += " ORDER BY nome_operadora COLLATE NOCASE, version ASC"
-
-    forms = db.execute(sql, params).fetchall()
-
-    # Agrupar por operadora
-    grupos: dict[str, list] = {}
-    for f in forms:
-        op = (f["nome_operadora"] or "Sem operadora").strip()
-        grupos.setdefault(op, []).append(f)
-
-    counters = {}
-    for key, cond in [
-        ("total",     ""),
-        ("rascunho",  "AND LOWER(status)='rascunho'"),
-        ("enviado",   "AND LOWER(status)='enviado'"),
-        ("em_revisao","AND LOWER(status)='em revisão'"),
-        ("aprovado",  "AND LOWER(status)='aprovado'"),
-    ]:
-        row = db.execute(
-            f"SELECT COUNT(*) AS c FROM atacado_forms "
-            f"WHERE CAST(owner_id AS TEXT)=CAST(? AS TEXT) {cond}", (uid,)
-        ).fetchone()
-        counters[key] = row["c"] if row else 0
-
-    return render_template(
-        "atacado_formularios.html",
-        grupos=grupos,
-        counters=counters,
-        q=q,
-        status=status,
-    )
-
-
-# ---------------------------------------------------------------------------
-# CRIAR
-# ---------------------------------------------------------------------------
-@bp.get("/new")
-@login_required
-@role_required("atacado")
-def form_new():
-    db   = get_db()
-    last = db.execute(
-        "SELECT responsavel_atacado FROM atacado_forms "
-        "WHERE CAST(owner_id AS TEXT)=CAST(? AS TEXT) AND COALESCE(responsavel_atacado,'') <> '' "
-        "ORDER BY created_at DESC LIMIT 1",
-        (session["user_id"],),
-    ).fetchone()
-    preset = (last["responsavel_atacado"] if last else "") or (
-        session.get("email", "").split("@")[0].replace(".", " ").title()
-    )
-    return render_template(
-        "formulario_atacado.html",
-        form=None,
-        preset_responsavel_atacado=preset,
-    )
-
-
-@bp.post("/new")
-@login_required
-@role_required("atacado")
-def form_create():
-    payload                          = extract_form_payload()
-    payload["owner_id"]              = session["user_id"]
-    payload["status"]                = (payload.get("status") or "rascunho").lower()
-    payload["engenharia_params_json"] = "{}"
-    payload["version"]               = 1
-    payload["parent_id"]             = None
-    truncated                        = validate_table_rows(payload)
-
-    if payload["status"] == "enviado" and _field_invalid(
-        payload.get("responsavel_atacado", "")
-    ):
-        flash('Informe o "Responsável Gestão de ITX (Atacado)" antes de finalizar.', "warning")
-        return redirect(url_for("atacado.form_new"))
-
-    cols = (
-        ["owner_id", "version", "parent_id"]
-        + list(TEXT_FIELDS)
-        + list(BOOLEAN_FIELDS)
-        + ["escopo_flags_json", "dados_vivo_json", "dados_operadora_json",
-           "engenharia_params_json"]
-    )
-    db = get_db()
-    db.execute(
-        f"INSERT INTO atacado_forms ({','.join(cols)}) "
-        f"VALUES ({','.join(['?'] * len(cols))})",
-        [payload.get(c) for c in cols],
-    )
-    db.commit()
-
-    msg = "Formulário criado."
-    if truncated:
-        msg += f" Tabelas limitadas a {MAX_TABLE_ROWS} linhas."
-    flash(msg, "success")
-    return redirect(url_for("atacado.form_list"))
-
-
-# ---------------------------------------------------------------------------
-# NOVA VERSÃO
-# ---------------------------------------------------------------------------
-@bp.post("/<int:form_id>/new_version")
-@login_required
-@role_required("atacado")
-def form_new_version(form_id: int):
-    db   = get_db()
-    orig = db.execute(
-        "SELECT * FROM atacado_forms WHERE id = ? AND CAST(owner_id AS TEXT)=CAST(? AS TEXT)",
-        (form_id, session["user_id"]),
-    ).fetchone()
-    if not orig:
-        abort(404)
-
-    root_id = orig["parent_id"] or orig["id"]
-    max_ver = db.execute(
-        "SELECT MAX(version) FROM atacado_forms "
-        "WHERE CAST(owner_id AS TEXT)=CAST(? AS TEXT) AND (id = ? OR parent_id = ?)",
-        (session["user_id"], root_id, root_id),
-    ).fetchone()[0] or 1
-    next_ver = max_ver + 1
-
-    copy_cols = (
-        list(TEXT_FIELDS) + list(BOOLEAN_FIELDS)
-        + ["escopo_flags_json", "dados_vivo_json", "dados_operadora_json"]
-    )
-    row_dict = dict(orig)
-
-    db.execute(
-        f"INSERT INTO atacado_forms "
-        f"(owner_id, version, parent_id, status, {','.join(copy_cols)}, engenharia_params_json) "
-        f"VALUES (?, ?, ?, 'rascunho', {','.join(['?']*len(copy_cols))}, '{{}}')",
-        [session["user_id"], next_ver, root_id] + [row_dict.get(c) for c in copy_cols],
-    )
-    db.commit()
-
-    flash(f"Versão {next_ver} criada a partir do formulário #{form_id}.", "success")
-    return redirect(url_for("atacado.form_list"))
-
-
-# ---------------------------------------------------------------------------
-# EDITAR
-# ---------------------------------------------------------------------------
-@bp.get("/<int:form_id>")
-@login_required
-@role_required("atacado")
-def form_edit(form_id: int):
-    db   = get_db()
-    form = db.execute(
-        "SELECT * FROM atacado_forms WHERE id = ? AND CAST(owner_id AS TEXT)=CAST(? AS TEXT)",
-        (form_id, session["user_id"]),
-    ).fetchone()
-    if not form:
-        abort(404)
-    return render_template("formulario_atacado.html", form=form)
-
-
-@bp.post("/<int:form_id>")
-@login_required
-@role_required("atacado")
-def form_update(form_id: int):
-    db = get_db()
-    if not db.execute(
-        "SELECT id FROM atacado_forms WHERE id = ? AND CAST(owner_id AS TEXT)=CAST(? AS TEXT)",
-        (form_id, session["user_id"]),
-    ).fetchone():
-        abort(404)
-
-    payload              = extract_form_payload()
-    payload["updated_at"] = datetime.utcnow().isoformat(timespec="seconds")
-    truncated            = validate_table_rows(payload)
-
-    if (payload.get("status") or "").lower() == "enviado" and _field_invalid(
-        payload.get("responsavel_atacado", "")
-    ):
-        flash('Informe o "Responsável Gestão de ITX (Atacado)" antes de finalizar.', "warning")
-        return redirect(url_for("atacado.form_edit", form_id=form_id))
-
-    fields = (
-        list(TEXT_FIELDS) + list(BOOLEAN_FIELDS)
-        + ["escopo_flags_json", "dados_vivo_json", "dados_operadora_json"]
-    )
-    params = (
-        [payload.get(f) for f in fields]
-        + [payload["updated_at"], form_id, session["user_id"]]
-    )
-    db.execute(
-        f"UPDATE atacado_forms SET "
-        f"{', '.join([f'{f} = ?' for f in fields] + ['updated_at = ?'])} "
-        f"WHERE id = ? AND CAST(owner_id AS TEXT)=CAST(? AS TEXT)",
-        params,
-    )
-    db.commit()
-
-    msg = "Formulário atualizado."
-    if truncated:
-        msg += f" Tabelas limitadas a {MAX_TABLE_ROWS} linhas."
-    flash(msg, "success")
-    return redirect(url_for("atacado.form_list"))
-
-
-# ---------------------------------------------------------------------------
-# DELETAR
-# ---------------------------------------------------------------------------
-@bp.post("/<int:form_id>/delete")
-@login_required
-@role_required("atacado")
-def form_delete(form_id: int):
-    db = get_db()
-    db.execute(
-        "DELETE FROM atacado_forms WHERE id = ? AND CAST(owner_id AS TEXT)=CAST(? AS TEXT)",
-        (form_id, session["user_id"]),
-    )
-    db.commit()
-    flash("Formulário excluído.", "info")
-    return redirect(url_for("atacado.form_list"))
+</div>
+{% endblock %}
+{% block extra_scripts %}
+<script>
+document.querySelectorAll('.id-btn').forEach(btn=>{
+  btn.addEventListener('click',async()=>{
+    try{
+      await navigator.clipboard.writeText(btn.dataset.id);
+      btn.innerHTML='<i class="bi bi-clipboard-check"></i>';
+      setTimeout(()=>{ btn.innerHTML='<i class="bi bi-clipboard"></i>'; },1200);
+    }catch(_){}
+  });
+});
+(function(){
+  const q = new URLSearchParams(location.search).get('q');
+  if(!q) return;
+  const re = new RegExp('('+q.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+')','gi');
+  document.querySelectorAll('#resultsBody .op-cell').forEach(td=>{
+    td.innerHTML = td.textContent.replace(re,'<mark>$1</mark>');
+  });
+})();
+</script>
+{% endblock %}
