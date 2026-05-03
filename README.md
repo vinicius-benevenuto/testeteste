@@ -221,4 +221,3 @@
   {% block extra_scripts %}{% endblock %}
 </body>
 </html>
-
