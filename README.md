@@ -742,6 +742,21 @@ class PTIWorkbookBuilder:
 
             # ── Cabeçalhos de tráfego ──────────────────────────────────────
             r = cursor
+            # Título tabela esquerda: CDSIP_SPO_PL
+            ws.merge_cells(start_row=r, start_column=LC, end_row=r, end_column=LC+2)
+            c = ws.cell(row=r, column=LC, value="CDSIP_SPO_PL (SipRouter)")
+            c.font = Font(name="Calibri", size=9, bold=True, color="FFFFFF")
+            c.alignment = s.align_center; c.fill = s.fill_accent
+            # Título tabela direita: Rede Reservada IPAM
+            ws.merge_cells(start_row=r, start_column=MID, end_row=r, end_column=MID+2)
+            c2 = ws.cell(row=r, column=MID, value=f"Rede Reservada IPAM ({n})")
+            c2.font = Font(name="Calibri", size=9, bold=True, color="FFFFFF")
+            c2.alignment = s.align_center; c2.fill = s.fill_secondary
+            _gap(r, LC+3, MID)
+            ws.row_dimensions[r].height = 20.0
+            cursor += 1
+
+            r = cursor
             for lc_start in (LC, MID):
                 for i, h in enumerate(["Tráfego", "Endereço IP", "MÁSCARA"]):
                     c = ws.cell(row=r, column=lc_start+i, value=h)
