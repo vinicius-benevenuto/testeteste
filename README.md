@@ -1,259 +1,178 @@
-"""routes/engenharia.py — Formulários, validação de engenharia e geração de Excel."""
-import logging
-from datetime import datetime
-from io import BytesIO
+{% extends "base.html" %}
+{% block title %}Formulários — PTI AUTOMATIZADO{% endblock %}
+{% block extra_head %}
+<style>
+  .op-cell { max-width:300px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .id-btn  { background:none; border:none; cursor:pointer; color:var(--sub); padding:0 .2rem; font-size:.8rem; }
+  .id-btn:hover { color:var(--p); }
+  .op-group { margin-bottom:1.5rem; }
+  .op-group-header {
+    display:flex; align-items:center; justify-content:space-between;
+    padding:.6rem 1rem; background:var(--p-lt); border:1px solid var(--bdr);
+    border-radius:var(--r) var(--r) 0 0; cursor:pointer;
+  }
+  .op-group-header h3 { font-size:.88rem; font-weight:700; color:var(--p); margin:0; }
+  .op-group-body { border:1px solid var(--bdr); border-top:none;
+    border-radius:0 0 var(--r) var(--r); overflow:hidden; }
+  .v-badge {
+    font-size:.68rem; font-weight:700; padding:.15rem .4rem;
+    border-radius:5px; background:var(--p); color:#fff; white-space:nowrap;
+  }
+</style>
+{% endblock %}
+{% block content %}
+<div class="page">
 
-from flask import (
-    Blueprint, abort, flash, redirect, render_template,
-    request, send_file, session, url_for, current_app,
-)
+  <!-- Header -->
+  <div style="margin-bottom:1.5rem">
+    <h1 class="v-title">Formulários</h1>
+    <p class="v-sub">PTIs agrupados por operadora · todas as versões</p>
+  </div>
 
-from auth import login_required, role_required
-from db import get_db
-from forms import _parse_json_dict, truncate_json_list
-from helpers import safe_filename
-from queries import build_list_query, get_status_counters
+  <!-- Filtros -->
+  {% set q      = q or '' %}
+  {% set status = status or '' %}
+  <div class="card" style="padding:.75rem;margin-bottom:1rem">
+    <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+      <form method="get" style="display:contents">
+        <input type="hidden" name="q" value="{{ q }}">
+        <select class="v-input v-input-sm" name="status" style="width:auto;min-width:140px">
+          <option value=""           {{ 'selected' if not status }}>Todos</option>
+          <option value="enviado"    {{ 'selected' if status=='enviado' }}>Enviado</option>
+          <option value="em revisão" {{ 'selected' if status=='em revisão' }}>Em revisão</option>
+          <option value="aprovado"   {{ 'selected' if status=='aprovado' }}>Aprovado</option>
+          <option value="rascunho"   {{ 'selected' if status=='rascunho' }}>Rascunho</option>
+          <option value="reprovado"  {{ 'selected' if status=='reprovado' }}>Reprovado</option>
+        </select>
+        <button type="submit" class="btn-g btn-sm"><i class="bi bi-funnel"></i></button>
+      </form>
+      <form method="get" style="display:flex;gap:.4rem;margin-left:auto">
+        <input type="hidden" name="status" value="{{ status }}">
+        <input class="v-input v-input-sm" type="text" name="q" value="{{ q }}"
+               placeholder="Buscar operadora..." style="width:200px">
+        <button type="submit" class="btn-g btn-sm"><i class="bi bi-search"></i></button>
+        {% if q or status %}<a href="{{ url_for('engenharia.form_list') }}" class="btn-g btn-sm">Limpar</a>{% endif %}
+      </form>
+    </div>
+  </div>
 
-logger = logging.getLogger(__name__)
-bp = Blueprint("engenharia", __name__)
+  <!-- Grupos por operadora -->
+  {% if grupos %}
+    {% for nome_op, versoes in grupos.items() %}
+    <div class="op-group">
+      <div class="op-group-header" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'':'none'">
+        <h3><i class="bi bi-building" style="margin-right:.4rem"></i>{{ nome_op }}</h3>
+        <span style="font-size:.75rem;color:var(--sub)">{{ versoes|length }} versão{{ 'ões' if versoes|length > 1 else '' }}</span>
+      </div>
+      <div class="op-group-body">
+        <table class="v-table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Versão</th>
+              <th>Status</th>
+              <th>RN1</th>
+              <th>Atualizado</th>
+              <th style="text-align:right">Ações</th>
+            </tr>
+          </thead>
+          <tbody id="resultsBody">
+            {% for f in versoes %}
+              {% set st = (f.status or 'rascunho')|lower %}
+              <tr>
+                <td style="font-weight:600;color:var(--sub);font-size:.8rem">
+                  #{{ f.id }}
+                  <button class="id-btn" data-id="{{ f.id }}" title="Copiar ID"><i class="bi bi-clipboard"></i></button>
+                </td>
+                <td><span class="v-badge">v{{ f.version or 1 }}</span></td>
+                <td>
+                  <span class="badge-s {% if st=='aprovado' %}done{% elif st=='reprovado' %}fail{% elif st=='em revisão' %}review{% elif st=='enviado' %}sent{% else %}draft{% endif %}">
+                    {{ st|capitalize }}
+                  </span>
+                </td>
+                <td style="font-size:.8rem;color:var(--sub)">{{ f.rn1 or '—' }}</td>
+                <td style="color:var(--sub);font-size:.8rem">{{ (f.updated_at or f.created_at or '')|date_br }}</td>
+                <td style="text-align:right">
+                  <div style="display:flex;gap:.35rem;justify-content:flex-end">
+                    <a href="{{ url_for('engenharia.form_view', form_id=f.id) }}" class="btn-g btn-sm">
+                      <i class="bi bi-eye"></i> Abrir
+                    </a>
+                    {% if st == 'aprovado' %}
+                    <span class="badge-s done" style="padding:.3rem .6rem;font-size:.72rem">
+                      <i class="bi bi-check-circle-fill"></i> Aprovado
+                    </span>
+                    {% elif st == 'reprovado' %}
+                    <span class="badge-s fail" style="padding:.3rem .6rem;font-size:.72rem">
+                      <i class="bi bi-x-circle-fill"></i> Reprovado
+                    </span>
+                    {% else %}
+                    <form method="post" action="{{ url_for('engenharia.validar', form_id=f.id) }}"
+                          onsubmit="return confirm('Aprovar PTI #{{ f.id }} v{{ f.version or 1 }}?')">
+                      <button type="submit" class="btn-sm" style="background:#16a34a;color:#fff;border:1px solid #15803d;border-radius:7px;cursor:pointer;font-size:.75rem;font-weight:600;padding:.3rem .6rem;display:inline-flex;align-items:center;gap:.3rem">
+                        <i class="bi bi-check-circle"></i> Aprovar
+                      </button>
+                    </form>
+                    <form method="post" action="{{ url_for('engenharia.reprovar', form_id=f.id) }}"
+                          onsubmit="return confirm('Reprovar PTI #{{ f.id }} v{{ f.version or 1 }}?')">
+                      <button type="submit" class="btn-danger btn-sm"
+                              style="border:1px solid #fecaca;background:#fef2f2;color:#991b1b;border-radius:7px;cursor:pointer;font-size:.75rem;font-weight:600;padding:.3rem .6rem">
+                        <i class="bi bi-x-circle"></i> Reprovar
+                      </button>
+                    </form>
+                    {% endif %}
+                    <a href="{{ url_for('engenharia.exportar_excel', form_id=f.id) }}" class="btn-o btn-sm">
+                      <i class="bi bi-file-earmark-spreadsheet"></i> Excel v{{ f.version or 1 }}
+                    </a>
+                  </div>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% endfor %}
+  {% else %}
+  <div class="card empty">
+    <i class="bi bi-inbox"></i>
+    {% if q %}
+      <p>Sem resultados para <strong>{{ q }}</strong></p>
+    {% else %}
+      <p>Nenhum formulário disponível.</p>
+    {% endif %}
+  </div>
+  {% endif %}
 
-
-# ---------------------------------------------------------------------------
-# LISTAGEM
-# ---------------------------------------------------------------------------
-@bp.get("/engenharia_formularios")
-@login_required
-@role_required("engenharia")
-def form_list():
-    db     = get_db()
-    q      = (request.args.get("q") or "").strip()
-    status = (request.args.get("status") or "").strip()
-    sort   = (request.args.get("sort") or "-created_at").strip()
-
-    sql, params = build_list_query(
-        "SELECT * FROM atacado_forms",
-        search_term=q or None,
-        status_filter=status or None,
-        sort_key="nome_operadora",
-    )
-    forms    = db.execute(sql, params).fetchall()
-    counters = get_status_counters(db)
-
-    # Agrupar por operadora
-    grupos: dict[str, list] = {}
-    for f in forms:
-        op = (f["nome_operadora"] or "Sem operadora").strip()
-        grupos.setdefault(op, []).append(f)
-    # Ordenar versões dentro de cada grupo
-    for op in grupos:
-        grupos[op].sort(key=lambda r: int(r["version"] or 1))
-
-    has_download = bool(session.get("_excel_tmp"))
-    return render_template(
-        "engenharia_formularios.html",
-        grupos=grupos,
-        counters=counters,
-        q=q,
-        status=status,
-        download_url=url_for("engenharia.excel_download") if has_download else "",
-    )
-
-
-# ---------------------------------------------------------------------------
-# VISUALIZAR / VALIDAR
-# ---------------------------------------------------------------------------
-@bp.route("/engenharia_formularios/<int:form_id>", methods=["GET", "POST"])
-@login_required
-@role_required("engenharia")
-def form_view(form_id: int):
-    db   = get_db()
-    form = db.execute(
-        "SELECT * FROM atacado_forms WHERE id = ?", (form_id,)
-    ).fetchone()
-    if not form:
-        abort(404)
-
-    if request.method == "POST":
-        resp_eng = (request.form.get("responsavel_engenharia") or "").strip()
-        if not resp_eng:
-            flash('Informe o "Responsável Eng de ITX" para salvar.', "warning")
-            return redirect(url_for("engenharia.form_view", form_id=form_id))
-
-        eng_json  = _parse_json_dict(
-            request.form.get("engenharia_params_json", "") or "{}"
-        )
-        vivo_json = truncate_json_list(
-            request.form.get("dados_vivo_json", "[]"), "[]"
-        )
-        op_json   = truncate_json_list(
-            request.form.get("dados_operadora_json", "[]"), "[]"
-        )
-        db.execute(
-            "UPDATE atacado_forms "
-            "SET engenharia_params_json=?, responsavel_engenharia=?, "
-            "dados_vivo_json=?, dados_operadora_json=?, updated_at=? "
-            "WHERE id=?",
-            (
-                eng_json, resp_eng, vivo_json, op_json,
-                datetime.utcnow().isoformat(timespec="seconds"),
-                form_id,
-            ),
-        )
-        db.commit()
-        flash("Validação da Engenharia salva.", "success")
-        return redirect(url_for("engenharia.form_list"))
-
-    return render_template("formulario_atacado.html", form=form, readonly=True)
-
-
-@bp.post("/engenharia_formularios/<int:form_id>/reprovar")
-@login_required
-@role_required("engenharia")
-def reprovar(form_id: int):
-    db = get_db()
-    form = db.execute(
-        "SELECT id, nome_operadora FROM atacado_forms WHERE id = ?", (form_id,)
-    ).fetchone()
-    if not form:
-        abort(404)
-    db.execute(
-        "UPDATE atacado_forms SET status='reprovado', updated_at=? WHERE id=?",
-        (datetime.utcnow().isoformat(timespec="seconds"), form_id),
-    )
-    db.commit()
-    flash(f"PTI #{form_id} — {form['nome_operadora'] or ''} reprovado.", "warning")
-    return redirect(url_for("engenharia.form_list"))
-
-
-# ---------------------------------------------------------------------------
-# VALIDAR (APROVAR) PTI
-# ---------------------------------------------------------------------------
-@bp.post("/engenharia_formularios/<int:form_id>/validar")
-@login_required
-@role_required("engenharia")
-def validar(form_id: int):
-    db = get_db()
-    form = db.execute(
-        "SELECT id, nome_operadora FROM atacado_forms WHERE id = ?", (form_id,)
-    ).fetchone()
-    if not form:
-        abort(404)
-    db.execute(
-        "UPDATE atacado_forms SET status='aprovado', updated_at=? WHERE id=?",
-        (datetime.utcnow().isoformat(timespec="seconds"), form_id),
-    )
-    db.commit()
-    flash(f"PTI #{form_id} — {form['nome_operadora'] or ''} aprovado.", "success")
-    return redirect(url_for("engenharia.form_list"))
-
-
-def _get_all_versions(db, form) -> list:
-    """Retorna todas as versões relacionadas ao PTI (ancestors + current), ordenadas por versão."""
-    rows = []
-    # Subir até a raiz pelo parent_id
-    cur = form
-    visited = set()
-    while cur and cur["id"] not in visited:
-        visited.add(cur["id"])
-        rows.append(cur)
-        if cur["parent_id"]:
-            parent = db.execute(
-                "SELECT * FROM atacado_forms WHERE id = ?", (cur["parent_id"],)
-            ).fetchone()
-            cur = parent
-        else:
-            break
-    # Descer: buscar todos os filhos/netos
-    def _children(fid):
-        for child in db.execute(
-            "SELECT * FROM atacado_forms WHERE parent_id = ?", (fid,)
-        ).fetchall():
-            if child["id"] not in visited:
-                visited.add(child["id"])
-                rows.append(child)
-                _children(child["id"])
-    root_id = rows[-1]["id"] if rows else form["id"]
-    _children(root_id)
-    # Ordenar por version ASC
-    rows.sort(key=lambda r: int(r["version"] or 1) if r["version"] else 1)
-    return rows
-
-
-# ---------------------------------------------------------------------------
-# DOWNLOAD DO EXCEL (intermediário para permitir flash antes do download)
-# ---------------------------------------------------------------------------
-@bp.get("/excel_download")
-@login_required
-def excel_download():
-    import os
-    tmp_path = session.pop("_excel_tmp",  None)
-    fname    = session.pop("_excel_name", "PTI.xlsx")
-    if not tmp_path or not os.path.exists(tmp_path):
-        flash("Arquivo não encontrado. Gere o Excel novamente.", "warning")
-        return redirect(url_for("engenharia.form_list"))
-    def _serve():
-        with open(tmp_path, "rb") as f:
-            data = f.read()
-        os.unlink(tmp_path)
-        return data
-    from flask import Response
-    data = _serve()
-    return Response(
-        data,
-        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f"attachment; filename={fname}"}
-    )
-
-
-# ---------------------------------------------------------------------------
-# EXPORTAR EXCEL COMPLETO (PTI)
-# ---------------------------------------------------------------------------
-@bp.get("/formularios/<int:form_id>/excel_index")
-@login_required
-def exportar_excel(form_id: int):
-    try:
-        from excel.builder import PTIWorkbookBuilder
-    except ImportError:
-        flash("openpyxl não instalado.", "warning")
-        return redirect(url_for("central.index"))
-
-    db   = get_db()
-    form = db.execute(
-        "SELECT * FROM atacado_forms WHERE id = ?", (form_id,)
-    ).fetchone()
-    if not form:
-        abort(404)
-    if session.get("role") == "atacado" and form["owner_id"] != session.get("user_id"):
-        abort(403)
-
-    builder = PTIWorkbookBuilder(form, all_versions=_get_all_versions(db, form))
-    wb      = builder.build()
-
-    # Salvar Excel em arquivo temporário no disco (session tem limite de 4KB)
-    import tempfile, os
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
-    wb.save(tmp.name)
-    tmp.close()
-
-    nome = safe_filename(form["nome_operadora"] or "Operadora")
-    ver  = form["version"] if "version" in form.keys() else 1
-    fname = f"PTI_{nome}_v{ver}_ID{form['id']}.xlsx"
-
-    # Guardar só o caminho e nome (pequeno) na session
-    session["_excel_tmp"]  = tmp.name
-    session["_excel_name"] = fname
-
-    # Notificar sobre falhas IPAM
-    if builder.ipam_falhas:
-        for msg in builder.ipam_falhas:
-            flash(
-                f"⚠ Reserva IPAM não concluída — {msg}. "
-                f"Acesse o phpIPAM e verifique o pool do CN. "
-                f"Caso o problema persista, realize a reserva manualmente. "
-                f"Nossa equipe de desenvolvimento já está ciente.",
-                "warning"
-            )
-    else:
-        flash("✔ Rede reservada no IPAM com sucesso. O Excel foi gerado.", "success")
-
-    return redirect(url_for("engenharia.form_list"))
+</div>
+{% endblock %}
+{% block extra_scripts %}
+<script>
+document.querySelectorAll('.id-btn').forEach(btn=>{
+  btn.addEventListener('click',async()=>{
+    try{
+      await navigator.clipboard.writeText(btn.dataset.id);
+      btn.innerHTML='<i class="bi bi-clipboard-check"></i>';
+      setTimeout(()=>{ btn.innerHTML='<i class="bi bi-clipboard"></i>'; },1200);
+    }catch(_){}
+  });
+});
+(function(){
+  const q = new URLSearchParams(location.search).get('q');
+  if(!q) return;
+  const re = new RegExp('('+q.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+')','gi');
+  document.querySelectorAll('#resultsBody .op-cell').forEach(td=>{
+    td.innerHTML = td.textContent.replace(re,'<mark>$1</mark>');
+  });
+})();
+(function(){
+  const url = '{{ download_url }}';
+  if(!url || url === 'None' || url === '') return;
+  const a = document.createElement('a');
+  a.href = url;
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+})();
+</script>
+{% endblock %}
