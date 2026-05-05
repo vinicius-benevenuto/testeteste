@@ -1,107 +1,158 @@
-PS C:\Users\40418843\Desktop\vivo_hub> py run.py
-2026-05-05 14:18:56 [INFO] vivohub: VIVOHUB iniciado. Diretório SBC: C:/Users/40418843/Desktop/dados-sbcs
- * Serving Flask app 'app'
- * Debug mode: off
-2026-05-05 14:18:56 [INFO] werkzeug: WARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.
- * Running on all addresses (0.0.0.0)
- * Running on http://127.0.0.1:5000
- * Running on http://10.128.69.137:5000
-2026-05-05 14:18:56 [INFO] werkzeug: Press CTRL+C to quit
-2026-05-05 14:19:07 [ERROR] app: Exception on / [GET]
-Traceback (most recent call last):
-  File "C:\Users\40418843\AppData\Roaming\Python\Python312\site-packages\flask\app.py", line 1511, in wsgi_app
-    response = self.full_dispatch_request()
-               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\Users\40418843\AppData\Roaming\Python\Python312\site-packages\flask\app.py", line 919, in full_dispatch_request
-    rv = self.handle_user_exception(e)
-         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\Users\40418843\AppData\Roaming\Python\Python312\site-packages\flask\app.py", line 917, in full_dispatch_request
-    rv = self.dispatch_request()
-         ^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\Users\40418843\AppData\Roaming\Python\Python312\site-packages\flask\app.py", line 902, in dispatch_request
-    return self.ensure_sync(self.view_functions[rule.endpoint])(**view_args)  # type: ignore[no-any-return]
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\Users\40418843\Desktop\vivo_hub\auth.py", line 25, in wrapped
-    return redirect(url_for("login"))
-                    ^^^^^^^^^^^^^^^^
-  File "C:\Users\40418843\AppData\Roaming\Python\Python312\site-packages\flask\helpers.py", line 232, in url_for
-    return current_app.url_for(
-           ^^^^^^^^^^^^^^^^^^^^
-  File "C:\Users\40418843\AppData\Roaming\Python\Python312\site-packages\flask\app.py", line 1121, in url_for
-    return self.handle_url_build_error(error, endpoint, values)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\Users\40418843\AppData\Roaming\Python\Python312\site-packages\flask\app.py", line 1110, in url_for
-    rv = url_adapter.build(  # type: ignore[union-attr]
-         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\Users\40418843\AppData\Roaming\Python\Python312\site-packages\werkzeug\routing\map.py", line 924, in build
-    raise BuildError(endpoint, values, method, self)
-werkzeug.routing.exceptions.BuildError: Could not build url for endpoint 'login'. Did you mean 'auth.login' instead?
-2026-05-05 14:19:07 [INFO] werkzeug: 127.0.0.1 - - [05/May/2026 14:19:07] "GET / HTTP/1.1" 500 -
-2026-05-05 14:19:07 [ERROR] app: Exception on / [GET]
-Traceback (most recent call last):
-  File "C:\Users\40418843\AppData\Roaming\Python\Python312\site-packages\flask\app.py", line 1511, in wsgi_app
-    response = self.full_dispatch_request()
-               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\Users\40418843\AppData\Roaming\Python\Python312\site-packages\flask\app.py", line 919, in full_dispatch_request
-    rv = self.handle_user_exception(e)
-         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\Users\40418843\AppData\Roaming\Python\Python312\site-packages\flask\app.py", line 917, in full_dispatch_request
-    rv = self.dispatch_request()
-         ^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\Users\40418843\AppData\Roaming\Python\Python312\site-packages\flask\app.py", line 902, in dispatch_request
-    return self.ensure_sync(self.view_functions[rule.endpoint])(**view_args)  # type: ignore[no-any-return]
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\Users\40418843\Desktop\vivo_hub\auth.py", line 25, in wrapped
-    return redirect(url_for("login"))
-                    ^^^^^^^^^^^^^^^^
-  File "C:\Users\40418843\AppData\Roaming\Python\Python312\site-packages\flask\helpers.py", line 232, in url_for
-    return current_app.url_for(
-           ^^^^^^^^^^^^^^^^^^^^
-  File "C:\Users\40418843\AppData\Roaming\Python\Python312\site-packages\flask\app.py", line 1121, in url_for
-    return self.handle_url_build_error(error, endpoint, values)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\Users\40418843\AppData\Roaming\Python\Python312\site-packages\flask\app.py", line 1110, in url_for
-    rv = url_adapter.build(  # type: ignore[union-attr]
-         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\Users\40418843\AppData\Roaming\Python\Python312\site-packages\werkzeug\routing\map.py", line 924, in build
-    raise BuildError(endpoint, values, method, self)
-werkzeug.routing.exceptions.BuildError: Could not build url for endpoint 'login'. Did you mean 'auth.login' instead?
-2026-05-05 14:19:07 [INFO] werkzeug: 127.0.0.1 - - [05/May/2026 14:19:07] "GET / HTTP/1.1" 500 -
-2026-05-05 14:19:07 [INFO] werkzeug: 127.0.0.1 - - [05/May/2026 14:19:07] "GET /favicon.ico HTTP/1.1" 404 -
-2026-05-05 14:19:07 [INFO] werkzeug: 127.0.0.1 - - [05/May/2026 14:19:07] "GET /favicon.ico HTTP/1.1" 404 -
-2026-05-05 14:19:16 [INFO] werkzeug: 127.0.0.1 - - [05/May/2026 14:19:16] "GET /login HTTP/1.1" 200 -
-2026-05-05 14:19:16 [INFO] werkzeug: 127.0.0.1 - - [05/May/2026 14:19:16] "GET /static/favicon.ico HTTP/1.1" 404 -
-2026-05-05 14:19:27 [INFO] werkzeug: 127.0.0.1 - - [05/May/2026 14:19:27] "POST /login HTTP/1.1" 302 -
-2026-05-05 14:19:27 [INFO] werkzeug: 127.0.0.1 - - [05/May/2026 14:19:27] "GET /central_engenharia HTTP/1.1" 200 -
-2026-05-05 14:19:30 [INFO] werkzeug: 127.0.0.1 - - [05/May/2026 14:19:30] "GET /engenharia_formularios HTTP/1.1" 200 -
-2026-05-05 14:19:32 [INFO] werkzeug: 127.0.0.1 - - [05/May/2026 14:19:32] "GET /central_engenharia HTTP/1.1" 200 -
-2026-05-05 14:19:34 [INFO] werkzeug: 127.0.0.1 - - [05/May/2026 14:19:34] "GET /logout HTTP/1.1" 302 -
-2026-05-05 14:19:34 [INFO] werkzeug: 127.0.0.1 - - [05/May/2026 14:19:34] "GET /login HTTP/1.1" 200 -
-2026-05-05 14:20:11 [INFO] werkzeug: 127.0.0.1 - - [05/May/2026 14:20:11] "GET /login HTTP/1.1" 200 -
-2026-05-05 14:20:18 [INFO] werkzeug: 127.0.0.1 - - [05/May/2026 14:20:18] "POST /login HTTP/1.1" 302 -
-2026-05-05 14:20:18 [INFO] werkzeug: 127.0.0.1 - - [05/May/2026 14:20:18] "GET /central_atacado HTTP/1.1" 200 -
-2026-05-05 14:20:19 [INFO] werkzeug: 127.0.0.1 - - [05/May/2026 14:20:19] "GET /atacado_formularios/new HTTP/1.1" 200 -
-2026-05-05 14:20:31 [ERROR] app: Exception on /atacado_formularios/new [POST]
-Traceback (most recent call last):
-  File "C:\Users\40418843\AppData\Roaming\Python\Python312\site-packages\flask\app.py", line 1511, in wsgi_app
-    response = self.full_dispatch_request()
-               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\Users\40418843\AppData\Roaming\Python\Python312\site-packages\flask\app.py", line 919, in full_dispatch_request
-    rv = self.handle_user_exception(e)
-         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\Users\40418843\AppData\Roaming\Python\Python312\site-packages\flask\app.py", line 917, in full_dispatch_request
-    rv = self.dispatch_request()
-         ^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\Users\40418843\AppData\Roaming\Python\Python312\site-packages\flask\app.py", line 902, in dispatch_request
-    return self.ensure_sync(self.view_functions[rule.endpoint])(**view_args)  # type: ignore[no-any-return]
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\Users\40418843\Desktop\vivo_hub\auth.py", line 26, in wrapped
-    return view(*args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^
-  File "C:\Users\40418843\Desktop\vivo_hub\auth.py", line 39, in wrapped
-    return view(*args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^
-  File "C:\Users\40418843\Desktop\vivo_hub\routes\atacado.py", line 129, in form_create
-    db.execute(
-sqlite3.OperationalError: table atacado_forms has no column named version
-2026-05-05 14:20:31 [INFO] werkzeug: 127.0.0.1 - - [05/May/2026 14:20:31] "POST /atacado_formularios/new HTTP/1.1" 500 -
+"""db.py — Conexão, schema e seeds do banco SQLite."""
+import sqlite3
+import logging
+from flask import Flask, g
+
+from config import _CN_SEED_RAW, CN_METADATA
+
+logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# CONEXÃO
+# =============================================================================
+def get_db() -> sqlite3.Connection:
+    if "db" not in g:
+        from flask import current_app
+        g.db = sqlite3.connect(current_app.config["DATABASE"])
+        g.db.row_factory = sqlite3.Row
+        g.db.execute("PRAGMA foreign_keys = ON;")
+        g.db.execute("PRAGMA journal_mode = WAL;")
+        g.db.execute("PRAGMA synchronous = NORMAL;")
+        g.db.execute("PRAGMA cache_size = -64000;")
+    return g.db
+
+
+def _register_db_hooks(app: Flask) -> None:
+    @app.teardown_appcontext
+    def close_db(exception=None):
+        db = g.pop("db", None)
+        if db is not None:
+            db.close()
+
+    @app.before_request
+    def ensure_schema():
+        _init_db()
+
+
+# =============================================================================
+# SCHEMA E MIGRAÇÕES
+# =============================================================================
+def _init_db() -> None:
+    db = get_db()
+    db.executescript("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            role TEXT NOT NULL CHECK (role IN ('engenharia', 'atacado')),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS atacado_forms (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            owner_id INTEGER NOT NULL,
+            status TEXT DEFAULT 'rascunho',
+            nome_operadora TEXT, rn1 TEXT,
+            csp INTEGER DEFAULT 0, servicos_especiais INTEGER DEFAULT 0,
+            cng INTEGER DEFAULT 0, atendimento TEXT, redes TEXT,
+            qual TEXT, tmr TEXT,
+            responsavel_operadora TEXT, responsavel_vivo TEXT,
+            sbc_ativo INTEGER DEFAULT 0, ip_reservado INTEGER DEFAULT 0,
+            vivo_reserva INTEGER DEFAULT 0, asn TEXT,
+            escopo_text TEXT, escopo_flags_json TEXT, dados_vivo_json TEXT,
+            dados_operadora_json TEXT,
+            operadora_ciente INTEGER DEFAULT 0, responsavel_infra TEXT,
+            lcr_nacional INTEGER DEFAULT 0, white_list INTEGER DEFAULT 0,
+            prefixos_liberados_abr INTEGER DEFAULT 0,
+            premissas_ok INTEGER DEFAULT 0, aprovado_por TEXT,
+            engenharia_params_json TEXT,
+            responsavel_atacado TEXT, responsavel_engenharia TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(owner_id) REFERENCES users(id)
+        );
+        CREATE TABLE IF NOT EXISTS exports (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            form_id INTEGER NOT NULL,
+            filename TEXT NOT NULL, filepath TEXT NOT NULL,
+            size_bytes INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(form_id) REFERENCES atacado_forms(id)
+        );
+    """)
+    for table, col, coldef in [
+        ("atacado_forms", "owner_id",               "INTEGER NOT NULL DEFAULT 0"),
+        ("atacado_forms", "engenharia_params_json",  "TEXT"),
+        ("atacado_forms", "dados_vivo_json",         "TEXT"),
+        ("atacado_forms", "dados_operadora_json",    "TEXT"),
+        ("atacado_forms", "escopo_text",             "TEXT"),
+        ("atacado_forms", "escopo_flags_json",       "TEXT"),
+        ("atacado_forms", "responsavel_atacado",     "TEXT"),
+        ("atacado_forms", "responsavel_engenharia",  "TEXT"),
+        ("atacado_forms", "version",                 "INTEGER NOT NULL DEFAULT 1"),
+        ("atacado_forms", "parent_id",               "INTEGER DEFAULT NULL"),
+        ("atacado_forms", "scm",                     "INTEGER DEFAULT 0"),
+        ("atacado_forms", "av",                      "INTEGER DEFAULT 0"),
+        ("atacado_forms", "updated_at",              "TEXT"),
+    ]:
+        _ensure_column(db, table, col, coldef)
+    db.commit()
+    _seed_cns(db)
+    _apply_cn_metadata(db)
+    from siprouter_sp import init_siprouter_sp
+    init_siprouter_sp(db)
+
+
+def _ensure_column(
+    db: sqlite3.Connection, table: str, column: str, coldef: str
+) -> None:
+    existing = {
+        r["name"]
+        for r in db.execute(f"PRAGMA table_info({table});").fetchall()
+    }
+    if column not in existing:
+        db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {coldef};")
+
+
+# =============================================================================
+# SEEDS
+# =============================================================================
+def _parse_cn_seed(raw: str) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for tok in raw.split():
+        code = tok.strip().zfill(2)
+        if code.isdigit() and code not in seen:
+            seen.add(code)
+            result.append(code)
+    return result
+
+
+def _seed_cns(db: sqlite3.Connection) -> None:
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS cns (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            codigo TEXT UNIQUE NOT NULL, nome TEXT, uf TEXT,
+            ativo INTEGER NOT NULL DEFAULT 1
+        )
+    """)
+    if db.execute("SELECT COUNT(*) AS c FROM cns").fetchone()["c"] == 0:
+        codes = _parse_cn_seed(_CN_SEED_RAW)
+        db.executemany(
+            "INSERT OR IGNORE INTO cns (codigo, ativo) VALUES (?, 1)",
+            [(c,) for c in codes],
+        )
+        db.commit()
+
+
+def _apply_cn_metadata(db: sqlite3.Connection) -> None:
+    for code, (nome, uf) in CN_METADATA.items():
+        db.execute(
+            """
+            INSERT INTO cns (codigo, nome, uf, ativo) VALUES (?, ?, ?, 1)
+            ON CONFLICT(codigo) DO UPDATE
+                SET nome=excluded.nome, uf=excluded.uf, ativo=1
+            """,
+            (code, nome, uf),
+        )
+    db.commit()
