@@ -1,195 +1,210 @@
-{% extends "base.html" %}
-{% block title %}Formulários — PTI AUTOMATIZADO{% endblock %}
-{% block extra_head %}
-<style>
-  .op-cell { max-width:300px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .id-btn  { background:none; border:none; cursor:pointer; color:var(--sub); padding:0 .2rem; font-size:.8rem; }
-  .id-btn:hover { color:var(--p); }
-  .op-group { margin-bottom:1.5rem; }
-  .op-group-header {
-    display:flex; align-items:center; justify-content:space-between;
-    padding:.6rem 1rem; background:var(--p-lt); border:1px solid var(--bdr);
-    border-radius:var(--r) var(--r) 0 0; cursor:pointer;
-  }
-  .op-group-header h3 { font-size:.88rem; font-weight:700; color:var(--p); margin:0; }
-  .op-group-body { border:1px solid var(--bdr); border-top:none;
-    border-radius:0 0 var(--r) var(--r); overflow:hidden; }
-  .v-badge {
-    font-size:.68rem; font-weight:700; padding:.15rem .4rem;
-    border-radius:5px; background:var(--p); color:#fff; white-space:nowrap;
-  }
-</style>
-{% endblock %}
-{% block content %}
-<div class="page">
+"""
+config.py — Todas as constantes e configurações da aplicação VIVOHUB.
+Nenhuma importação de Flask aqui; este módulo é importado por todos os outros.
+"""
+import os
+from typing import Final
 
-  <!-- Header -->
-  <div style="margin-bottom:1.5rem">
-    <h1 class="v-title">Formulários</h1>
-    <p class="v-sub">PTIs agrupados por operadora · todas as versões</p>
-  </div>
+# =============================================================================
+# APLICAÇÃO
+# =============================================================================
+MAX_TABLE_ROWS: Final[int] = 10
+DEFAULT_ADMIN_CODE: Final[str] = "v28B112004"
+import os as _os
 
-  <!-- Banner IPAM + Download -->
-  {% if download_url %}
-  <div class="card" style="padding:.85rem 1rem;margin-bottom:1rem;display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap">
-    <div>
-      {% if ipam_ok == true %}
-      <p style="margin:0;font-size:.85rem;font-weight:600;color:#065f46">
-        <i class="bi bi-check-circle-fill"></i> Rede reservada no IPAM com sucesso.
-      </p>
-      {% elif ipam_ok == false %}
-      <p style="margin:0 0 .25rem;font-size:.85rem;font-weight:600;color:#991b1b">
-        <i class="bi bi-exclamation-triangle-fill"></i> Reserva IPAM não concluída
-      </p>
-      <p style="margin:0;font-size:.78rem;color:#7f1d1d">
-        {{ ipam_msg }} — Acesse o phpIPAM e verifique o pool do CN.
-        Caso o problema persista, realize a reserva manualmente.
-        Nossa equipe de desenvolvimento já está ciente.
-      </p>
-      {% else %}
-      <p style="margin:0;font-size:.85rem;color:var(--sub)">
-        <i class="bi bi-info-circle"></i> Reserva IPAM não realizada — preencha Mask e CN em Dados Operadora.
-      </p>
-      {% endif %}
-    </div>
-    <a href="{{ download_url }}" class="btn-o" style="white-space:nowrap">
-      <i class="bi bi-file-earmark-arrow-down"></i> Baixar Excel
-    </a>
-  </div>
-  {% endif %}
-  {% set q      = q or '' %}
-  {% set status = status or '' %}
-  <div class="card" style="padding:.75rem;margin-bottom:1rem">
-    <div style="display:flex;gap:.5rem;flex-wrap:wrap">
-      <form method="get" style="display:contents">
-        <input type="hidden" name="q" value="{{ q }}">
-        <select class="v-input v-input-sm" name="status" style="width:auto;min-width:140px">
-          <option value=""           {{ 'selected' if not status }}>Todos</option>
-          <option value="enviado"    {{ 'selected' if status=='enviado' }}>Enviado</option>
-          <option value="em revisão" {{ 'selected' if status=='em revisão' }}>Em revisão</option>
-          <option value="aprovado"   {{ 'selected' if status=='aprovado' }}>Aprovado</option>
-          <option value="rascunho"   {{ 'selected' if status=='rascunho' }}>Rascunho</option>
-          <option value="reprovado"  {{ 'selected' if status=='reprovado' }}>Reprovado</option>
-        </select>
-        <button type="submit" class="btn-g btn-sm"><i class="bi bi-funnel"></i></button>
-      </form>
-      <form method="get" style="display:flex;gap:.4rem;margin-left:auto">
-        <input type="hidden" name="status" value="{{ status }}">
-        <input class="v-input v-input-sm" type="text" name="q" value="{{ q }}"
-               placeholder="Buscar operadora..." style="width:200px">
-        <button type="submit" class="btn-g btn-sm"><i class="bi bi-search"></i></button>
-        {% if q or status %}<a href="{{ url_for('engenharia.form_list') }}" class="btn-g btn-sm">Limpar</a>{% endif %}
-      </form>
-    </div>
-  </div>
+def _resolve_diagram_image() -> str:
+    """Resolve o caminho da imagem do diagrama em localizações conhecidas."""
+    # 1. Variável de ambiente (Docker / produção)
+    env = _os.environ.get("DIAGRAM_IMAGE_PATH", "")
+    if env and _os.path.exists(env):
+        return env
 
-  <!-- Grupos por operadora -->
-  {% if grupos %}
-    {% for nome_op, versoes in grupos.items() %}
-    <div class="op-group">
-      <div class="op-group-header" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'':'none'">
-        <h3><i class="bi bi-building" style="margin-right:.4rem"></i>{{ nome_op }}</h3>
-        <span style="font-size:.75rem;color:var(--sub)">{{ versoes|length }} versão{{ 'ões' if versoes|length > 1 else '' }}</span>
-      </div>
-      <div class="op-group-body">
-        <table class="v-table">
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>Versão</th>
-              <th>Status</th>
-              <th>RN1</th>
-              <th>Atualizado</th>
-              <th style="text-align:right">Ações</th>
-            </tr>
-          </thead>
-          <tbody id="resultsBody">
-            {% for f in versoes %}
-              {% set st = (f.status or 'rascunho')|lower %}
-              <tr>
-                <td style="font-weight:600;color:var(--sub);font-size:.8rem">
-                  #{{ f.id }}
-                  <button class="id-btn" data-id="{{ f.id }}" title="Copiar ID"><i class="bi bi-clipboard"></i></button>
-                </td>
-                <td><span class="v-badge">v{{ f.version or 1 }}</span></td>
-                <td>
-                  <span class="badge-s {% if st=='aprovado' %}done{% elif st=='reprovado' %}fail{% elif st=='em revisão' %}review{% elif st=='enviado' %}sent{% else %}draft{% endif %}">
-                    {{ st|capitalize }}
-                  </span>
-                </td>
-                <td style="font-size:.8rem;color:var(--sub)">{{ f.rn1 or '—' }}</td>
-                <td style="color:var(--sub);font-size:.8rem">{{ (f.updated_at or f.created_at or '')|date_br }}</td>
-                <td style="text-align:right">
-                  <div style="display:flex;gap:.35rem;justify-content:flex-end">
-                    <a href="{{ url_for('engenharia.form_view', form_id=f.id) }}" class="btn-g btn-sm">
-                      <i class="bi bi-eye"></i> Abrir
-                    </a>
-                    {% if st == 'aprovado' %}
-                    <span class="badge-s done" style="padding:.3rem .6rem;font-size:.72rem">
-                      <i class="bi bi-check-circle-fill"></i> Aprovado
-                    </span>
-                    {% elif st == 'reprovado' %}
-                    <span class="badge-s fail" style="padding:.3rem .6rem;font-size:.72rem">
-                      <i class="bi bi-x-circle-fill"></i> Reprovado
-                    </span>
-                    {% else %}
-                    <form method="post" action="{{ url_for('engenharia.validar', form_id=f.id) }}"
-                          onsubmit="return confirm('Aprovar PTI #{{ f.id }} v{{ f.version or 1 }}?')">
-                      <button type="submit" class="btn-sm" style="background:#16a34a;color:#fff;border:1px solid #15803d;border-radius:7px;cursor:pointer;font-size:.75rem;font-weight:600;padding:.3rem .6rem;display:inline-flex;align-items:center;gap:.3rem">
-                        <i class="bi bi-check-circle"></i> Aprovar
-                      </button>
-                    </form>
-                    <form method="post" action="{{ url_for('engenharia.reprovar', form_id=f.id) }}"
-                          onsubmit="return confirm('Reprovar PTI #{{ f.id }} v{{ f.version or 1 }}?')">
-                      <button type="submit" class="btn-danger btn-sm"
-                              style="border:1px solid #fecaca;background:#fef2f2;color:#991b1b;border-radius:7px;cursor:pointer;font-size:.75rem;font-weight:600;padding:.3rem .6rem">
-                        <i class="bi bi-x-circle"></i> Reprovar
-                      </button>
-                    </form>
-                    {% endif %}
-                    <a href="{{ url_for('engenharia.exportar_excel', form_id=f.id) }}" class="btn-o btn-sm">
-                      <i class="bi bi-file-earmark-spreadsheet"></i> Excel v{{ f.version or 1 }}
-                    </a>
-                  </div>
-                </td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    </div>
-    {% endfor %}
-  {% else %}
-  <div class="card empty">
-    <i class="bi bi-inbox"></i>
-    {% if q %}
-      <p>Sem resultados para <strong>{{ q }}</strong></p>
-    {% else %}
-      <p>Nenhum formulário disponível.</p>
-    {% endif %}
-  </div>
-  {% endif %}
+    base   = _os.path.dirname(_os.path.abspath(__file__))
+    parent = _os.path.dirname(base)
+    names  = [
+        "Mídia (3).jpg",
+        "Midia (3).jpg",
+        "20251007_140942_0000.png",
+        "diagram.png",
+        "diagram.jpg",
+    ]
 
-</div>
-{% endblock %}
-{% block extra_scripts %}
-<script>
-document.querySelectorAll('.id-btn').forEach(btn=>{
-  btn.addEventListener('click',async()=>{
-    try{
-      await navigator.clipboard.writeText(btn.dataset.id);
-      btn.innerHTML='<i class="bi bi-clipboard-check"></i>';
-      setTimeout(()=>{ btn.innerHTML='<i class="bi bi-clipboard"></i>'; },1200);
-    }catch(_){}
-  });
-});
-(function(){
-  const q = new URLSearchParams(location.search).get('q');
-  if(!q) return;
-  const re = new RegExp('('+q.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+')','gi');
-  document.querySelectorAll('#resultsBody .op-cell').forEach(td=>{
-    td.innerHTML = td.textContent.replace(re,'<mark>$1</mark>');
-  });
-})();
-</script>
-{% endblock %}
+    # 2. Dentro do projeto (static/, templates/)
+    for name in names:
+        for folder in ["static", "templates"]:
+            p = _os.path.join(base, folder, name)
+            if _os.path.exists(p):
+                return p
+
+    # 3. Pasta irmã VIVOHUB (estrutura do usuário: Desktop/vivo_hub + Desktop/VIVOHUB)
+    for sibling in ["VIVOHUB", "vivohub", "VIVOHub", "VIVO_HUB"]:
+        for name in names:
+            for folder in ["templates", "static"]:
+                p = _os.path.join(parent, sibling, folder, name)
+                if _os.path.exists(p):
+                    return p
+
+    # 4. Fallback — builder vai logar erro
+    return _os.path.join(base, "static", "diagram.png")
+
+DEFAULT_DIAGRAM_IMAGE: Final[str] = _resolve_diagram_image()
+DEFAULT_SBC_DATA_DIR: Final[str] = _os.environ.get(
+    "SBC_DIR",
+    _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "dados-sbcs")
+)
+
+# =============================================================================
+# CAMPOS DO FORMULÁRIO
+# =============================================================================
+BOOLEAN_FIELDS: Final[tuple] = (
+    "csp", "servicos_especiais", "cng",
+    "sbc_ativo", "ip_reservado", "vivo_reserva",
+    "operadora_ciente", "lcr_nacional", "white_list",
+    "prefixos_liberados_abr", "premissas_ok",
+)
+
+TEXT_FIELDS: Final[tuple] = (
+    "nome_operadora", "rn1", "atendimento", "redes", "qual", "tmr",
+    "responsavel_operadora", "responsavel_vivo", "asn",
+    "responsavel_infra", "aprovado_por",
+    "status", "escopo_text",
+    "responsavel_atacado", "responsavel_engenharia",
+)
+
+JSON_FIELDS: Final[tuple] = (
+    "escopo_flags_json", "dados_vivo_json",
+    "dados_operadora_json", "engenharia_params_json",
+)
+
+ALLOWED_SCOPE_FLAGS: Final[frozenset] = frozenset({
+    "LC", "LD15 + CNG", "LDS/CSP + CNG", "Transporte", "VC1", "Concentração"
+})
+
+# =============================================================================
+# SBC
+# =============================================================================
+SBC_CACHE_TTL_SECONDS: Final[int] = 300
+
+SBC_STATUS_TO_HEALTH: Final[dict[str, str]] = {
+    "normal":   "disponivel",
+    "atenção":  "moderado",
+    "atencao":  "moderado",
+    "crítico":  "critico",
+    "critico":  "critico",
+}
+
+SBC_STATUS_BASE_SCORE: Final[dict[str, int]] = {
+    "disponivel": 70,
+    "moderado":   45,
+    "critico":    15,
+}
+
+# =============================================================================
+# IPAM
+# =============================================================================
+IPAM_BASE_URL: str = os.getenv("IPAM_BASE_URL", "http://10.113.144.242")
+IPAM_USER:     str = os.getenv("IPAM_USER", "40418843")
+IPAM_PASS:     str = os.getenv("IPAM_PASS", "230581Bs.@@")   # produção: só env var
+IPAM_SECTION_ID: Final[int] = 186
+
+IPAM_MASK_POOL_MAP: Final[dict[str, str]] = {
+    "24": "POOL 1",
+    "28": "POOL 3",
+    "29": "POOL 4",
+}
+IPAM_DEFAULT_POOL: Final[str] = "POOL 5"
+
+# =============================================================================
+# CNs — SEED E METADATA
+# =============================================================================
+_CN_SEED_RAW: Final[str] = """
+68 82 97 92 96 77 75 74 73 71 88 85 61 27 28 64 62 61 98 99
+34 37 31 35 32 38 33 67 66 65 91 94 93 83 81 87 86 89
+43 44 45 46 41 24 22 21 84 69 95 51 53 54 55 47 48 49 79
+18 14 15 16 13 19 17 11 12 63
+"""
+
+CN_METADATA: Final[dict[str, tuple[str, str]]] = {
+    "11": ("São Paulo", "SP"),          "12": ("São José dos Campos", "SP"),
+    "13": ("Santos", "SP"),             "14": ("Bauru", "SP"),
+    "15": ("Sorocaba", "SP"),           "16": ("Ribeirão Preto", "SP"),
+    "17": ("São José do Rio Preto", "SP"), "18": ("Presidente Prudente", "SP"),
+    "19": ("Campinas", "SP"),
+    "21": ("Rio de Janeiro", "RJ"),     "22": ("Campos dos Goytacazes", "RJ"),
+    "24": ("Volta Redonda", "RJ"),      "27": ("Vitória", "ES"),
+    "28": ("Cachoeiro de Itapemirim", "ES"),
+    "31": ("Belo Horizonte", "MG"),     "32": ("Juiz de Fora", "MG"),
+    "33": ("Governador Valadares", "MG"), "34": ("Uberlândia", "MG"),
+    "35": ("Poços de Caldas", "MG"),    "37": ("Divinópolis", "MG"),
+    "38": ("Montes Claros", "MG"),
+    "41": ("Curitiba", "PR"),           "42": ("Ponta Grossa", "PR"),
+    "43": ("Londrina", "PR"),           "44": ("Maringá", "PR"),
+    "45": ("Foz do Iguaçu", "PR"),      "46": ("Francisco Beltrão", "PR"),
+    "47": ("Joinville", "SC"),          "48": ("Florianópolis", "SC"),
+    "49": ("Chapecó", "SC"),
+    "51": ("Porto Alegre", "RS"),       "53": ("Pelotas", "RS"),
+    "54": ("Caxias do Sul", "RS"),      "55": ("Santa Maria", "RS"),
+    "61": ("Brasília", "DF"),           "62": ("Goiânia", "GO"),
+    "63": ("Palmas", "TO"),             "64": ("Rio Verde", "GO"),
+    "65": ("Cuiabá", "MT"),             "66": ("Rondonópolis", "MT"),
+    "67": ("Campo Grande", "MS"),
+    "71": ("Salvador", "BA"),           "73": ("Ilhéus", "BA"),
+    "74": ("Juazeiro", "BA"),           "75": ("Feira de Santana", "BA"),
+    "77": ("Vitória da Conquista", "BA"),
+    "79": ("Aracaju", "SE"),            "81": ("Recife", "PE"),
+    "82": ("Maceió", "AL"),             "83": ("João Pessoa", "PB"),
+    "84": ("Natal", "RN"),              "85": ("Fortaleza", "CE"),
+    "86": ("Teresina", "PI"),           "87": ("Petrolina", "PE"),
+    "88": ("Juazeiro do Norte", "CE"),  "89": ("Picos", "PI"),
+    "91": ("Belém", "PA"),              "92": ("Manaus", "AM"),
+    "93": ("Santarém", "PA"),           "94": ("Marabá", "PA"),
+    "95": ("Boa Vista", "RR"),          "96": ("Macapá", "AP"),
+    "97": ("Coari", "AM"),
+    "98": ("São Luís", "MA"),           "99": ("Imperatriz", "MA"),
+    "68": ("Rio Branco", "AC"),         "69": ("Porto Velho", "RO"),
+}
+
+# =============================================================================
+# UF → REGIONAL E VIZINHOS
+# =============================================================================
+UF_TO_REGIONAL: Final[dict[str, str]] = {
+    "AC": "NORTE",  "AM": "NORTE",  "AP": "NORTE",  "PA": "NORTE",
+    "RO": "NORTE",  "RR": "NORTE",  "TO": "NORTE",
+    "AL": "NORDESTE", "BA": "NORDESTE", "CE": "NORDESTE",
+    "MA": "NORDESTE", "PB": "NORDESTE", "PE": "NORDESTE",
+    "PI": "NORDESTE", "RN": "NORDESTE", "SE": "NORDESTE",
+    "DF": "CENTRO-OESTE", "GO": "CENTRO-OESTE",
+    "MS": "CENTRO-OESTE", "MT": "CENTRO-OESTE",
+    "ES": "SUDESTE", "MG": "SUDESTE", "RJ": "SUDESTE", "SP": "SUDESTE",
+    "PR": "SUL",    "RS": "SUL",    "SC": "SUL",
+}
+
+UF_NEIGHBORS: Final[dict[str, list[str]]] = {
+    "AC": ["RO", "AM"],
+    "AL": ["PE", "SE", "BA"],
+    "AM": ["PA", "RR", "AC", "RO", "MT"],
+    "AP": ["PA"],
+    "BA": ["SE", "AL", "PE", "PI", "MG", "GO", "TO", "MA"],
+    "CE": ["RN", "PB", "PE", "PI"],
+    "DF": ["GO", "MG"],
+    "ES": ["MG", "RJ", "BA"],
+    "GO": ["DF", "MG", "MS", "MT", "TO", "BA"],
+    "MA": ["PI", "TO", "PA"],
+    "MG": ["SP", "RJ", "ES", "BA", "GO", "DF", "MS"],
+    "MS": ["PR", "SP", "MG", "GO", "MT"],
+    "MT": ["MS", "GO", "TO", "PA", "AM", "RO"],
+    "PA": ["MA", "TO", "MT", "AM", "AP", "RR"],
+    "PB": ["PE", "RN", "CE"],
+    "PE": ["PB", "AL", "BA", "CE", "PI"],
+    "PI": ["MA", "CE", "PE", "BA", "TO"],
+    "PR": ["SP", "SC", "MS"],
+    "RJ": ["SP", "MG", "ES"],
+    "RN": ["PB", "CE"],
+    "RO": ["MT", "AM", "AC"],
+    "RR": ["AM", "PA"],
+    "RS": ["SC"],
+    "SC": ["PR", "RS"],
+    "SE": ["AL", "BA"],
+    "SP": ["RJ", "MG", "PR", "MS"],
+    "TO": ["MA", "PI", "BA", "GO", "MT", "PA"],
+}
