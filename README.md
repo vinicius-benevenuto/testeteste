@@ -1,61 +1,53 @@
-
-vini_benevenuto@app-vini:~$ docker ps -a
-
-CONTAINER ID   IMAGE                                    COMMAND                  CREATED         STATUS                      PORTS                                                 NAMES
-
-7219c27863b2   agent_studio_frontend:beta1.0            "sh -c 'cd app/ && n…"   4 months ago    Up 4 months                 0.0.0.0:9999->5173/tcp, :::9999->5173/tcp             agent-studio-frontend-test
-
-3973e8e45598   agent_studio:beta1.0                     "sh -c 'cd /app && p…"   4 months ago    Up 4 months                 0.0.0.0:1010->5000/tcp, :::1010->5000/tcp             agent-studio-test
-
-e6c52eff3eb7   9ae202b62138                             "cd /app"                5 months ago    Created                                                                           temp_container
-
-24a4508d0f9e   vivo-crc:1.0                             "python -m flask --a…"   6 months ago    Up 6 months                 8080/tcp, 0.0.0.0:8080->5000/tcp, :::8080->5000/tcp   vivo-crc
-
-71671168c1e3   3a59610af07a                             "docker-entrypoint.s…"   7 months ago    Exited (143) 6 months ago                                                         agent-studio-frontend
-
-38485a26caab   14dd0674f8aa                             "python3 -m flask --…"   7 months ago    Exited (137) 6 months ago                                                         agent-studio
-
-d02cba73a0c2   ia_av:stable_2                           "python -m flask --a…"   8 months ago    Up 6 months                 5500/tcp, 0.0.0.0:5555->5000/tcp, :::5555->5000/tcp   ia_av
-
-5341e9f84d98   bf2c10c6fd6b                             "python3 -m gunicorn…"   12 months ago   Up 2 months                 0.0.0.0:443->5000/tcp, :::443->5000/tcp               portal-itx-v4.6
-
-0676acbf249d   portal-itx-redirect-to-main-portal:1.0   "python -m flask --a…"   22 months ago   Up 6 months                 0.0.0.0:5500->5000/tcp, :::5500->5000/tcp             portal-itx-redirection
-
-vini_benevenuto@app-vini:~$ docker run pti-automatizado:latest
-
-2026-05-06 13:21:31 [INFO] vivohub: VIVOHUB iniciado. Diretório SBC: /app/dados-sbcs
-
-[2026-05-06 13:21:31 +0000] [1] [INFO] Starting gunicorn 25.3.0
-
-[2026-05-06 13:21:31 +0000] [1] [INFO] Listening at: http://0.0.0.0:5000 (1)
-
-[2026-05-06 13:21:31 +0000] [1] [INFO] Using worker: sync
-
-[2026-05-06 13:21:31 +0000] [13] [INFO] Booting worker with pid: 13
-
-[2026-05-06 13:21:31 +0000] [14] [INFO] Booting worker with pid: 14
-
-[2026-05-06 13:21:31 +0000] [1] [ERROR] Control server error: [Errno 13] Permission denied: '/home/pti'
-
-2026-05-06 13:22:01 [INFO] siprouter_sp: siprouter_sp: 180 registros inseridos.
-
-127.0.0.1 - - [06/May/2026:13:22:01 +0000] "GET /login HTTP/1.1" 200 11924 "-" "curl/8.14.1"
-
-127.0.0.1 - - [06/May/2026:13:22:31 +0000] "GET /login HTTP/1.1" 200 11924 "-" "curl/8.14.1"
-
-127.0.0.1 - - [06/May/2026:13:23:01 +0000] "GET /login HTTP/1.1" 200 11924 "-" "curl/8.14.1"
-
-127.0.0.1 - - [06/May/2026:13:23:31 +0000] "GET /login HTTP/1.1" 200 11924 "-" "curl/8.14.1"
-
-127.0.0.1 - - [06/May/2026:13:24:01 +0000] "GET /login HTTP/1.1" 200 11924 "-" "curl/8.14.1"
-
-127.0.0.1 - - [06/May/2026:13:24:31 +0000] "GET /login HTTP/1.1" 200 11924 "-" "curl/8.14.1"
-
-127.0.0.1 - - [06/May/2026:13:25:02 +0000] "GET /login HTTP/1.1" 200 11924 "-" "curl/8.14.1"
-
-127.0.0.1 - - [06/May/2026:13:25:32 +0000] "GET /login HTTP/1.1" 200 11924 "-" "curl/8.14.1"
-
-127.0.0.1 - - [06/May/2026:13:26:02 +0000] "GET /login HTTP/1.1" 200 11924 "-" "curl/8.14.1"
-
-127.0.0.1 - - [06/May/2026:13:26:32 +0000] "GET /login HTTP/1.1" 200 11924 "-" "curl/8.14.1"
+Quando digito "docker compose up na minha maquina, antes de enviar uma imagem pro servidor, ela está assim:
+❯ docker compose up
+WARN[0000] /home/gustavo/vivo_hub/docker-compose.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion
+[+] up 0/1
+⠧ Image pti-automatizado:latest Pulling                                                                                                                                                                     0.8s
+[+] Building 38.8s (15/15) FINISHED
+=> [internal] load local bake definitions                                                                                                                                                                  0.0s
+=> => reading from stdin 497B                                                                                                                                                                              0.0s
+=> [internal] load build definition from Dockerfile                                                                                                                                                        0.0s
+=> => transferring dockerfile: 1.25kB                                                                                                                                                                      0.0s
+=> [internal] load metadata for docker.io/library/python:3.12-slim                                                                                                                                         1.0s
+=> [internal] load .dockerignore                                                                                                                                                                           0.0s
+=> => transferring context: 2B                                                                                                                                                                             0.0s
+=> [internal] load build context                                                                                                                                                                           2.4s
+=> => transferring context: 380.36MB                                                                                                                                                                       2.4s
+=> [1/8] FROM docker.io/library/python:3.12-slim@sha256:46cb7cc2877e60fbd5e21a9ae6115c30ace7a077b9f8772da879e4590c18c2e3                                                                                   0.0s
+=> => resolve docker.io/library/python:3.12-slim@sha256:46cb7cc2877e60fbd5e21a9ae6115c30ace7a077b9f8772da879e4590c18c2e3                                                                                   0.0s
+=> CACHED [2/8] RUN apt-get update && apt-get install -y --no-install-recommends         libfreetype6         libjpeg62-turbo         zlib1g         curl         fonts-dejavu-core     && rm -rf /var/li  0.0s
+=> CACHED [3/8] WORKDIR /app                                                                                                                                                                               0.0s
+=> CACHED [4/8] COPY requirements.txt .                                                                                                                                                                    0.0s
+=> CACHED [5/8] RUN pip install --no-cache-dir --upgrade pip  && pip install --no-cache-dir -r requirements.txt                                                                                            0.0s
+=> [6/8] COPY . .                                                                                                                                                                                          4.2s
+=> [7/8] RUN mkdir -p /app/data /app/dados-sbcs /app/static                                                                                                                                                0.3s
+=> [8/8] RUN useradd -r -m -s /bin/false -u 1001 pti  && chown -R pti:pti /app                                                                                                                             1.1s
+=> exporting to image                                                                                                                                                                                     28.5s
+=> => exporting layers                                                                                                                                                                                    14.9s
+=> => exporting manifest sha256:c753a01045e307a990f0190ead9db33aefc1ffa2fb60bc732eaef2271420c034                                                                                                           0.0s
+=> => exporting config sha256:3bb6ffaa88d207c006c43f9c249ce2b379c251a92ad63addfe5b77e0c3ba9fff                                                                                                             0.0s
+=> => exporting attestation manifest sha256:7ac956f0401fb28c2a7df2ec634b33a1a7080dc0375d4c90414235d9f65602d0                                                                                               0.0s
+=> => exporting manifest list sha256:7a01e0a8ad1f828b29f65591946820dcf5d277776a7b766fcb33be9eb648d4b1                                                                                                      0.0s
+=> => naming to docker.io/library/pti-automatizado:latest                                                                                                                                                  0.0s
+[+] up 2/2acking to docker.io/library/pti-automatizado:latest                                                                                                                                              13.2s
+✔ Image pti-automatizado:latest Built                                                                                                                                                                      39.8s
+✔ Container pti-automatizado    Created                                                                                                                                                                     0.4s
+Attaching to pti-automatizado
+pti-automatizado  | 2026-05-06 13:38:39 [INFO] vivohub: VIVOHUB iniciado. Diretório SBC: /app/dados-sbcs
+pti-automatizado  | [2026-05-06 13:38:39 +0000] [1] [INFO] Starting gunicorn 21.2.0
+pti-automatizado  | [2026-05-06 13:38:39 +0000] [1] [INFO] Listening at: http://0.0.0.0:5000 (1)
+pti-automatizado  | [2026-05-06 13:38:39 +0000] [1] [INFO] Using worker: sync
+pti-automatizado  | [2026-05-06 13:38:39 +0000] [20] [INFO] Booting worker with pid: 20
+pti-automatizado  | [2026-05-06 13:38:39 +0000] [21] [INFO] Booting worker with pid: 21
+pti-automatizado  | 2026-05-06 13:38:44 [INFO] siprouter_sp: siprouter_sp: 180 registros inseridos.
+pti-automatizado  | 127.0.0.1 - - [06/May/2026:13:38:44 +0000] "GET /login HTTP/1.1" 200 11924 "-" "curl/8.14.1"
+pti-automatizado  | 172.18.0.1 - - [06/May/2026:13:39:00 +0000] "GET /login HTTP/1.1" 200 11924 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 Edg/147.0.0.0"
+pti-automatizado  | 172.18.0.1 - - [06/May/2026:13:39:00 +0000] "GET /static/favicon.ico HTTP/1.1" 404 207 "http://127.0.0.1:5000/login" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 Edg/147.0.0.0"
+pti-automatizado  | 127.0.0.1 - - [06/May/2026:13:39:14 +0000] "GET /login HTTP/1.1" 200 11924 "-" "curl/8.14.1"
  
+ 
+depois disso eu simplesmente digito:
+ 
+docker save -o vivo-hub.tar pti-automatizado:latest
+ 
+e envio por sftp para o servidor, está faltando algo no processo ou dessa vez eu posso enviar sem medo que ele vai fazer o bind de ip no servidor corretamente com o novo dockerfile 4?
