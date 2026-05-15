@@ -1,17 +1,13 @@
-Com base na imagem enviada, elaborei uma resposta estruturada para te ajudar com as duas atividades propostas na plataforma.
-Aqui está uma sugestão de como você pode preencher os campos:
-## Atividade 1: Planejamento Estratégico vs. Administração Estratégica
-A diferença fundamental entre as duas concepções reside na **amplitude** e na **continuidade** do processo.
- * **Planejamento Estratégico:** É focado no "fazer o plano". Ele lida com o ambiente de forma analítica, tentando prever cenários para definir metas e objetivos. O resultado esperado é um **documento ou roteiro (o plano)** que servirá de guia para a organização em um determinado período.
- * **Administração Estratégica:** É um conceito mais amplo que engloba o planejamento, mas foca na **execução e adaptação contínua**. Ela lida com o ambiente de forma dinâmica, reagindo a mudanças em tempo real. O resultado esperado não é apenas um plano, mas a **sustentabilidade e a vantagem competitiva** da empresa a longo prazo, integrando cultura, pessoas e processos.
-## Atividade 2: Dicas do Sebrae-PR para Visão Estratégica
-Escolhi três das cinco dicas citadas. Abaixo, descrevo uma ação prática para cada uma, focada no dia a dia de um gestor de pequena empresa:
-### 1. Observação
- * **Ação Prática:** O gestor deve reservar 30 minutos por dia para observar o comportamento dos clientes na loja (ou no site) e analisar o feedback recebido.
- * **Objetivo:** Identificar padrões de consumo ou gargalos no atendimento que não aparecem em relatórios financeiros.
-### 2. Ângulos Diferentes de Visão
- * **Ação Prática:** Realizar uma reunião mensal de "brainstorming" com funcionários de diferentes setores (ex: vendas e estoque) para discutir um problema específico.
- * **Objetivo:** Obter perspectivas que o gestor, isolado em sua função, pode não enxergar, permitindo soluções mais criativas e integradas.
-### 3. Pessoas
- * **Ação Prática:** Estabelecer um plano de capacitação simples, onde cada colaborador dedica 1 hora por semana para aprender uma nova ferramenta ou técnica de vendas.
- * **Objetivo:** Garantir que a equipe esteja alinhada à estratégia da empresa, sentindo-se valorizada e preparada para entregar melhores resultados.
+Com base no texto e na pergunta da imagem, aqui está uma sugestão de resposta para a sua atividade sobre a transição do paradigma de responsabilidade empresarial:
+### A Mudança de Paradigma na Responsabilidade Empresarial
+A transição descrita representa a evolução de uma visão puramente econômica para uma abordagem de **sustentabilidade integrada**.
+**1. Visão Clássica (Paradigma Anterior):**
+O foco principal da empresa era a **maximização do lucro para os acionistas** (*shareholders*). Nessa visão, a responsabilidade social era vista como algo externo ou secundário à operação, e o sucesso era medido exclusivamente por indicadores financeiros e produtivos.
+**2. Novo Paradigma Ético:**
+Nesta nova visão, a empresa entende que faz parte de um ecossistema maior e que seu sucesso depende da saúde do ambiente e da sociedade ao seu redor. Ela passa a focar nos **Stakeholders** (partes interessadas, como funcionários, clientes e comunidade).
+**Os Três Pilares de Resultados (Tripé da Sustentabilidade):**
+Para buscar resultados nesse novo paradigma, a empresa deve equilibrar três dimensões fundamentais:
+ * **Econômico:** A empresa continua precisando ser lucrativa e viável financeiramente para sobreviver e crescer.
+ * **Social:** Refere-se ao tratamento justo dos colaboradores, promoção da diversidade, segurança no trabalho e o impacto positivo nas comunidades onde atua.
+ * **Ambiental:** Foca na minimização dos impactos negativos na natureza, uso consciente de recursos e práticas de ecoeficiência.
+**Dica para o preenchimento:** Como o campo de texto na imagem parece aceitar até 1500 caracteres, você pode usar os pontos acima para construir um texto fluido ou manter em tópicos, se a plataforma permitir, para facilitar a leitura do tutor.
