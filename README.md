@@ -1,16 +1,17 @@
-Com base na imagem enviada, aqui estão as respostas para as atividades solicitadas sobre Computação em Nuvem:
-### 1. As 6 Características Fundamentais da Computação em Nuvem
-De acordo com o modelo padrão (NIST), as características essenciais são:
- 1. **Autoatendimento sob demanda (On-demand self-service):** O usuário pode configurar recursos computacionais (como tempo de servidor ou armazenamento) automaticamente, sem intermédio humano do provedor.
- 2. **Acesso amplo à rede (Broad network access):** Os recursos estão disponíveis na rede e podem ser acessados por diversos dispositivos (celulares, tablets, laptops).
- 3. **Agrupamento de recursos (Resource pooling):** Os recursos do provedor são agrupados para atender a múltiplos consumidores usando um modelo multi-inquilino (*multi-tenant*), com recursos físicos e virtuais atribuídos dinamicamente.
- 4. **Elasticidade rápida (Rapid elasticity):** Os recursos podem ser provisionados ou liberados rapidamente, muitas vezes de forma automática, para escalar conforme a demanda.
- 5. **Serviço medido (Measured service):** O uso de recursos é monitorado, controlado e relatado, permitindo o modelo de pagamento pelo que foi usado (*pay-per-use*).
- 6. **Resiliência e Alta Disponibilidade:** A capacidade do sistema de continuar operando e se recuperar rapidamente de falhas, garantindo que o serviço esteja quase sempre acessível.
-### 2. Cenário de Elasticidade e Escalabilidade (Fora do Varejo)
-**Setor Sugerido:** Educação Online (Plataformas de Cursos Preparatórios ou Vestibulares).
- * **O Cenário:** Imagine uma plataforma de ensino à distância que possui um fluxo constante de alunos durante o ano. No entanto, no dia da divulgação do resultado de um grande exame nacional ou na semana que antecede o ENEM, o volume de acessos simultâneos aumenta em 100 ou 200 vezes.
- * **O Problema com Infraestrutura Tradicional:** Se a empresa tivesse servidores físicos próprios, ela teria que comprar hardware suficiente para aguentar o pico máximo de acessos do ano. Durante o restante dos meses, 90% desses servidores ficariam ligados e ociosos, gerando gastos enormes com energia, manutenção e espaço sem necessidade.
- * **Como a Elasticidade Resolve:** Com a computação em nuvem, a plataforma utiliza a **Elasticidade**. No momento em que o tráfego começa a subir repentinamente, a nuvem detecta o aumento e "estica" a infraestrutura, adicionando novos servidores virtuais automaticamente. Assim que o período de pico passa e os alunos saem da plataforma, a nuvem desativa esses recursos extras.
- * **Benefício:** A empresa evita custos desnecessários com infraestrutura ociosa, pagando apenas pelo processamento extra usado durante aqueles dias específicos, e garante que o site não caia no momento em que os alunos mais precisam.
-
+Com base na imagem fornecida, aqui estão as respostas para as duas atividades solicitadas:
+### 1. Componentes de IaaS (Infraestrutura como Serviço)
+A Infraestrutura como Serviço (IaaS) fornece recursos de computação virtualizados através da internet. Os 5 principais componentes de hardware ou infraestrutura entregues nesse modelo são:
+ 1. **Servidores (Processamento/CPU):** Máquinas virtuais ou instâncias de computação onde as aplicações são executadas.
+ 2. **Armazenamento (Storage):** Espaço em disco rígido ou sistemas de arquivos para guardar dados, backups e ficheiros.
+ 3. **Rede (Networking):** Componentes como roteadores virtuais, firewalls, balanceadores de carga e endereços IP.
+ 4. **Memória (RAM):** A capacidade de memória temporária necessária para o funcionamento do sistema operativo e aplicações.
+ 5. **Centros de Dados (Data Centers):** A infraestrutura física (edifício, energia, refrigeração) que aloja todo o hardware mencionado acima.
+### 2. Análise de Custo em Cloud vs. On-premise
+A análise de custo vai além do preço do equipamento porque, ao adquirir hardware próprio (on-premise), a empresa assume diversos "custos ocultos" que um provedor de nuvem resolve. Entre os principais pontos, destacam-se:
+ * **Manutenção e Operação:** O custo de manter uma equipa técnica especializada para configurar e reparar o hardware.
+ * **Energia e Refrigeração:** O consumo elétrico constante para manter os servidores ligados e a temperatura controlada.
+ * **Espaço Físico:** O aluguer ou manutenção do local físico seguro para instalar os bastidores (racks).
+ * **Depreciação e Obsolescência:** O equipamento perde valor com o tempo e torna-se ultrapassado, exigindo novos investimentos vultuosos periodicamente.
+ * **Escalabilidade e Ociosidade:** Se comprar um servidor grande demais, paga por algo que não usa; se for pequeno demais, o negócio para. Na nuvem, paga-se apenas pelo que se consome em tempo real.
+ * **Segurança e Conformidade:** Os custos para garantir proteção física e lógica contra ataques e falhas de hardware, que já estão incluídos no serviço de nuvem.
+Em resumo, a nuvem transforma investimentos de capital (CapEx) em despesas operacionais (OpEx), eliminando a necessidade de gerir a complexidade física do hardware.
