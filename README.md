@@ -1,7 +1,15 @@
-Aqui estão os objetivos principais para cada um dos três estágios de controle mencionados na atividade:
- 1. **Controle Preliminar (ou Prévio):**
-   * **Objetivo:** Garantir que os recursos (humanos, materiais e financeiros) e as condições necessárias estejam disponíveis e dentro dos padrões antes do início das atividades. Ele foca na **prevenção de problemas** antes que eles ocorram.
- 2. **Controle Corrente (ou em Tempo Real):**
-   * **Objetivo:** Monitorar as atividades enquanto elas estão sendo executadas para garantir que sigam o plano estabelecido. Ele foca na **correção imediata de desvios** durante o processo para evitar que erros se acumulem.
- 3. **Pós-controle (ou Posterior):**
-   * **Objetivo:** Avaliar os resultados finais após a conclusão da atividade ou ciclo estratégico. Ele foca no **aprendizado e feedback**, comparando o que foi alcançado com o que foi planejado para guiar o planejamento futuro e recompensar o desempenho.
+Para comparar os níveis de informação entre a **Alta Administração** e a **Administração Básica**, você deve focar na relação inversa que existe entre o detalhamento e a abrangência da visão.
+Aqui está a descrição das diferenças:
+### 1. Grau de Detalhamento
+ * **Alta Administração (Nível Estratégico):** O grau de detalhamento é **baixo (informação sintética)**. Os gestores precisam de dados consolidados, indicadores globais e resumos que mostrem o desempenho geral da organização para apoiar grandes decisões.
+ * **Administração Básica (Nível Operacional):** O grau de detalhamento é **alto (informação analítica)**. Para o controle da execução diária, as informações devem ser minuciosas, focadas em tarefas específicas, unidades de medida exatas e procedimentos individuais.
+### 2. Frequência
+ * **Alta Administração (Nível Estratégico):** A frequência é **menor (longo prazo)**. As informações são geradas em intervalos maiores (mensais, trimestrais ou anuais), pois o foco está no acompanhamento de tendências e no alcance de objetivos macro.
+ * **Administração Básica (Nível Operacional):** A frequência é **maior (curto prazo)**. As informações são necessárias quase em tempo real — diária ou horária — para que correções imediatas possam ser feitas no fluxo de trabalho e na produção.
+### Resumo Comparativo
+
+| Característica | Alta Administração (Estratégico) | Administração Básica (Operacional) |
+| :--- | :--- | :--- |
+| **Detalhamento** | Sintético (Visão Geral) | Analítico (Minucioso) |
+| **Frequência** | Baixa (Períodos longos) | Alta (Diária/Imediata) |
+| **Foco** | Eficácia e Futuro | Eficiência e Presente |
