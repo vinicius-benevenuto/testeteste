@@ -1,6 +1,10 @@
-Com base no modelo padrão de levantamento de custos para ambientes de tecnologia e nuvem (frequentemente utilizado em frameworks de TCO - Custo Total de Propriedade), os 4 itens que se referem especificamente a **software ou plataforma** são:
- 1. **Licenciamento de Sistemas Operativos:** Custos com Windows, Linux (distribuições pagas), etc.
- 2. **Licenciamento de Banco de Dados:** Custos com SQL Server, Oracle, entre outros.
- 3. **Middleware e Ferramentas de Gestão:** Plataformas de integração, monitorização e gestão.
- 4. **Aplicações e Software de Terceiros:** Licenças de softwares específicos de negócio ou produtividade.
-*(Nota: Estes itens devem ser inseridos nos campos da atividade para consolidar o estudo sobre a migração para a nuvem.)*
+Aqui estão as resoluções para as duas atividades apresentadas na imagem, focadas em gestão de mudança e estratégia de migração:
+### 1. Questões Culturais e Reação à Mudança
+ * **Categoria de reação:** Esta atitude representa a **Resistência à Mudança por Insegurança/Medo do Desconhecido**. O líder de equipe manifesta o receio de que a automação ou a nova infraestrutura torne as competências atuais da equipe obsoletas ou resulte em demissões.
+ * **Primeira ação estratégica:** A primeira ação deve ser a **Comunicação Transparente e Educação**. É necessário envolver os líderes e equipes cedo no processo, explicando os motivos da migração (o "porquê"), como isso beneficiará o trabalho deles (eliminando tarefas repetitivas) e oferecer planos de **capacitação e treinamento** para que se sintam aptos a operar na nova tecnologia.
+### 2. Portfólio de Serviços - Projeto Piloto para Rede de Livrarias
+ * **Proposta de Projeto:** Migração do **Sistema de Gerenciamento de Inventário de Livros Usados (ou Sebo)** ou do **Blog/Site Institucional** da livraria.
+ * **Justificativa:**
+   * **Baixo Risco:** Estes sistemas geralmente não estão ligados ao processamento de pagamentos em tempo real (como o PDV principal), o que significa que, se houver instabilidade durante a migração, a operação principal da loja física não para.
+   * **Alto Impacto Positivo:** A migração permite usar ferramentas de busca elástica na nuvem para encontrar títulos rapidamente, melhorando a experiência do cliente e servindo como uma "vitória rápida" (*quick win*) para provar a eficiência da nuvem para a diretoria.
+   * **Aprendizado:** Serve como ambiente de teste para a equipe técnica entender a latência e a integração de dados antes de migrar os sistemas críticos (ERP e Checkout).
