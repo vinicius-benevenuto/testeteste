@@ -1,13 +1,5 @@
-Para as duas partes da atividade sobre segurança na nuvem, aqui estão as respostas baseadas nos princípios de governança e infraestrutura virtualizada:
-### 1. Perguntas sobre Dados, Patches e Acesso
- * Como os dados são criptografados tanto em repouso quanto em trânsito?
- * Qual é o processo e a periodicidade para a aplicação de patches de segurança no sistema operacional e nos aplicativos?
- * Quais mecanismos de controle de acesso e autenticação multifator (MFA) estão disponíveis?
- * Como é garantido o isolamento lógico dos meus dados em relação a outros clientes?
- * Quem tem privilégios de acesso administrativo à infraestrutura física onde meus dados residem?
-### 2. Por que a segurança de perímetro é menos eficaz na nuvem?
-O modelo tradicional de segurança de perímetro (firewalls) é menos eficaz na nuvem virtualizada porque o conceito de "fronteira física" desaparece. Em um ambiente de nuvem:
- * **Descentralização:** Os recursos e dados não estão mais contidos em um único local físico protegido por uma "muralha". Eles estão espalhados e acessíveis via internet de qualquer lugar.
- * **Movimentação Dinâmica:** Máquinas virtuais e cargas de trabalho são criadas e movidas constantemente entre servidores. O perímetro torna-se fluido e difícil de mapear.
- * **Ameaças Internas:** Se um invasor ultrapassa a borda, a virtualização permite o movimento lateral entre redes virtuais.
-Portanto, a segurança precisa evoluir do perímetro para a **identidade** e a **proteção direta do dado**, focando em quem acessa e no que está sendo acessado, independentemente da localização.
+Para uma empresa de e-commerce que lida com pagamentos, a segurança deve focar na proteção do dado financeiro e no controle de quem o acede. Aqui está uma proposta de resposta:
+As duas áreas de máxima e imediata prioridade são a **Criptografia de Dados** e o **Gerenciamento de Identidade e Acesso (IAM)**.
+**Justificação:**
+ 1. **Criptografia de Dados:** Como a empresa processa cartões de crédito, a criptografia é vital para garantir que os dados sensíveis fiquem ilegíveis caso ocorra uma interceção ou fuga de dados, garantindo a conformidade com normas como o PCI-DSS.
+ 2. **Gerenciamento de Identidade e Acesso (IAM):** Num ambiente de nuvem, a identidade é o novo perímetro. É crucial garantir que apenas utilizadores autorizados acedam aos sistemas de pagamento, utilizando autenticação multifator (MFA) para mitigar riscos de credenciais comprometidas, que são a porta de entrada para a maioria das invasões.
