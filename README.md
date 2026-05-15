@@ -1,10 +1,7 @@
-Com base na teoria de controle estratégico citada no seu material, aqui estão quatro finalidades principais que você pode listar:
- 1. **Monitoramento de Desempenho:** Medir e avaliar os resultados alcançados em relação aos objetivos traçados no planejamento estratégico.
- 2. **Tomada de Ação Corretiva:** Identificar desvios entre o planejado e o executado para aplicar ajustes que coloquem a organização de volta ao caminho certo.
- 3. **Regulação de Processos:** Atuar como um mecanismo regulatório que garante que as atividades da empresa estejam alinhadas com as diretrizes e normas estabelecidas.
- 4. **Adaptação Estratégica:** Avaliar a validade da estratégia diante de mudanças no ambiente externo (mercado, tecnologia, economia), permitindo que a empresa se mantenha competitiva.
-Se precisar de algo mais direto para copiar:
- * Mensuração e avaliação de resultados.
- * Correção de desvios e falhas.
- * Alinhamento das ações com a cultura e estrutura organizacional.
- * Garantia da eficácia e eficiência no uso de recursos.
+Aqui estão os objetivos principais para cada um dos três estágios de controle mencionados na atividade:
+ 1. **Controle Preliminar (ou Prévio):**
+   * **Objetivo:** Garantir que os recursos (humanos, materiais e financeiros) e as condições necessárias estejam disponíveis e dentro dos padrões antes do início das atividades. Ele foca na **prevenção de problemas** antes que eles ocorram.
+ 2. **Controle Corrente (ou em Tempo Real):**
+   * **Objetivo:** Monitorar as atividades enquanto elas estão sendo executadas para garantir que sigam o plano estabelecido. Ele foca na **correção imediata de desvios** durante o processo para evitar que erros se acumulem.
+ 3. **Pós-controle (ou Posterior):**
+   * **Objetivo:** Avaliar os resultados finais após a conclusão da atividade ou ciclo estratégico. Ele foca no **aprendizado e feedback**, comparando o que foi alcançado com o que foi planejado para guiar o planejamento futuro e recompensar o desempenho.
