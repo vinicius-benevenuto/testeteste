@@ -1,14 +1,6 @@
-Aqui estão as respostas ajustadas para respeitar o limite de 80 caracteres por item:
-### 1. Componentes de IaaS
- 1. **Servidores Virtuais:** Unidades de processamento e computação escaláveis.
- 2. **Armazenamento:** Discos rígidos virtuais para dados, arquivos e backups.
- 3. **Redes:** Roteadores, firewalls e balanceadores de carga virtuais.
- 4. **Memória RAM:** Capacidade de memória temporária para execução de sistemas.
- 5. **Data Centers:** Toda a infraestrutura física, energia e refrigeração.
-### 2. Por que a análise vai além do preço?
- * **Energia e Resfriamento:** Gastos contínuos com eletricidade e climatização local.
- * **Manutenção Técnica:** Custo com pessoal especializado para reparos e suporte.
- * **Espaço Físico:** Aluguel e segurança de salas para abrigar os racks.
- * **Depreciação:** O hardware físico perde valor e torna-se obsoleto rápido.
- * **Ociosidade:** Paga-se por hardware parado quando a demanda está baixa.
- * **Segurança Física:** Investimento em monitoramento e proteção contra danos.
+Com base no modelo padrão de levantamento de custos para ambientes de tecnologia e nuvem (frequentemente utilizado em frameworks de TCO - Custo Total de Propriedade), os 4 itens que se referem especificamente a **software ou plataforma** são:
+ 1. **Licenciamento de Sistemas Operativos:** Custos com Windows, Linux (distribuições pagas), etc.
+ 2. **Licenciamento de Banco de Dados:** Custos com SQL Server, Oracle, entre outros.
+ 3. **Middleware e Ferramentas de Gestão:** Plataformas de integração, monitorização e gestão.
+ 4. **Aplicações e Software de Terceiros:** Licenças de softwares específicos de negócio ou produtividade.
+*(Nota: Estes itens devem ser inseridos nos campos da atividade para consolidar o estudo sobre a migração para a nuvem.)*
