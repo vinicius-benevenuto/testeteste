@@ -1,13 +1,20 @@
-Com base no texto e na pergunta da imagem, aqui está uma sugestão de resposta para a sua atividade sobre a transição do paradigma de responsabilidade empresarial:
-### A Mudança de Paradigma na Responsabilidade Empresarial
-A transição descrita representa a evolução de uma visão puramente econômica para uma abordagem de **sustentabilidade integrada**.
-**1. Visão Clássica (Paradigma Anterior):**
-O foco principal da empresa era a **maximização do lucro para os acionistas** (*shareholders*). Nessa visão, a responsabilidade social era vista como algo externo ou secundário à operação, e o sucesso era medido exclusivamente por indicadores financeiros e produtivos.
-**2. Novo Paradigma Ético:**
-Nesta nova visão, a empresa entende que faz parte de um ecossistema maior e que seu sucesso depende da saúde do ambiente e da sociedade ao seu redor. Ela passa a focar nos **Stakeholders** (partes interessadas, como funcionários, clientes e comunidade).
-**Os Três Pilares de Resultados (Tripé da Sustentabilidade):**
-Para buscar resultados nesse novo paradigma, a empresa deve equilibrar três dimensões fundamentais:
- * **Econômico:** A empresa continua precisando ser lucrativa e viável financeiramente para sobreviver e crescer.
- * **Social:** Refere-se ao tratamento justo dos colaboradores, promoção da diversidade, segurança no trabalho e o impacto positivo nas comunidades onde atua.
- * **Ambiental:** Foca na minimização dos impactos negativos na natureza, uso consciente de recursos e práticas de ecoeficiência.
-**Dica para o preenchimento:** Como o campo de texto na imagem parece aceitar até 1500 caracteres, você pode usar os pontos acima para construir um texto fluido ou manter em tópicos, se a plataforma permitir, para facilitar a leitura do tutor.
+Aqui estão as diretrizes e resoluções para as atividades apresentadas na imagem, focadas em estratégia organizacional:
+## **Atividade 1: Análise do Macroambiente (PEST/PESTEL)**
+Nesta tarefa, você deve escolher uma empresa real e identificar como três fatores externos impactam o negócio. Vamos utilizar a **Netflix** como exemplo:
+ * **Componente Tecnológico:** O avanço global das redes 5G e a melhoria da infraestrutura de internet banda larga. Isso permite que a empresa entregue conteúdo de alta definição (4K/8K) com menos latência, expandindo seu mercado consumidor em regiões anteriormente limitadas pela conexão.
+ * **Componente Econômico:** A variação das taxas de câmbio (Dólar vs. moedas locais). Como a Netflix opera globalmente mas reporta lucros em dólares, a desvalorização de moedas em mercados emergentes pode forçar o aumento do preço das assinaturas, impactando a retenção de clientes.
+ * **Componente Legal:** Leis de proteção de dados (como a LGPD no Brasil ou GDPR na Europa). A empresa precisa investir constantemente em conformidade e segurança para garantir que as informações de pagamento e hábitos de consumo dos usuários não sejam expostos ou usados indevidamente.
+## **Atividade 2: I/O vs. RBV (Modelos Estratégicos)**
+A diferença fundamental entre esses dois modelos reside na **origem da vantagem competitiva**.
+### **1. Modelo de Organização Industrial (I/O)**
+ * **Foco Fundamental:** O foco está na **estrutura da indústria** e nas características do mercado externo. A premissa é que o ambiente externo impõe pressões e restrições que determinam as estratégias que resultarão em lucros acima da média.
+ * **Ambiente Preponderante:** **Externo**. A estratégia é definida pela escolha do setor mais atraente e pelo posicionamento da empresa em relação aos concorrentes.
+### **2. Modelo Baseado em Recursos (RBV - Resource-Based View)**
+ * **Foco Fundamental:** O foco está nos **recursos e capacidades internas** da organização. A premissa é que cada empresa possui um conjunto único de recursos (tangíveis e intangíveis) que, se forem valiosos, raros, difíceis de imitar e organizados (VRIO), geram vantagem competitiva.
+ * **Ambiente Preponderante:** **Interno**. A estratégia é definida pelo desenvolvimento e exploração das competências centrais que a empresa já possui ou pode construir.
+### **Resumo Comparativo**
+
+| Modelo | Ponto de Partida | Foco Principal | Ambiente Dominante |
+| :--- | :--- | :--- | :--- |
+| **I/O (Industrial)** | O Mercado | Estrutura do setor e posicionamento. | **Externo** |
+| **RBV (Recursos)** | A Empresa | Ativos, habilidades e capacidades. | **Interno** |
