@@ -1,12 +1,16 @@
-Com base no material apresentado na imagem e nos conceitos fundamentais de administração e planejamento estratégico, uma declaração de missão organizacional geralmente é composta por três componentes essenciais.
-Aqui estão os três componentes e o propósito de cada um para ajudá-lo a completar a atividade:
-### 1. O Que a Empresa Faz (O Negócio)
- * **Propósito:** Define a natureza da organização e suas principais atividades. Este componente deve esclarecer qual é o produto ou serviço central oferecido, estabelecendo o campo de atuação da empresa no mercado.
-### 2. Para Quem a Empresa Faz (O Cliente/Público-Alvo)
- * **Propósito:** Identifica o mercado consumidor ou os grupos sociais que a organização visa atender. No exemplo do Projeto Guri citado no texto, o público-alvo são crianças, adolescentes e jovens. Definir o público ajuda a direcionar os esforços e recursos de forma eficiente.
-### 3. Por Que ou Como a Empresa Faz (O Diferencial/Valor)
- * **Propósito:** Explica o motivo da existência da organização (seu propósito social ou econômico) e como ela pretende entregar valor. Este ponto aborda as competências distintas ou a filosofia da empresa, servindo como a "bússola" mencionada no texto para garantir que as decisões não sejam conflitantes.
-**Resumo para preenchimento na plataforma:**
- 1. **O que faz:** Define a atividade principal e o setor de atuação.
- 2. **Público-alvo:** Identifica quem se beneficia dos produtos ou serviços.
- 3. **Diferencial/Propósito:** Indica a razão de ser da organização e como ela gera valor para a sociedade ou mercado.
+Para essa atividade de gestão de software, vamos utilizar a metodologia **SMART** (amplamente associada aos conceitos de Peter Drucker e Samuel Certo) para formular um objetivo eficaz e justificá-lo.
+## 1. Formulação do Objetivo
+> **"Aumentar a taxa de retenção de usuários ativos mensais (MAU) em 15% nos próximos seis meses, através da implementação de um módulo de feedback automatizado e da correção de bugs críticos no aplicativo principal."**
+> 
+## 2. Justificativa (4 Características de um Objetivo Eficaz)
+Para justificar esse objetivo, vamos analisar como ele atende aos critérios fundamentais de eficácia:
+### **A. Específico (Specific)**
+O objetivo não é apenas "melhorar a empresa", mas focar em um indicador técnico claro: a **retenção de usuários ativos**. Ele detalha exatamente o que será feito (módulo de feedback e correção de bugs), eliminando ambiguidades para a equipe de desenvolvimento.
+### **B. Mensurável (Measurable)**
+Existe um valor numérico definido: **15%**. Isso permite que você, como gestor, acompanhe o progresso mês a mês através de dashboards de dados e saiba exatamente se a meta foi atingida ao final do semestre.
+### **C. Temporal / Prazo Definido (Time-bound)**
+O objetivo estabelece um horizonte de tempo claro: **"próximos seis meses"**. Ter um prazo final cria senso de urgência e ajuda no cronograma de *sprints* e entregas da equipe de software.
+### **D. Realista / Alcançável (Achievable)**
+Ao focar em melhorias diretas (correção de bugs e ouvir o cliente), o objetivo se torna alcançável. Ele não propõe dobrar o tamanho da empresa sem recursos, mas sim otimizar o produto existente para manter os clientes que já foram conquistados.
+**Dica para o preenchimento:**
+Ao escrever na plataforma, você pode destacar que o uso de métricas claras (os 15%) facilita a comunicação com os desenvolvedores, pois transforma uma intenção de gestão em uma meta técnica de performance.
