@@ -1,9 +1,6 @@
-Para esta atividade de Service Desk, o foco está na relação entre impacto e urgência. Aqui está uma proposta de resposta objetiva dentro do limite de caracteres:
-### Resposta Sugerida
-O **sistema de e-mail corporativo do cliente premium** deve ser priorizado.
-De acordo com os princípios de metas do Service Desk, a priorização é definida pelo **impacto no negócio** e pela **urgência**. Enquanto o serviço gratuito de fotos tem um impacto financeiro e operacional menor (ou nulo para a receita direta), a queda do e-mail corporativo de um cliente pagante representa:
- 1. **Impacto Financeiro:** Risco de quebra de SLA (Acordo de Nível de Serviço) e perda de produtividade do cliente.
- 2. **Urgência:** Sistemas corporativos são críticos para a continuidade das operações.
- 3. **Relação Contratual:** O cliente premium possui garantias de disponibilidade que o serviço gratuito não oferece, exigindo resposta imediata para manter a governança e a confiança no provedor.
-### Ponto Chave para sua Lógica:
-Sempre que houver dois incidentes simultâneos, o Service Desk avalia qual deles causa maior prejuízo financeiro ou operacional à organização e aos seus contratos (SLAs). O cliente "Premium" quase sempre estará no topo da fila devido a esses acordos formais.
+Para esta atividade sobre **Custos de Rede (C)** e economia de nuvem, aqui está uma resposta direta e dentro do limite de caracteres:
+### Proposta de Resposta
+Mover um aplicativo para a nuvem não elimina o tráfego de rede devido a duas razões principais fundamentadas na natureza da infraestrutura híbrida:
+ 1. **Dependência de Dados Locais:** Muitas vezes, o aplicativo migrado para a nuvem ainda precisa se comunicar constantemente com bancos de dados ou outros sistemas que permaneceram no data center local (on-premises). Isso gera um tráfego de rede contínuo entre os dois ambientes.
+ 2. **Sincronização e Latência:** O tráfego não desaparece, ele apenas muda de direção. Em vez de ocorrer dentro da rede local, o tráfego agora consome largura de banda de links externos (Internet ou links dedicados) para garantir a sincronização de dados e a entrega do serviço aos usuários finais, o que pode inclusive gerar novos custos de saída de dados (*egress fees*).
+**Dica:** Foque no fato de que o tráfego é **deslocado** e não extinto, mantendo a necessidade de conexão com o que ficou "fora" da nuvem.
