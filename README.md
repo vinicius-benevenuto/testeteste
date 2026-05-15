@@ -1,4 +1,9 @@
-Aqui estão as características ajustadas para o limite de 80 caracteres:
- 1. **Particionamento:** Execução de vários sistemas e apps em um só hardware físico.
- 2. **Isolamento:** Independência entre máquinas virtuais para garantir segurança.
- 3. **Encapsulamento:** Armazenamento da VM em arquivos para fácil cópia e migração.
+Para consolidar os pontos solicitados na atividade sobre virtualização de desktops (VDI e Streaming de SO), aqui está uma proposta de resposta focada em valor de negócio e no conceito de **TCO (Custo Total de Propriedade)**:
+### Proposta de Resposta
+A principal vantagem de negócio ao adotar a virtualização de desktops é a **redução drástica e a otimização do Custo Total de Propriedade (TCO)**. Ao separar o ambiente do usuário do hardware físico, a organização obtém os seguintes benefícios financeiros e operacionais:
+ * **Prolongamento da vida útil do hardware (CapEx):** Como o processamento pesado ocorre no servidor ou na nuvem, a empresa pode utilizar dispositivos mais simples e baratos (como *Thin Clients*) ou manter equipamentos antigos por mais tempo, reduzindo a necessidade de renovações constantes de frota.
+ * **Eficiência Operacional (OpEx):** A centralização permite que atualizações, patches de segurança e suporte técnico sejam realizados em uma única imagem master, em vez de máquina por máquina. Isso reduz significativamente o custo anual de suporte por dispositivo, um dos KPIs mencionados no texto.
+ * **Segurança e Disponibilidade:** Ao centralizar os dados, mitiga-se o risco de perda de informações por falha de hardware local ou furto, garantindo que o colaborador retome a produtividade rapidamente em qualquer outro terminal, mantendo os níveis de disponibilidade exigidos pelo negócio.
+Em suma, a virtualização transforma custos variáveis e descentralizados de manutenção em um modelo mais previsível e enxuto, atacando diretamente as frentes de gestão de ativos e governança.
+### Dica para a Atividade:
+O texto da imagem enfatiza que, independentemente do modelo, você deve monitorar a **Disponibilidade** e o **Custo de Suporte**. Ao escrever sua resposta, focar em como a "centralização" torna esses dois fatores mais fáceis de controlar é o caminho mais seguro para uma boa avaliação.
