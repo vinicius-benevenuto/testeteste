@@ -1,4 +1,3 @@
-Aqui estão três razões curtas (cada uma com menos de 80 caracteres):
- 1. **Conformidade:** Regras legais que exigem armazenamento local de dados.
- 2. **Baixa Latência:** Necessidade de processamento ultraveloz em rede local.
- 3. **Sistemas Legados:** Hardwares antigos incompatíveis com a arquitetura de nuvem.
+Para esta atividade sobre o problema de "informações isoladas" (silos de dados), aqui está uma resposta objetiva:
+**Resposta:**
+O problema é causado pela falta de uma estratégia centralizada de governança, onde diferentes departamentos adotam soluções de SaaS distintas sem integração. Isso é um erro de planejamento pois gera a fragmentação dos dados, dificultando a visão holística do negócio e a integridade das informações. Ao não padronizar os fornecedores, a empresa perde o controle sobre o nível de serviço geral e cria barreiras de comunicação entre as divisões, o que compromete a segurança e a eficiência operacional na migração para a nuvem.
